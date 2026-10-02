@@ -19,11 +19,11 @@ See the images you paste into Claude Code, in real pixels, right above the promp
 
 ## Two ways to look closer
 
-**⌥↑ Zoom** — the selected image, centered and as large as the area above the prompt allows.
+**⌥↑ Zoom** — pick an image with ⌥← / ⌥→, then press ⌥↑: it opens centered above the prompt, as large as that area allows (about half the screen in the fullscreen layout). ⌥↑ again closes it.
 
 ![Zoom: the selected image centered above the prompt](docs/zoom-center.png)
 
-**⌥↓ Side pane** — the selected image in a pane that fills the screen's height (docked on the right in the fullscreen layout).
+**⌥↓ Side pane** — press ⌥↓ to open the selected image in a pane that fills the screen's height, docked on the right in the fullscreen layout. The thumbnails stay above the prompt and ⌥← / ⌥→ still switch. ⌥↓ again closes it.
 
 ![Side pane: the selected image large on the right, the thumbnails still above the prompt](docs/side-pane.png)
 
