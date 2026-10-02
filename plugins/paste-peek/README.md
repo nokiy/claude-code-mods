@@ -2,6 +2,8 @@
 
 See the images you paste into Claude Code, in real pixels, right above the prompt — before you send them.
 
+> **Works in [Ghostty](https://ghostty.org) and [kitty](https://sw.kovidgoyal.net/kitty/) only** (macOS, Claude Code ≥ 2.1.287). Other terminals — Terminal.app, iTerm2, VS Code — show nothing.
+
 [中文说明](README.zh-CN.md)
 
 ![paste-peek demo: paste screenshots, switch between them, zoom one, open it in the side pane](docs/demo.gif)

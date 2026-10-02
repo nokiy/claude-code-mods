@@ -2,6 +2,8 @@
 
 往 Claude Code 输入框里粘贴图片，**发送前**就在输入框上方看到清晰原图。
 
+> **只能在 [Ghostty](https://ghostty.org) 和 [kitty](https://sw.kovidgoyal.net/kitty/) 终端里使用**（macOS，Claude Code ≥ 2.1.287）。其他终端（系统自带终端、iTerm2、VS Code 等）不会显示任何内容。
+
 [English](README.md)
 
 ![paste-peek 演示：粘贴截图、切换、居中放大、右侧面板放大](docs/demo.gif)
