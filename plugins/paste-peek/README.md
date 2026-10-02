@@ -4,16 +4,9 @@ See the images you paste into Claude Code, in real pixels, right above the promp
 
 [中文说明](README.zh-CN.md)
 
-```
- ┌────────────┐  ┌────────────┐
- │  picture   │  │  picture   │      ← every image pasted into this prompt
- └────────────┘  └────────────┘
- [Image #1] 1304×400 · 76 KB   [Image #2] 926×864 · 113 KB   ← the selected one is highlighted
- ⌥↑ Zoom   ⌥↓ Side pane   ⌥← ⌥→ Switch
- > what is wrong in these two screenshots? [Image #1] [Image #2]
-```
+![paste-peek: thumbnails of the pasted images above the prompt, and one opened in the side pane](docs/banner.png)
 
-<!-- Screenshots: docs/01-paste.png, 02-switch.png, 03-zoom.png, 04-side-pane.png (coming) -->
+<sub>Illustration of the layout; the pictures are drawn by Claude Code in your terminal.</sub>
 
 ## What it does
 

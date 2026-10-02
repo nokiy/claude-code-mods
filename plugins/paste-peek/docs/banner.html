@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>paste-peek banner</title>
+<!-- Source of banner.png: an illustration of paste-peek, not a screenshot.
+     Render: Chrome --headless --screenshot=banner.png --window-size=1280,720 --force-device-scale-factor=2 banner.html -->
+<style>
+  :root {
+    --bg: #0d0f17; --term: #1e2030; --term-edge: #2b2e44; --text: #c8d0f0; --dim: #6b7194;
+    --accent: #b4a7ff; --claude: #d97757; --ok: #9ece6a;
+    --mono: "SF Mono", SFNSMono, Menlo, monospace;
+    --sans: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(900px 500px at 85% 10%, rgba(180,167,255,.18), transparent 60%),
+      radial-gradient(700px 500px at 0% 100%, rgba(217,119,87,.16), transparent 60%),
+      var(--bg);
+    color: var(--text); font-family: var(--sans);
+    padding: 44px 52px;
+  }
+  .head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 26px; }
+  h1 { font-family: var(--mono); font-size: 46px; letter-spacing: -1px; color: #fff; }
+  h1 span { color: var(--accent); }
+  .tag { margin-top: 8px; font-size: 19px; color: #aeb5d6; }
+  .badges { display: flex; gap: 8px; }
+  .badge { font-family: var(--mono); font-size: 13px; padding: 6px 10px; border-radius: 999px;
+           border: 1px solid #343852; color: #aeb5d6; background: rgba(255,255,255,.03); }
+
+  .term { display: flex; height: 516px; border-radius: 14px; overflow: hidden; background: var(--term);
+          border: 1px solid var(--term-edge); box-shadow: 0 30px 80px rgba(0,0,0,.55); }
+  .main { flex: 1; display: flex; flex-direction: column; font-family: var(--mono); font-size: 14px; }
+  .bar { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 14px;
+         background: #181a28; border-bottom: 1px solid var(--term-edge); color: var(--dim); font-size: 12px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .transcript { flex: 1; padding: 16px 20px; line-height: 1.7; color: var(--dim); }
+  .transcript b { color: var(--claude); font-weight: 600; }
+  .band { padding: 0 20px 6px; }
+  .thumbs { display: flex; gap: 18px; }
+  .cap { margin-top: 6px; font-size: 13px; color: var(--dim); }
+  .cap.sel { color: var(--accent); font-weight: 700; }
+  .keys { margin-top: 8px; display: flex; gap: 22px; color: var(--accent); font-size: 13px; }
+  .keys i { font-style: normal; color: #fff; }
+  .prompt { margin: 8px 14px 14px; padding: 10px 14px; border: 1px solid #3a3e5a; border-radius: 8px; color: #e6e9ff; }
+  .prompt .ph { color: var(--accent); }
+  .caret { display: inline-block; width: 8px; height: 16px; background: var(--text); vertical-align: -3px; }
+
+  .pane { width: 440px; border-left: 1px solid var(--term-edge); background: #191b29; display: flex; flex-direction: column; }
+  .pane .bar { justify-content: space-between; }
+  .pane .body { flex: 1; padding: 18px; display: flex; flex-direction: column; gap: 12px; font-family: var(--mono); font-size: 13px; }
+  .pane .info { color: var(--text); }
+  .pane .info span { color: var(--accent); font-weight: 700; }
+
+  /* Picture 1: a little app UI */
+  .shot { border-radius: 4px; overflow: hidden; position: relative; }
+  .ui { width: 200px; height: 112px; background: #f6f7fb; padding: 9px; display: grid; grid-template-columns: 34px 1fr; gap: 7px; }
+  .ui .side { background: #1f2937; border-radius: 3px; }
+  .ui .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .ui .card { border-radius: 3px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.12); position: relative; }
+  .ui .card::after { content: ""; position: absolute; left: 6px; right: 14px; top: 7px; height: 5px; border-radius: 3px; background: #c7cbe0; }
+  .ui .card.bad { outline: 2px solid #ef4444; }
+  /* Picture 2: a chart */
+  .chart { width: 150px; height: 112px; background: #0b1020; padding: 10px 10px 8px; display: flex; align-items: flex-end; gap: 6px; }
+  .chart i { flex: 1; border-radius: 2px 2px 0 0; background: linear-gradient(#7aa2f7, #3d59a1); }
+  .chart i.hi { background: linear-gradient(#ff9e64, #d97757); }
+  .sel-frame { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .chart.big { width: 100%; height: 300px; padding: 22px 22px 16px; gap: 12px; }
+  .axis { position: absolute; left: 22px; right: 22px; bottom: 16px; height: 1px; background: #2a3150; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <div>
+      <h1>paste<span>-</span>peek</h1>
+      <p class="tag">See the images you paste into Claude Code — in real pixels, before you send.</p>
+    </div>
+    <div class="badges">
+      <span class="badge">macOS</span>
+      <span class="badge">Ghostty · kitty</span>
+      <span class="badge">Claude Code ≥ 2.1.287</span>
+    </div>
+  </div>
+
+  <div class="term">
+    <div class="main">
+      <div class="bar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>&nbsp; claude — ~/web-app</div>
+      <div class="transcript">
+        <div><b>●</b> The settings page now loads its cards from the API.</div>
+        <div>&nbsp;&nbsp;Updated <span style="color:var(--text)">src/pages/settings.tsx</span> (+42 −18)</div>
+      </div>
+      <div class="band">
+        <div class="thumbs">
+          <div>
+            <div class="shot ui">
+              <div class="side"></div>
+              <div class="grid"><div class="card"></div><div class="card bad"></div><div class="card"></div><div class="card"></div></div>
+            </div>
+            <div class="cap">[Image #1] 1304×732 · 96 KB</div>
+          </div>
+          <div>
+            <div class="shot chart sel-frame"><i style="height:38%"></i><i style="height:55%"></i><i style="height:47%"></i><i class="hi" style="height:92%"></i><i style="height:61%"></i><i style="height:70%"></i></div>
+            <div class="cap sel">[Image #2] 980×732 · 64 KB</div>
+          </div>
+        </div>
+        <div class="keys"><span><i>⌥↑</i> Zoom</span><span><i>⌥↓</i> Side pane</span><span><i>⌥← ⌥→</i> Switch</span></div>
+      </div>
+      <div class="prompt">&gt; why is the second card cut off, and is that spike real? <span class="ph">[Image #1]</span> <span class="ph">[Image #2]</span><span class="caret"></span></div>
+    </div>
+
+    <div class="pane">
+      <div class="bar"><span>Image #2</span><span>⌥↓ close</span></div>
+      <div class="body">
+        <div class="shot chart big"><span class="axis"></span><i style="height:38%"></i><i style="height:55%"></i><i style="height:47%"></i><i class="hi" style="height:92%"></i><i style="height:61%"></i><i style="height:70%"></i></div>
+        <div class="info">[Image #2] 980×732 · 64 KB</div>
+        <div class="info"><span>⌥← ⌥→</span> switch · <span>⌥↑</span> zoom · <span>⌥↓</span> close</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

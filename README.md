@@ -1,5 +1,7 @@
 # claude-code-mods
 
+![paste-peek: preview pasted images in real pixels above the Claude Code prompt](plugins/paste-peek/docs/banner.png)
+
 Claude Code mods by [nokiy](https://github.com/nokiy). A mod is a Claude Code plugin whose hooks run inside your session and can draw their own UI.
 
 | Mod | What it does |
