@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>paste-peek scenes</title>
+<!-- One scene per URL hash, e.g. scene.html#state=center&caption=0. An illustration of paste-peek, not a screenshot.
+     Stills (zoom-center.png, side-pane.png) and the demo video's frames are rendered from here with headless Chrome. -->
+<style>
+  :root {
+    --bg: #0d0f17; --term: #1e2030; --edge: #2b2e44; --text: #c8d0f0; --dim: #6b7194;
+    --accent: #b4a7ff; --claude: #d97757;
+    --mono: "SF Mono", SFNSMono, Menlo, monospace;
+    --sans: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(900px 500px at 85% 10%, rgba(180,167,255,.16), transparent 60%),
+      radial-gradient(700px 500px at 0% 100%, rgba(217,119,87,.14), transparent 60%),
+      var(--bg);
+    color: var(--text); font-family: var(--sans); padding: 36px 48px 0;
+  }
+  .term { display: flex; height: 560px; border-radius: 14px; overflow: hidden; background: var(--term);
+          border: 1px solid var(--edge); box-shadow: 0 30px 80px rgba(0,0,0,.55); }
+  .main { flex: 1; display: flex; flex-direction: column; font-family: var(--mono); font-size: 14px; min-width: 0; }
+  .bar { height: 34px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 14px;
+         background: #181a28; border-bottom: 1px solid var(--edge); color: var(--dim); font-size: 12px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .transcript { flex: 1; padding: 16px 20px; line-height: 1.7; color: var(--dim); overflow: hidden; }
+  .transcript b { color: var(--claude); }
+  .transcript .you { color: var(--text); }
+  .band { padding: 0 20px 6px; }
+  .thumbs { display: flex; gap: 18px; }
+  .cap { margin-top: 6px; font-size: 13px; color: var(--dim); }
+  .cap.sel { color: var(--accent); font-weight: 700; }
+  .keys { margin-top: 8px; display: flex; gap: 22px; color: var(--accent); font-size: 13px; }
+  .keys.center { justify-content: center; }
+  .keys i { font-style: normal; color: #fff; }
+  .prompt { margin: 8px 14px 14px; padding: 10px 14px; border: 1px solid #3a3e5a; border-radius: 8px; color: #e6e9ff; min-height: 42px; }
+  .prompt .ph { color: var(--accent); }
+  .caret { display: inline-block; width: 8px; height: 16px; background: var(--text); vertical-align: -3px; }
+  .pane { width: 520px; border-left: 1px solid var(--edge); background: #191b29; display: flex; flex-direction: column; }
+  .pane .bar { justify-content: space-between; }
+  .pane .body { flex: 1; padding: 18px; display: flex; flex-direction: column; gap: 12px; font-family: var(--mono); font-size: 13px; }
+  .pane .info span, .zoominfo span { color: var(--accent); font-weight: 700; }
+  .zoomrow { display: flex; justify-content: center; }
+  .zoominfo { text-align: center; margin-top: 8px; font-size: 13px; }
+
+  /* Picture 1: an app UI with a broken card; picture 2: a chart */
+  .ui { background: #f6f7fb; display: grid; grid-template-columns: 17% 1fr; gap: 3.5%; padding: 4.5%; border-radius: 4px; }
+  .ui .side { background: #1f2937; border-radius: 3px; }
+  .ui .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6%; }
+  .ui .card { border-radius: 3px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.12); position: relative; overflow: hidden; }
+  .ui .card::after { content: ""; position: absolute; left: 8%; right: 18%; top: 12%; height: 9%; border-radius: 3px; background: #c7cbe0; }
+  .ui .card.bad { outline: 2px solid #ef4444; }
+  .chart { background: #0b1020; display: flex; align-items: flex-end; gap: 5%; padding: 7% 7% 6%; border-radius: 4px; }
+  .chart i { flex: 1; border-radius: 2px 2px 0 0; background: linear-gradient(#7aa2f7, #3d59a1); }
+  .chart i.hi { background: linear-gradient(#ff9e64, #d97757); }
+  .sel-frame { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  .caption { position: absolute; left: 0; right: 0; bottom: 34px; text-align: center; font-size: 26px; color: #fff; font-weight: 600; letter-spacing: -.2px; }
+  .caption em { font-style: normal; color: var(--accent); font-family: var(--mono); }
+  .key { position: absolute; right: 56px; bottom: 22px; padding: 8px 16px; border-radius: 10px; background: rgba(255,255,255,.08);
+         border: 1px solid rgba(255,255,255,.25); font: 700 26px var(--mono); color: #fff; box-shadow: 0 10px 40px rgba(0,0,0,.4); }
+  .end { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; background: var(--bg); }
+  .end h1 { font: 700 72px var(--mono); color: #fff; letter-spacing: -2px; }
+  .end h1 span { color: var(--accent); }
+  .end p { font-size: 22px; color: #aeb5d6; }
+  .end pre { font: 18px var(--mono); color: #e6e9ff; background: #1e2030; border: 1px solid var(--edge); padding: 16px 22px; border-radius: 10px; line-height: 1.7; }
+  .end pre b { color: var(--accent); font-weight: 400; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// Scenes of the demo: what the band, prompt and pane show in each step.
+const q = new URLSearchParams(location.hash.slice(1))
+const state = q.get('state') || 'paste2'
+const showCaption = q.get('caption') !== '0'
+
+const ui = (w, h, sel) => `<div class="ui ${sel ? 'sel-frame' : ''}" style="width:${w}px;height:${h}px"><div class="side"></div><div class="grid"><div class="card"></div><div class="card bad"></div><div class="card"></div><div class="card"></div></div></div>`
+const chart = (w, h, sel) => `<div class="chart ${sel ? 'sel-frame' : ''}" style="width:${w}px;height:${h}px">${[38, 55, 47, 92, 61, 70].map((v, i) => `<i class="${i === 3 ? 'hi' : ''}" style="height:${v}%"></i>`).join('')}</div>`
+const pic = (n, w, h, sel) => n === 1 ? ui(w, h, sel) : chart(w, h, sel)
+const cap = n => n === 1 ? '[Image #1] 1304×732 · 96 KB' : '[Image #2] 980×732 · 64 KB'
+
+const S = {
+  type:   { imgs: [], sel: 0, prompt: 'why is the second card cut off, and is that spike real?', caption: 'Ask Claude about a screenshot…' },
+  paste1: { imgs: [1], sel: 1, prompt: 'why is the second card cut off, and is that spike real? [Image #1]', caption: 'Paste it with <em>⌃V</em> — it shows above the prompt', key: '⌃V' },
+  paste2: { imgs: [1, 2], sel: 2, prompt: 'why is the second card cut off, and is that spike real? [Image #1] [Image #2]', caption: 'Every pasted image, side by side', key: '⌃V' },
+  switch: { imgs: [1, 2], sel: 1, prompt: 'why is the second card cut off, and is that spike real? [Image #1] [Image #2]', caption: 'Switch between them with <em>⌥← ⌥→</em>', key: '⌥←' },
+  center: { imgs: [1, 2], sel: 1, zoom: 'center', prompt: 'why is the second card cut off, and is that spike real? [Image #1] [Image #2]', caption: 'Zoom the selected one with <em>⌥↑</em>', key: '⌥↑' },
+  side:   { imgs: [1, 2], sel: 2, zoom: 'side', prompt: 'why is the second card cut off, and is that spike real? [Image #1] [Image #2]', caption: 'Or open it in the side pane with <em>⌥↓</em>', key: '⌥↓' },
+  sent:   { imgs: [], sel: 0, sent: true, prompt: '', caption: 'Send — the previews clear', key: '⏎' },
+}
+
+function render() {
+  if (state === 'end') {
+    return `<div class="end"><h1>paste<span>-</span>peek</h1><p>See the images you paste into Claude Code — in real pixels, before you send.</p>
+      <pre>/plugin marketplace add <b>nokiy/claude-code-mods</b>\n/plugin install <b>paste-peek@nokiy-mods</b></pre>
+      <p style="font-size:16px;color:#6b7194">macOS · Ghostty / kitty · Claude Code ≥ 2.1.287</p></div>`
+  }
+  const s = S[state]
+  const promptHtml = s.prompt.replace(/\[Image #\d\]/g, m => `<span class="ph">${m}</span>`) + '<span class="caret"></span>'
+  const transcript = `<div><b>●</b> The settings page now loads its cards from the API.</div>
+    <div>&nbsp;&nbsp;Updated <span style="color:var(--text)">src/pages/settings.tsx</span> (+42 −18)</div>
+    ${s.sent ? `<div style="margin-top:14px" class="you">&gt; why is the second card cut off, and is that spike real? <span style="color:var(--accent)">[Image #1] [Image #2]</span></div>
+    <div style="margin-top:6px"><b>●</b> The second card overflows its grid cell: <span style="color:var(--text)">min-width</span> is missing…</div>` : ''}`
+  let band = ''
+  if (s.imgs.length && s.zoom === 'center') {
+    band = `<div class="band"><div class="zoomrow">${pic(s.sel, 520, 292, false)}</div>
+      <div class="zoominfo">${cap(s.sel)}  (1/2) &nbsp; <span>⌥↑</span> Close &nbsp; <span>⌥↓</span> Side pane &nbsp; <span>⌥← ⌥→</span> Switch</div></div>`
+  } else if (s.imgs.length) {
+    band = `<div class="band"><div class="thumbs">${s.imgs.map(n => `<div>${pic(n, n === 1 ? 200 : 150, 112, n === s.sel && s.imgs.length > 1)}<div class="cap ${n === s.sel ? 'sel' : ''}">${cap(n)}</div></div>`).join('')}</div>
+      <div class="keys"><span><i>⌥↑</i> Zoom</span><span><i>⌥↓</i> ${s.zoom === 'side' ? 'Close pane' : 'Side pane'}</span>${s.imgs.length > 1 ? '<span><i>⌥← ⌥→</i> Switch</span>' : ''}</div></div>`
+  }
+  const pane = s.zoom === 'side' ? `<div class="pane"><div class="bar"><span>Image #${s.sel}</span><span>⌥↓ close</span></div>
+      <div class="body">${pic(s.sel, 484, 362, false)}<div class="info">${cap(s.sel)}</div><div class="info"><span>⌥← ⌥→</span> switch · <span>⌥↑</span> zoom · <span>⌥↓</span> close</div></div></div>` : ''
+  return `<div class="term"><div class="main">
+      <div class="bar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>&nbsp; claude — ~/web-app</div>
+      <div class="transcript">${transcript}</div>${band}<div class="prompt">&gt; ${promptHtml}</div></div>${pane}</div>
+    ${showCaption && s.caption ? `<div class="caption">${s.caption}</div>` : ''}
+    ${showCaption && s.key ? `<div class="key">${s.key}</div>` : ''}`
+}
+document.getElementById('root').innerHTML = render()
+</script>
+</body>
+</html>

@@ -4,9 +4,9 @@ See the images you paste into Claude Code, in real pixels, right above the promp
 
 [中文说明](README.zh-CN.md)
 
-![paste-peek: thumbnails of the pasted images above the prompt, and one opened in the side pane](docs/banner.png)
+![paste-peek demo: paste screenshots, switch between them, zoom one, open it in the side pane](docs/demo.gif)
 
-<sub>Illustration of the layout; the pictures are drawn by Claude Code in your terminal.</sub>
+<sub>An illustrated walkthrough (13 s, [MP4](docs/demo.mp4)); in your terminal the pictures are drawn by Claude Code itself.</sub>
 
 ## What it does
 
@@ -14,6 +14,16 @@ See the images you paste into Claude Code, in real pixels, right above the promp
 - **Several images** sit side by side; the selected one's caption is highlighted.
 - **Zoom** the selected image centered above the prompt, or open it in a **side pane** that fills the screen's height (docked on the right in the fullscreen layout).
 - **Send** the prompt and the previews clear.
+
+## Two ways to look closer
+
+**⌥↑ Zoom** — the selected image, centered and as large as the area above the prompt allows.
+
+![Zoom: the selected image centered above the prompt](docs/zoom-center.png)
+
+**⌥↓ Side pane** — the selected image in a pane that fills the screen's height (docked on the right in the fullscreen layout).
+
+![Side pane: the selected image large on the right, the thumbnails still above the prompt](docs/side-pane.png)
 
 ## Keys
 
@@ -78,6 +88,7 @@ Or try it from a clone: `claude --plugin-dir ./plugins/paste-peek`.
 ```
 claude plugin validate ./plugins/paste-peek
 claude plugin test ./plugins/paste-peek
+./plugins/paste-peek/docs/render.sh   # re-render the README images and the demo (Chrome + ffmpeg)
 ```
 
 ## Credits
