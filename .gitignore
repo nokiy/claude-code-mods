@@ -1,0 +1,4 @@
+# Written by Claude Code beside every loaded mod
+.claude-plugin/types/
+plugins/*/.claude-plugin/types/
+.DS_Store
