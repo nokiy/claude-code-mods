@@ -1,7 +1,4 @@
-/**
- * [POS]: UI strings of agent-monitor (English default, Chinese table) and the language picker; called by every drawing and text module.
- * [PROTOCOL]: update this header on change, then check CLAUDE.md
- */
+// UI strings of agent-monitor, English and Chinese; English unless the session's language says Chinese. Called by every drawing and text module.
 // Column names (Tier, Edits, ...) and the table's other headers stay English in both languages. Pure; tested in strings.test.ts.
 
 export type Lang = 'en' | 'zh'
