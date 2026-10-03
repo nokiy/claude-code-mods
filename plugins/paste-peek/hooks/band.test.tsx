@@ -20,14 +20,25 @@ function world(on: On, blitDeny: string | undefined, draft: { text: string }, fi
     const argv = (e as { argv: readonly string[] }).argv
     return { value: { ...OUT, stdout: argv[0] === 'id' ? '501\n' : '' } }
   })
+  const seen = { list: 0, failRead: new Set<number>(), big: new Set<number>() } // fs.list calls; reads that fail; files over the cap
   on('fs.list', (_$, e) => {
+    seen.list++
     const path = (e as { path: string }).path
     const entries = path === '/tmp/claude-501' ? [{ name: '-Users-me-proj', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }] : []
     return { value: entries } as never
   })
   const has = (path: string) => path === IMAGES || [...files].some(n => path === `${IMAGES}/${n}.png`)
   on('fs.exists', (_$, e) => ({ value: has((e as { path: string }).path) }) as never)
-  on('fs.read', () => ({ value: { base64: PNG_1280x720 } }) as never)
+  const nOf = (path: string) => Number(path.split('/').pop()?.replace('.png', ''))
+  on('fs.stat', (_$, e) => {
+    const path = (e as { path: string }).path
+    if (!has(path)) throw new Error('ENOENT')
+    return { value: { kind: 'file', size: seen.big.has(nOf(path)) ? 9_000_000 : 1000, mtimeMs: 0, isLink: false } } as never
+  })
+  on('fs.read', (_$, e) => {
+    if (seen.failRead.has(nOf((e as { path: string }).path))) throw new Error('EIO')
+    return { value: { base64: PNG_1280x720 } } as never
+  })
   on('ui.blit', () => ({ value: blitDeny === undefined ? {} : { deny: blitDeny } }) as never)
   on('ui.open', () => ({ value: {} }) as never)
   on('ui.close', () => ({ value: undefined }) as never)
@@ -37,7 +48,7 @@ function world(on: On, blitDeny: string | undefined, draft: { text: string }, fi
     const { Box } = $.ui.resolve(e)
     return <Box />
   })
-  return { renders }
+  return { renders, seen }
 }
 
 const mountBand = ($: Engine, props = {}) =>
@@ -149,5 +160,50 @@ test('polls with an unchanged draft redraw nothing; only a real change does', as
   await clock.advance(300)
   expect(await band.find({ type: 'Image', key: 't1' })).toBeUndefined()
   expect(renders.count).toBeGreaterThan(before)
+  await band.unmount()
+})
+
+/** Mounts a probed band over a world; `setup` may tweak the world first. */
+async function probed($: Engine, on: On, draft: string, files: number[], setup?: (w: ReturnType<typeof world>) => void) {
+  const clock = mock.clock(on, { now: 0 })
+  const w = world(on, undefined, { text: draft }, new Set(files))
+  setup?.(w)
+  const sentinel = await mountBand($)
+  await clock.advance(600)
+  await clock.settle()
+  await sentinel.unmount()
+  return { clock, w, band: await mountBand($) }
+}
+
+test('a read that fails draws nothing and is retried; a file over the read cap shows with unknown size', async ($, on) => {
+  const { clock, w, band } = await probed($, on, '[Image #1] [Image #2]', [1, 2], w => {
+    w.seen.failRead.add(1)
+    w.seen.big.add(2)
+  })
+  expect(await band.find({ type: 'Image', key: 't1' })).toBeUndefined() // read error: not a 0x0 shot
+  expect(await band.find({ type: 'Image', key: 't2' })).toBeDefined() // over the cap: unknown size, still shown
+  w.seen.failRead.delete(1)
+  await clock.advance(300)
+  expect(await band.find({ type: 'Image', key: 't1' })).toBeDefined()
+  await band.unmount()
+})
+
+test('while the images folder is not found, the tmp root is scanned at most every 2s', async ($, on) => {
+  const clock = mock.clock(on, { now: 0 })
+  const { seen } = world(on, undefined, { text: '[Image #1]' }, new Set()) // no files: the folder does not exist
+  const sentinel = await mountBand($)
+  await clock.advance(600)
+  await clock.settle()
+  await sentinel.unmount()
+  const after600 = seen.list
+  await clock.advance(3000)
+  expect(seen.list - after600).toBeLessThanOrEqual(2) // 3s of 300ms polls, one scan per 2s
+  expect(after600).toBeLessThanOrEqual(1)
+})
+
+test('the keys row is one row that cannot wrap, so the strip fits maxRows with two pictures', async ($, on) => {
+  const { band } = await probed($, on, '[Image #1] [Image #2]', [1, 2])
+  const keys = await band.find({ type: 'Box', key: 'keys' })
+  expect(keys?.props).toMatchObject({ height: 1, overflow: 'hidden', flexWrap: 'nowrap' })
   await band.unmount()
 })
