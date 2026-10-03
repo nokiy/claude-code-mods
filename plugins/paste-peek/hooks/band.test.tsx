@@ -31,10 +31,13 @@ function world(on: On, blitDeny: string | undefined, draft: { text: string }, fi
   on('ui.blit', () => ({ value: blitDeny === undefined ? {} : { deny: blitDeny } }) as never)
   on('ui.open', () => ({ value: {} }) as never)
   on('ui.close', () => ({ value: undefined }) as never)
+  const renders = { count: 0 } // draws of the band reaching the engine beneath the plugin
   on('ui.render', ($, e) => {
+    renders.count++
     const { Box } = $.ui.resolve(e)
     return <Box />
   })
+  return { renders }
 }
 
 const mountBand = ($: Engine, props = {}) =>
@@ -122,5 +125,29 @@ test('where the engine draws no pictures, the band draws nothing at all', async 
 
   const band = await mountBand($)
   expect(await band.find({ type: 'Image', key: 't1' })).toBeUndefined()
+  await band.unmount()
+})
+
+test('polls with an unchanged draft redraw nothing; only a real change does', async ($, on) => {
+  const clock = mock.clock(on, { now: 0 })
+  const draft = { text: '[Image #1]' }
+  const { renders } = world(on, undefined, draft, new Set([1]))
+  const sentinel = await mountBand($)
+  await clock.advance(600)
+  await clock.settle()
+  await sentinel.unmount()
+  const band = await mountBand($)
+  expect(await band.find({ type: 'Image', key: 't1' })).toBeDefined()
+  await clock.advance(300) // lets a one-off redraw (cell measurement) pass
+
+  const before = renders.count
+  await clock.advance(3000) // ten polls, same draft
+  expect(await band.find({ type: 'Image', key: 't1' })).toBeDefined() // reading the drawing is not a redraw
+  expect(renders.count).toBe(before)
+
+  draft.text = '' // the placeholder leaves: the shot is dropped, one redraw
+  await clock.advance(300)
+  expect(await band.find({ type: 'Image', key: 't1' })).toBeUndefined()
+  expect(renders.count).toBeGreaterThan(before)
   await band.unmount()
 })

@@ -100,11 +100,14 @@ async function poll($: EngineInterface) {
   isPolling = true
   try {
     const draft = (await $.prompt.read()).text
-    const have = new Set((await read($, shots)).map(s => s.n))
-    const wanted = [...new Set(placeholders(draft))].filter(n => !have.has(n))
+    const live = new Set(placeholders(draft))
+    const list = await read($, shots)
+    const have = new Set(list.map(s => s.n))
+    const wanted = [...live].filter(n => !have.has(n))
     const got = (await Promise.all(wanted.map(n => loadShot($, n)))).filter(s => s !== undefined)
     for (const s of got) await note($, `pasted ${caption(s.n)} ${s.width}x${s.height}`)
-    await update($, shots, list => keep([...list, ...got], draft))
+    // Write only on a real change, so an idle poll never redraws the pictures.
+    if (got.length > 0 || list.some(s => !live.has(s.n))) await update($, shots, cur => keep([...cur, ...got], draft))
   } finally {
     isPolling = false
   }
