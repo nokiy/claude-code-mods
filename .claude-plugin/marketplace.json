@@ -18,7 +18,7 @@
       "name": "agent-monitor",
       "source": "./plugins/agent-monitor",
       "description": "Subagent monitor: a live band above the prompt, and /sub with this session's subagent history, alerts (file conflicts, stalls, tier mismatches, denied calls), per-agent detail and a cost estimate.",
-      "version": "0.5.1",
+      "version": "0.0.1",
       "author": { "name": "nokiy" },
       "homepage": "https://github.com/nokiy/claude-code-mods/tree/main/plugins/agent-monitor",
       "category": "productivity",
