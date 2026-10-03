@@ -3,16 +3,15 @@ import type { EngineInterface, ImageSource, Register } from 'claude-code'
 
 import type { PixelMode, Shot, ZoomSite } from '../types'
 import {
-  CLIP_JXA, DEFAULT_ASPECT, DIR, LOG, MEASURE_CELL, TINY_PNG,
-  added, fit, info, keep, parkCursor, parseCellAspect, parseClip, pick, placeholders, probeLine, saysNoPixels,
+  DEFAULT_ASPECT, DIR, LOG, MEASURE_CELL, TINY_PNG,
+  caption, cycle, fit, headerSize, imageFile, imageRoots, isReadable, missing, nextShots, parkCursor, parseCellAspect, pick, placeholders, probeLine, saysNoPixels, scaledFile, stripRows,
 } from './logic'
 import { pickLang, strings } from './strings'
 import type { Strings } from './strings'
 
 const PANE = 'paste-peek'
-const POLL_MS = 1000
+const POLL_MS = 300
 const HISTORY = 10
-const THUMB_ROWS = 6 // small, so 放大 is visibly larger
 const PROBE_TRIES = 3
 const PNG_EDGE = 1600 // longest side sent as base64 when the terminal cannot read files
 
@@ -35,8 +34,7 @@ let timer: { cancel: () => void } | undefined
 let isDebug = false
 let langOption: unknown = 'auto'
 let t: Strings = strings('en')
-let sessionDir = `${DIR}/unknown` // images and the probe sentinel of this session only
-let lastDraft = ''
+let sessionDir = `${DIR}/unknown` // the probe sentinel and scaled fallback files of this session only
 let isPolling = false
 let probeTries = 0
 let isProbing = false
@@ -55,38 +53,60 @@ async function note($: EngineInterface, line: string) {
   await $.process.run(['/bin/sh', '-c', 'mkdir -p "$1" && printf "%s\\n" "$2" >> "$3"', 'sh', DIR, `${at} ${line}`, LOG])
 }
 
-// ── the draft and the clipboard ──────────────────────────────────────
+// ── the draft and Claude Code's saved pictures ───────────────────────
 
-/** Read the image on the pasteboard now, as the picture of draft placeholder n; null when it holds none. */
-async function readClipboard($: EngineInterface, n: number): Promise<Shot | null> {
-  const at = await $.clock.now()
-  const r = await $.process.run(['osascript', '-l', 'JavaScript', '-e', CLIP_JXA, 'none', `${sessionDir}/img${n}-${at}.png`])
-  if (r.exitCode !== 0) await note($, `clipboard read failed: ${r.stderr.trim().slice(0, 160)}`)
-  const got = parseClip(r.stdout)
-  if (!got?.file) return null
-  return { n, file: got.file, width: got.width ?? 0, height: got.height ?? 0, bytes: got.bytes ?? 0, at }
+const SCAN_GAP_MS = 2000 // while its images dir is not found, look at most this often
+const imageDirs = new Map<string, string>() // session id -> its images dir
+let uid = ''
+let scannedAt = -SCAN_GAP_MS
+
+/**
+ * <tmp root>/<project folder>/<session id>/images. The project folder encodes a cwd that may
+ * have moved, so scan the root's folders for the session id; undefined until Claude Code made it.
+ */
+async function imagesDir($: EngineInterface): Promise<string | undefined> {
+  const session = await $.session.id()
+  const known = imageDirs.get(session)
+  const now = await $.clock.now()
+  if (known || now - scannedAt < SCAN_GAP_MS) return known
+  scannedAt = now
+  uid ||= (await $.process.run(['id', '-u'])).stdout.trim()
+  for (const root of imageRoots(await $.env.get('CLAUDE_CODE_TMPDIR'), uid)) {
+    const dirs = (await $.fs.list(root).catch(() => [])).filter(d => d.kind === 'dir').map(d => `${root}/${d.name}/${session}/images`)
+    for (const dir of dirs) {
+      if (!(await $.fs.exists(dir))) continue
+      imageDirs.set(session, dir)
+      return dir
+    }
+  }
+}
+
+/** The picture of draft placeholder n in dir; undefined while its file is missing or not ready (a later poll retries). */
+async function loadShot($: EngineInterface, dir: string, n: number): Promise<Shot | undefined> {
+  const file = imageFile(dir, n)
+  const stat = await $.fs.stat(file).catch(() => undefined)
+  if (!stat) return undefined
+  const head = isReadable(stat.size) ? await $.fs.read(file, { as: 'bytes' }).then(r => r.base64, () => undefined) : undefined
+  const size = headerSize(stat.size, head)
+  return size ? { n, file, ...size } : undefined
 }
 
 /**
- * One poll of this session's draft: a new [Image #N] takes the picture on the
- * pasteboard at that moment (the one just pasted); a removed one drops it.
+ * One poll of this session's draft: each [Image #N] without a shot yet takes the file Claude Code
+ * saved for it; a placeholder gone from the draft drops its shot. Written only on a real change,
+ * so an idle poll never redraws the pictures.
  */
 async function poll($: EngineInterface) {
   if (isPolling || (await read($, pixelMode)) === 'none') return
   isPolling = true
   try {
     const draft = (await $.prompt.read()).text
-    if (draft === lastDraft) return
-    const fresh = added(lastDraft, draft)
-    lastDraft = draft
-    const known = new Set((await read($, shots)).map(s => s.n))
-    for (const n of fresh) {
-      if (known.has(n)) continue // kept across a reload: the clipboard may hold something else by now
-      const shot = await readClipboard($, n)
-      await note($, shot ? `pasted ${info(shot)}` : `pasted [Image #${n}], ${t.noClipImage}`)
-      if (shot) await update($, shots, list => [...list.filter(s => s.n !== n), shot])
-    }
-    await update($, shots, list => keep(list, draft))
+    const list = await read($, shots)
+    const wanted = missing(list, draft)
+    const dir = wanted.length > 0 ? await imagesDir($) : undefined
+    const got = dir ? (await Promise.all(wanted.map(n => loadShot($, dir, n)))).filter(s => s !== undefined) : []
+    if (got.length > 0) await note($, `pasted ${got.map(s => `${caption(s.n)} ${s.width}x${s.height}`).join(', ')}`)
+    if (nextShots(list, got, draft)) await update($, shots, cur => nextShots(cur, got, draft) ?? cur)
   } finally {
     isPolling = false
   }
@@ -103,7 +123,7 @@ async function pngFor($: EngineInterface, file: string): Promise<string | null> 
   const hit = pngCache.get(file)
   if (hit) return hit
   for (let edge = PNG_EDGE; edge >= 200; edge = Math.floor(edge / 2)) {
-    const small = `${file}.${edge}.png`
+    const small = scaledFile(sessionDir, edge, file)
     const scaled = await $.process.run(['sips', '-Z', String(edge), file, '--out', small])
     if (scaled.exitCode !== 0) return null
     const { base64 } = await $.fs.read(small, { as: 'bytes' })
@@ -116,12 +136,8 @@ async function pngFor($: EngineInterface, file: string): Promise<string | null> 
 }
 
 async function sourceFor($: EngineInterface, mode: PixelMode | null, file: string): Promise<ImageSource | null> {
-  if (mode === 'file') return { file, format: 'png' }
-  if (mode === 'png') {
-    const png = await pngFor($, file)
-    return png ? { png } : null
-  }
-  return null
+  const png = mode === 'png' ? await pngFor($, file) : null
+  return mode === 'file' ? { file, format: 'png' } : png ? { png } : null
 }
 
 /**
@@ -175,20 +191,9 @@ async function syncCellAspect($: EngineInterface, columns: number) {
 
 // ── keys: selection and 放大 ─────────────────────────────────────────
 
-/** The image the keys act on: the selected one, else the newest. */
-async function current($: EngineInterface): Promise<Shot | undefined> {
-  const list = await read($, shots)
-  const n = await read($, selected)
-  return list.find(s => s.n === n) ?? list.at(-1)
-}
-
 /** ⌥← / ⌥→: move the selection by step (wrapping); an open 放大 follows it. */
 async function selectBy($: EngineInterface, step: number) {
-  const list = await read($, shots)
-  if (list.length === 0) return
-  const sel = await read($, selected)
-  const at = Math.max(0, list.findIndex(s => s.n === sel))
-  const next = list[(at + step + list.length) % list.length]
+  const next = cycle(await read($, shots), await read($, selected), step)
   if (!next) return
   await update($, selected, () => next.n)
   const site = await read($, zoomOpen)
@@ -200,7 +205,7 @@ async function selectBy($: EngineInterface, step: number) {
 async function toggleZoom($: EngineInterface, site: ZoomSite) {
   const open = await read($, zoomOpen)
   if (open === site) return closeZoom($)
-  const s = await current($)
+  const s = pick(await read($, selected), await read($, shots), []) // the selected one, else the newest
   if (!s) return
   await update($, zoom, () => s.n)
   await update($, zoomOpen, () => site)
@@ -231,9 +236,12 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // The session's pasted images are deleted when it ends; /clear keeps the session, so keeps them.
+  // The session's probe and scaled files are deleted when it ends; /clear keeps the session, so keeps them.
   on('session.end', async ($, e, next) => {
-    if (e.reason !== 'clear') await $.process.run(['rm', '-rf', sessionDir])
+    if (e.reason !== 'clear') {
+      imageDirs.clear()
+      await $.process.run(['rm', '-rf', sessionDir])
+    }
     return next(e)
   })
 
@@ -245,7 +253,6 @@ export const register: Register = (on, options) => {
     }
     await update($, shots, () => [])
     await update($, selected, () => null)
-    lastDraft = ''
     if ((await read($, zoomOpen)) !== null) await closeZoom($)
     return next(e)
   })
@@ -309,18 +316,14 @@ export const register: Register = (on, options) => {
     const below = await next(e)
     // Unprobed: mount only the 1×1 sentinel the probe blits (alt is a blank).
     if (wantsProbe($, e.requestId, mode)) {
-      return (
-        <Box flexDirection="column">
-          <Image key="probe" source={{ file: probeFile(), format: 'png' }} columns={1} rows={1} alt=" " />
-          {below}
-        </Box>
-      )
+      const sentinel = <Image key="probe" source={{ file: probeFile(), format: 'png' }} columns={1} rows={1} alt=" " />
+      return <Box flexDirection="column">{sentinel}{below}</Box>
     }
     if (mode === 'none') return below
 
     const list = await read($, shots)
-    const sel = await current($)
-    if (list.length === 0 || !sel) return below
+    const sel = pick(await read($, selected), list, [])
+    if (!sel) return below
     const body = Math.max(20, e.props.bodyColumns)
     lastBody = body
     void syncCellAspect($, body)
@@ -330,11 +333,11 @@ export const register: Register = (on, options) => {
     const picture = async (s: Shot, maxCols: number, maxRows: number, key: string) => {
       const { columns, rows } = fit(s.width, s.height, maxCols, maxRows, cellAspect)
       const source = await sourceFor($, mode, s.file)
-      return source ? <Image key={key} source={source} columns={columns} rows={rows} alt={info(s)} /> : <Text dimColor>{info(s)}</Text>
+      return source ? <Image key={key} source={source} columns={columns} rows={rows} alt={caption(s.n)} /> : <Text dimColor>{caption(s.n)}</Text>
     }
     // One line of keys; they are Buttons so the borrowed chords press them from the prompt.
     const keys = (
-      <Box gap={2} justifyContent={isCenter ? 'center' : 'flex-start'}>
+      <Box key="keys" gap={2} height={1} overflow="hidden" flexWrap="nowrap" justifyContent={isCenter ? 'center' : 'flex-start'}>
         <Button key="zoom" label={isCenter ? t.zoomClose : t.zoom} hotkey="z" action={ZOOM_ACTION} plain autoFocus onPress={() => void toggleZoom($, 'center')} />
         <Button key="right" label={site === 'right' ? t.sideClose : t.side} hotkey="r" action={RIGHT_ACTION} plain onPress={() => void toggleZoom($, 'right')} />
         {list.length > 1 && <Text color="suggestion">{t.switch}</Text>}
@@ -347,8 +350,8 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column">
           <Box justifyContent="center">{await picture(sel, body - 2, room, `big${sel.n}`)}</Box>
-          <Box justifyContent="center" gap={2}>
-            <Text>{info(sel)}{list.length > 1 ? `  (${list.findIndex(x => x.n === sel.n) + 1}/${list.length})` : ''}</Text>
+          <Box justifyContent="center" gap={2} height={1} overflow="hidden" flexWrap="nowrap">
+            <Text>{caption(sel.n)}</Text>
             {keys}
           </Box>
           {below}
@@ -360,9 +363,9 @@ export const register: Register = (on, options) => {
     const thumbCols = Math.max(8, Math.min(24, Math.floor((body - 2 * list.length) / list.length)))
     const strip = await Promise.all(list.map(async s => (
       <Box flexDirection="column">
-        {await picture(s, thumbCols, THUMB_ROWS, `t${s.n}`)}
+        {await picture(s, thumbCols, stripRows(e.props.maxRows), `t${s.n}`)}
         <Text color={s.n === sel.n ? 'suggestion' : undefined} bold={s.n === sel.n} dimColor={s.n !== sel.n} wrap="truncate">
-          {info(s)}
+          {caption(s.n)}
         </Text>
       </Box>
     )))
@@ -391,15 +394,11 @@ export const register: Register = (on, options) => {
         {mode === 'none' ? (
           <Text dimColor>{t.noPixels}</Text>
         ) : source && s ? (
-          <Image key={`pane${s.n}`} source={source} columns={box.columns} rows={box.rows} alt={info(s)} />
+          <Image key={`pane${s.n}`} source={source} columns={box.columns} rows={box.rows} alt={caption(s.n)} />
         ) : (
           <Text dimColor>{t.noImage}</Text>
         )}
-        {s && (
-          <Text>
-            {info(s)}  <Text color="suggestion" bold>{t.paneKeys}</Text>
-          </Text>
-        )}
+        {s && <Text>{caption(s.n)}  <Text color="suggestion" bold>{t.paneKeys}</Text></Text>}
         {past.length > 0 && <Text dimColor wrap="truncate">{t.sent}: {past.map(x => `#${x.n}`).join(' ')}</Text>}
       </Box>
     )

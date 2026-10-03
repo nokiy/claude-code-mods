@@ -3,3 +3,6 @@
 plugins/*/.claude-plugin/types/
 .DS_Store
 CLAUDE.md
+
+# Local agent workflow conventions (loki-pm setup)
+docs/agents/
