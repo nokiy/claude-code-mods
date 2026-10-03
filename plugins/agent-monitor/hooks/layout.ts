@@ -8,7 +8,7 @@ import { cellWidth, effortLabel, formatDuration, padEnd, padStart, resolveTier, 
 import { PALETTE } from './palette'
 import type { Status, View } from './views'
 
-export const GLYPH: Record<Status, string> = { running: '◐', done: '✓', failed: '✗', unknown: '?' }
+export const GLYPH: Record<Status, string> = { running: '◐', done: '●', failed: '✗', unknown: '?' }
 const GAP = 2
 const LEAD = 1
 const MARK_W = 1 // the select Button at the row start: `▸` on the selected row, a blank elsewhere
@@ -113,7 +113,7 @@ const GROUPS = [
   { status: 'failed', label: 'failed', color: PALETTE.red },
 ] as const
 
-// `Subagents · this session   N total   ◐ a running   ✓ b done   ✗ c failed      Σ X tok · ≈ $ · time`; Σ sits at the right edge and is never cut.
+// `Subagents · this session   N total   ◐ a running   ● b done   ✗ c failed      Σ X tok · ≈ $ · time`; Σ sits at the right edge and is never cut.
 // When the line is too narrow the left side sheds parts: zero counts first, then the "this session" tail, the total, the rest.
 export function headerSegs(cols: number, views: View[]): HeaderSeg[] {
   const count = (s: Status) => views.filter(v => v.status === s).length

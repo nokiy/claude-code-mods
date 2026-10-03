@@ -101,7 +101,7 @@ test('headerSegs: counts, totals at the right edge', () => {
   const segs = headerSegs(100, views)
   const line = segs.map(s => s.text).join('')
   expect(line).toContain('Subagents · this session   3 total')
-  expect(line).toContain('◐ 1 running   ✓ 1 done   ✗ 1 failed')
+  expect(line).toContain('◐ 1 running   ● 1 done   ✗ 1 failed')
   expect(line).toContain('Σ ')
   expect(line.endsWith('Σ 68.8k tok · 2m10s')).toBe(false) // failed row has elapsed too: 128+2+128 s
   expect(line.endsWith('4m18s')).toBe(true)
@@ -110,7 +110,7 @@ test('headerSegs: counts, totals at the right edge', () => {
 
 test('header row colors', () => {
   const segs = headerSegs(100, [sample(), sample({ status: 'done' }), sample({ status: 'failed' })])
-  expect(segs.filter(s => s.color !== PALETTE.fg && s.color !== PALETTE.gray).map(s => [s.text, s.color])).toEqual([['◐ 1 running', PALETTE.amber], ['✓ 1 done', PALETTE.green], ['✗ 1 failed', PALETTE.red]])
+  expect(segs.filter(s => s.color !== PALETTE.fg && s.color !== PALETTE.gray).map(s => [s.text, s.color])).toEqual([['◐ 1 running', PALETTE.amber], ['● 1 done', PALETTE.green], ['✗ 1 failed', PALETTE.red]])
   expect(segs.filter(s => s.bold).map(s => s.text)).toEqual(['Subagents · this session'])
   expect(segs.find(s => s.text.endsWith(' total'))!.color).toBe(PALETTE.gray)
   expect(segs.at(-1)!.color).toBe(PALETTE.fg)
@@ -182,4 +182,12 @@ test('selection: selected iff the ring is on that row; the ring on `close` (or n
   expect(picked('row:zzz')).toEqual([])
   expect(markLabel(true)).toBe('▸')
   expect(markLabel(false)).toBe(' ')
+})
+
+test('done status renders as a filled circle ●, never ✓', () => {
+  const l = computeLayout(100, [rowText(sample({ status: 'done' }))])
+  const row = joined(rowCells(l, rowText(sample({ status: 'done' }))))
+  expect(row).toContain('●')
+  const all = [row, headerSegs(100, [sample({ status: 'done' })]).map(s => s.text).join('')]
+  for (const s of all) expect(s).not.toContain('✓')
 })
