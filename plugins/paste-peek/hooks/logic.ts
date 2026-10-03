@@ -1,4 +1,4 @@
-// Pure helpers: placeholder parsing, sizing, formatting, clipboard script.
+// Pure helpers: placeholder parsing, Claude Code's image paths, PNG size, sizing, captions.
 import type { Shot } from '../types'
 
 /** Parent of each session's temp dir; the debug log (off by default) lives here too. */
@@ -11,12 +11,6 @@ export const TINY_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 /** Every N of `[Image #N]` in a draft, in order. */
 export function placeholders(text: string): number[] {
   return [...text.matchAll(/\[Image #(\d+)\]/g)].map(m => Number(m[1]))
-}
-
-/** N newly present in `after` that were not in `before`. */
-export function added(before: string, after: string): number[] {
-  const had = new Set(placeholders(before))
-  return placeholders(after).filter(n => !had.has(n))
 }
 
 /** Shots whose placeholder is still in the draft. */
@@ -90,12 +84,9 @@ export function saysNoPixels(deny: string): boolean {
   return /\balt\b|graphic|pixel|kitty|placeholder|cannot draw|can't draw/i.test(deny)
 }
 
-export function kb(bytes: number): string {
-  return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
-}
-
-export function info(s: Shot): string {
-  return `[Image #${s.n}] ${s.width}×${s.height} · ${kb(s.bytes)}`
+/** The only caption anywhere: the placeholder as the prompt shows it. */
+export function caption(n: number): string {
+  return `[Image #${n}]`
 }
 
 /** One log line, inputs cut so the log stays readable. */
@@ -106,32 +97,31 @@ export function probeLine(kind: string, fields: Record<string, unknown>): string
   return `${kind} ${body}`
 }
 
-/**
- * JXA: argv = [lastChangeCount | 'none', pngPath]. Answers {count} when the
- * pasteboard is unchanged or holds no image; else writes a PNG and answers its size.
- */
-export const CLIP_JXA = `ObjC.import("AppKit");
-function run(argv) {
-  var last = Number(argv[0]), path = argv[1];
-  var p = $.NSPasteboard.generalPasteboard;
-  var count = Number(p.changeCount);
-  if (count === last) return JSON.stringify({ count: count });
-  var data = p.dataForType("public.png");
-  if (data.isNil()) data = p.dataForType("public.tiff");
-  if (data.isNil()) return JSON.stringify({ count: count });
-  var rep = $.NSBitmapImageRep.imageRepWithData(data);
-  var png = rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $());
-  png.writeToFileAtomically(path, true);
-  return JSON.stringify({ count: count, file: path, width: Number(rep.pixelsWide), height: Number(rep.pixelsHigh), bytes: Number(png.length) });
-}`
+/** Rows the thumbnails take at most; small, so zoom is visibly larger. */
+export const THUMB_ROWS = 6
 
-export type ClipAnswer = { count: number; file?: string; width?: number; height?: number; bytes?: number }
+/** Picture rows for the strip: the band's maxRows minus the caption row and the keys row, in [1, THUMB_ROWS]. */
+export function stripRows(maxRows: number): number {
+  return Math.min(THUMB_ROWS, Math.max(1, maxRows - 2))
+}
 
-export function parseClip(stdout: string): ClipAnswer | null {
-  try {
-    const v = JSON.parse(stdout.trim()) as ClipAnswer
-    return typeof v.count === 'number' ? v : null
-  } catch {
-    return null
-  }
+/** Width and height from a PNG's first bytes (signature, then the IHDR chunk); null when it is not a PNG. */
+export function pngSize(base64: string): { width: number; height: number } | null {
+  if (base64.length < 32) return null // fewer than 24 bytes: still being written
+  const b = (Uint8Array as unknown as { fromBase64: (s: string) => Uint8Array }).fromBase64(base64.slice(0, 32)) // 24 bytes; the engine has it, the lib typings not yet
+  const isPng = [0x89, 0x50, 0x4e, 0x47].every((v, i) => b[i] === v) && String.fromCharCode(b[12]!, b[13]!, b[14]!, b[15]!) === 'IHDR'
+  if (!isPng) return null
+  const view = new DataView(b.buffer, b.byteOffset)
+  return { width: view.getUint32(16), height: view.getUint32(20) }
+}
+
+/** Where Claude Code keeps its per-user temp: $CLAUDE_CODE_TMPDIR (itself, or its claude-<uid> child), else /tmp/claude-<uid>. */
+export function imageRoots(tmpDir: string | undefined, uid: string): string[] {
+  const base = tmpDir?.replace(/\/+$/, '')
+  return base ? [`${base}/claude-${uid}`, base] : [`/tmp/claude-${uid}`]
+}
+
+/** The saved picture of [Image #n] in a session's images dir. */
+export function imageFile(dir: string, n: number): string {
+  return `${dir}/${n}.png`
 }
