@@ -1,6 +1,6 @@
 {
   "name": "agent-monitor",
-  "version": "0.6.0",
+  "version": "0.5.1",
   "description": "Subagent monitor: a live band above the prompt for running agents, and /sub: this session's subagent history with alerts (file conflicts, stalls, tier mismatches, denied calls), a detail page per agent (select a row, Enter), a cost estimate, and an in-panel settings page (/sub set), in a band above the prompt or a side pane.",
   "author": {
     "name": "nokiy",
