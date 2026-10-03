@@ -8,11 +8,11 @@
       "name": "paste-peek",
       "source": "./plugins/paste-peek",
       "description": "See the images you paste into the prompt, in real pixels, right above it: switch with ⌥←/⌥→, zoom with ⌥↑, side pane with ⌥↓. macOS, foreground Ghostty or kitty.",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "author": { "name": "nokiy" },
       "homepage": "https://github.com/nokiy/claude-code-mods/tree/main/plugins/paste-peek",
       "category": "productivity",
-      "keywords": ["images", "clipboard", "paste", "preview", "ghostty", "kitty", "mod"]
+      "keywords": ["images", "paste", "preview", "ghostty", "kitty", "mod"]
     }
   ]
 }

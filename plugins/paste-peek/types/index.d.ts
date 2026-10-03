@@ -1,11 +1,9 @@
-/** One image pasted into the draft as [Image #n], saved as a PNG in the session's temp dir. */
+/** One image pasted into the draft as [Image #n], as Claude Code saved it for this session. */
 export type Shot = {
   n: number
-  file: string
-  width: number
+  file: string // <tmp>/<project>/<session>/images/<n>.png, Claude Code's own
+  width: number // 0 when unknown; layout only, never shown
   height: number
-  bytes: number
-  at: number
 }
 
 /** Where 放大 shows the picture: centered above the prompt, or in the pane on the right. */

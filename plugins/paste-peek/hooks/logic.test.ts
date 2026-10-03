@@ -1,22 +1,38 @@
 import { expect, test } from 'claude-code/testing'
 
-import { added, fit, info, keep, parkCursor, parseCellAspect, parseClip, pick, placeholders, saysNoPixels } from './logic'
+import { caption, cycle, fit, headerSize, missing, nextShots, scaledFile, imageFile, imageRoots, isReadable, keep, parkCursor, parseCellAspect, pick, placeholders, pngSize, saysNoPixels, stripRows } from './logic'
 import { pickLang, strings } from './strings'
 
-const shot = (n: number) => ({ n, file: `/t/${n}.png`, width: 10, height: 10, bytes: 1, at: 0 })
+const shot = (n: number) => ({ n, file: `/t/${n}.png`, width: 10, height: 10 })
 
-test('placeholders, what a paste added, what the draft still holds', async () => {
+test('placeholders, what the draft still holds', async () => {
   expect(placeholders('look [Image #1] and [Image #12]')).toEqual([1, 12])
-  expect(added('a [Image #1]', 'a [Image #1] [Image #2]')).toEqual([2])
   expect(keep([shot(1), shot(2)], 'only [Image #2]').map(s => s.n)).toEqual([2])
 })
 
-test('clipboard answers, picking a shot, captions', async () => {
-  expect(parseClip('{"count":5}')).toEqual({ count: 5 })
-  expect(parseClip('garbage')).toBeNull()
+test('picking a shot; the caption is the placeholder and nothing else', async () => {
   expect(pick(2, [shot(2)], [shot(1)])?.n).toBe(2)
   expect(pick(null, [], [shot(1)])?.n).toBe(1)
-  expect(info({ n: 3, file: '/t.png', width: 1280, height: 720, bytes: 188416, at: 0 })).toBe('[Image #3] 1280×720 · 184 KB')
+  expect(caption(3)).toBe('[Image #3]')
+})
+
+test('PNG size comes from the IHDR header; anything else is not a PNG', async () => {
+  const png1280x720 = 'iVBORw0KGgoAAAANSUhEUgAABQAAAALQCAYAAAA='
+  expect(pngSize(png1280x720)).toEqual({ width: 1280, height: 720 })
+  expect(pngSize('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')).toBeNull()
+})
+
+test('Claude Code image paths: default root, an override, the file of N', async () => {
+  expect(imageRoots(undefined, '501')).toEqual(['/tmp/claude-501'])
+  expect(imageRoots('/var/t/', '501')).toEqual(['/var/t/claude-501', '/var/t'])
+  expect(imageFile('/tmp/claude-501/p/s/images', 2)).toBe('/tmp/claude-501/p/s/images/2.png')
+})
+
+test('the strip leaves a row for the caption and one for the keys; pictures keep at least one row', async () => {
+  expect(stripRows(5)).toBe(3)
+  expect(stripRows(8)).toBe(6)
+  expect(stripRows(20)).toBe(6)
+  expect(stripRows(2)).toBe(1)
 })
 
 test('fit keeps the shape inside the box and under the 255-cell cap', async () => {
@@ -48,4 +64,30 @@ test('English unless the option, Claude Code language or locale says Chinese', a
   expect(pickLang('auto', undefined, 'zh_CN.UTF-8')).toBe('zh')
   expect(pickLang('en', 'Chinese', 'zh_CN.UTF-8')).toBe('en')
   expect(strings('en').zoom).toBe('⌥↑ Zoom')
+})
+
+test('which placeholders still need a shot, and whether a poll changed anything', async () => {
+  expect(missing([shot(1)], '[Image #1] [Image #2] [Image #2]')).toEqual([2])
+  expect(nextShots([shot(1)], [], '[Image #1]')).toBeNull()
+  expect(nextShots([shot(1)], [shot(2)], '[Image #1] [Image #2]')?.map(s => s.n)).toEqual([1, 2])
+  expect(nextShots([shot(1), shot(2)], [], '[Image #2]')?.map(s => s.n)).toEqual([2])
+})
+
+test('size for layout: unknown only over the read cap; other read failures are retried', async () => {
+  const png = 'iVBORw0KGgoAAAANSUhEUgAABQAAAALQCAYAAAA='
+  expect(headerSize(1000, png)).toEqual({ width: 1280, height: 720 })
+  expect(headerSize(1000, undefined)).toBeNull()
+  expect(headerSize(1000, 'AAAA')).toBeNull()
+  expect(headerSize(9_000_000, undefined)).toEqual({ width: 0, height: 0 })
+  expect(isReadable(4 * 1024 * 1024)).toBe(true)
+  expect(isReadable(4 * 1024 * 1024 + 1)).toBe(false)
+})
+
+test('no uid, no claude-<uid> root; scaled copies live in the mod dir; selection wraps', async () => {
+  expect(imageRoots(undefined, '')).toEqual([])
+  expect(imageRoots('/var/t', '')).toEqual(['/var/t'])
+  expect(scaledFile('/tmp/paste-peek/s', 800, '/tmp/claude-501/p/sess/images/2.png')).toBe('/tmp/paste-peek/s/scaled-800-sess_images_2.png')
+  expect(cycle([shot(1), shot(2), shot(3)], 3, 1)?.n).toBe(1)
+  expect(cycle([shot(1), shot(2), shot(3)], 1, -1)?.n).toBe(3)
+  expect(cycle([], null, 1)).toBeUndefined()
 })
