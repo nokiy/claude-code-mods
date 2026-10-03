@@ -34,7 +34,7 @@ test('detail page: every section in order, the title untruncated', () => {
   expect(lines[0]).toBe(' worker-hard · sonnet.high · 改渲染 与一个很长很长很长很长很长很长很长很长很长很长很长很长很长很长的任务描述')
   expect(lines.slice(1)).toEqual([
     ' 指令', '   第一行指令', '   第二行', '   第三行',
-    ' 时间线', `   ✓ done   ${clock(0)} → ${clock(128_000)}   用时 2m08s   轮次 17   最长一步 12s   ! ≠ ×3`,
+    ' 时间线', `   ● done   ${clock(0)} → ${clock(128_000)}   用时 2m08s   轮次 17   最长一步 12s   ! ≠ ×3`,
     ' Tokens', '   输入（缓存命中）     100.0k', '   输入（缓存未命中）    21.2k', '   输出                   4.5k', '   估算花费            ≈ $0.12',
     ' 改过的文件 3', '   ✎ hooks/render.tsx  +12 −3  与 worker「修登录…」 冲突', '   ✎ hooks/new.ts  +40 −0', '   ✎ docs/a.md',
     ' 工具', '   Bash 12 · Read 8 · Edit 3',
@@ -70,7 +70,7 @@ test('detail page: no token parts, no Tokens section; an unpriced model shows a 
   expect(text(detailLines(full({ cost: undefined }), '/cwd', ZH))).toContain('   估算花费               ≈ —')
   expect(lines).toContain(' 改过的文件 2')
   expect(lines).toContain('   ✎ 2 files · paths unknown')
-  expect(lines).toContain('   ✓ done   用时 1m17s')
+  expect(lines).toContain('   ● done   用时 1m17s')
 })
 
 test('detail page: a running agent shows an open end, a stall, and only the last ten actions; prompt and result stay capped', () => {
@@ -95,7 +95,7 @@ test('detail page: the same page in English', () => {
   const lines = text(detailLines(full(), '/cwd', EN, peers))
   expect(lines.slice(1)).toEqual([
     ' Instruction', '   第一行指令', '   第二行', '   第三行',
-    ' Timeline', `   ✓ done   ${clock(0)} → ${clock(128_000)}   took 2m08s   rounds 17   longest step 12s   ! ≠ ×3`,
+    ' Timeline', `   ● done   ${clock(0)} → ${clock(128_000)}   took 2m08s   rounds 17   longest step 12s   ! ≠ ×3`,
     ' Tokens', '   Input (cache hit)    100.0k', '   Input (cache miss)    21.2k', '   Output                 4.5k', '   Est. cost           ≈ $0.12',
     ' Edited files 3', '   ✎ hooks/render.tsx  +12 −3  clashes with worker"修登录…"', '   ✎ hooks/new.ts  +40 −0', '   ✎ docs/a.md',
     ' Tools', '   Bash 12 · Read 8 · Edit 3',
