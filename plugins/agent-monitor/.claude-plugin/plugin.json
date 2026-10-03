@@ -1,0 +1,118 @@
+{
+  "name": "agent-monitor",
+  "version": "0.5.1",
+  "description": "Subagent monitor: a live band above the prompt for running agents, and /sub: this session's subagent history with alerts (file conflicts, stalls, tier mismatches, denied calls), a detail page per agent (select a row, Enter), a cost estimate, and an in-panel settings page (/sub set), in a band above the prompt or a side pane.",
+  "author": {
+    "name": "nokiy",
+    "url": "https://github.com/nokiy"
+  },
+  "homepage": "https://github.com/nokiy/claude-code-mods/tree/main/plugins/agent-monitor",
+  "repository": "https://github.com/nokiy/claude-code-mods",
+  "license": "MIT",
+  "keywords": [
+    "subagents",
+    "monitor",
+    "agents",
+    "alerts",
+    "cost",
+    "mod"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "auto follows Claude Code's language setting, then the locale",
+      "options": [
+        "auto",
+        "en",
+        "zh"
+      ],
+      "default": "auto"
+    },
+    "scope": {
+      "type": "string",
+      "title": "Scope",
+      "description": "Only run in this directory and below (absolute path); empty = everywhere",
+      "default": ""
+    },
+    "stallMinutes": {
+      "type": "number",
+      "title": "Stall threshold (minutes)",
+      "description": "A running subagent with no turn step or tool call for this long is flagged ~ (amber at the threshold, red at twice it)",
+      "default": 3,
+      "min": 0.5
+    },
+    "autoBand": {
+      "type": "boolean",
+      "title": "Live rows above the prompt",
+      "description": "Show one row per running subagent above the prompt",
+      "default": true
+    },
+    "alertsBlock": {
+      "type": "boolean",
+      "title": "Alerts block",
+      "description": "Show the alert sentences (conflict, stall, tier, denied) between the history header and the table",
+      "default": true
+    },
+    "toasts": {
+      "type": "boolean",
+      "title": "Toasts",
+      "description": "Toast once per agent when a conflict or a stall is first seen",
+      "default": true
+    },
+    "defaultPlacement": {
+      "type": "string",
+      "title": "Default /sub placement",
+      "description": "Where /sub opens the panel: last = wherever it was last opened (/sub top and /sub right are remembered across sessions); right or top = that place at every session start (/sub top|right then moves it for this session only)",
+      "options": [
+        "last",
+        "right",
+        "top"
+      ],
+      "default": "last"
+    },
+    "colTier": {
+      "type": "boolean",
+      "title": "Column: Tier",
+      "description": "Show the Tier column (model.effort) in the history table",
+      "default": true
+    },
+    "colEdits": {
+      "type": "boolean",
+      "title": "Column: Edits",
+      "description": "Show the Edits column (files the agent edited) in the history table",
+      "default": true
+    },
+    "colRounds": {
+      "type": "boolean",
+      "title": "Column: Rounds",
+      "description": "Show the Rounds column in the history table",
+      "default": true
+    },
+    "colTokens": {
+      "type": "boolean",
+      "title": "Column: Tokens",
+      "description": "Show the Tokens column in the history table",
+      "default": true
+    },
+    "colTime": {
+      "type": "boolean",
+      "title": "Column: Time",
+      "description": "Show the Time column in the history table",
+      "default": true
+    },
+    "prices": {
+      "type": "string",
+      "title": "Model prices (USD per million tokens)",
+      "description": "Compact JSON keyed by model family: {\"sonnet\":[input,cacheWrite5m,cacheRead,output],...}. Families: sonnet (5, 5.5), opus (5.5), haiku (4.5), fable (5.1). Defaults are Anthropic API list prices; a family left out keeps its default, bad JSON falls back to the defaults.",
+      "default": "{\"sonnet\":[2,2.5,0.2,10],\"opus\":[4,5,0.2,20],\"haiku\":[1,1.25,0.1,5],\"fable\":[10,12.5,0.25,50]}"
+    },
+    "colAlerts": {
+      "type": "boolean",
+      "title": "Column: Alerts",
+      "description": "Show the Alerts glyph column in the history table and at the end of the live rows",
+      "default": true
+    }
+  }
+}

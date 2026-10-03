@@ -5,6 +5,7 @@
 | Mod | What it does |
 | --- | --- |
 | [paste-peek](plugins/paste-peek) | See the images you paste into the prompt, in real pixels, right above it. Switch with ⌥←/⌥→, zoom with ⌥↑, side pane with ⌥↓. **Terminal: Ghostty or kitty** (macOS). |
+| [agent-monitor](plugins/agent-monitor) | Watch your subagents: a live band above the prompt, and `/sub` with history, alerts (file conflicts, stalls, tier mismatches, denied calls), per-agent detail and a cost estimate. English UI, Chinese optional. |
 
 ### Zoom — ⌥↑
 
@@ -28,6 +29,10 @@ In Claude Code (2.1.287 or later):
 ```
 
 The first command adds this repository as a plugin marketplace (once); the second installs a mod from it. Start a new session afterwards.
+
+## Releasing
+
+Every release bumps only the last digit of a mod's version. Steps: [docs/releasing.md](docs/releasing.md).
 
 ## License
 
