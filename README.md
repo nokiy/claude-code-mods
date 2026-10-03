@@ -5,6 +5,7 @@
 | Mod | What it does |
 | --- | --- |
 | [paste-peek](plugins/paste-peek) | See the images you paste into the prompt, in real pixels, right above it. Switch with ⌥←/⌥→, zoom with ⌥↑, side pane with ⌥↓. **Terminal: Ghostty or kitty** (macOS). |
+| [agent-monitor](plugins/agent-monitor) | Watch your subagents: a live band above the prompt, and `/sub` with history, alerts (file conflicts, stalls, tier mismatches, denied calls), per-agent detail and a cost estimate. English UI, Chinese optional. |
 
 ### Zoom — ⌥↑
 
