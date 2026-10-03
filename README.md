@@ -30,6 +30,10 @@ In Claude Code (2.1.287 or later):
 
 The first command adds this repository as a plugin marketplace (once); the second installs a mod from it. Start a new session afterwards.
 
+## Releasing
+
+Every release bumps only the last digit of a mod's version. Steps: [docs/releasing.md](docs/releasing.md).
+
 ## License
 
 MIT
