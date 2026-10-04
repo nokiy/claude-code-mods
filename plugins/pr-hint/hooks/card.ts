@@ -76,7 +76,7 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings):
 
   const { ci } = pr;
   const ciText =
-    ci.total === 0 ? s.noCi : `CI ✓${ci.ok}/${ci.total}${ci.fail > 0 ? ` ✗${ci.fail}` : ''}${ci.pending > 0 ? ` ⟳${ci.pending}` : ''}`;
+    ci.total === 0 ? s.noCi : `CI ✓${ci.ok}/${ci.total}${ci.fail > 0 ? ` ✗${ci.fail}` : ''}${ci.pending > 0 ? ` ↻${ci.pending}` : ''}`;
   const ciColor = ci.total === 0 ? undefined : ci.fail > 0 ? 'red' : ci.pending > 0 ? 'yellow' : 'green';
   const sum = summarize(pr.tickets);
   const subjects = ticketSubjects(pr.tickets);
