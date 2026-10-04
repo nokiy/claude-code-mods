@@ -42,8 +42,23 @@ test('without a Spec the second row is state and base ← head; no tickets reads
   expect(out[2]).toBe('CI ✓1/1 · no linked tickets');
 });
 
-test('without a Spec a draft shows (draft) after the branches', () => {
+test('without a Spec and without tickets a draft shows (draft) after the branches', () => {
   expect(texts({ ...base, spec: null, isDraft: true })[1]).toBe('integration branch main ← spec/12-dark-mode · OPEN (draft)');
+});
+
+test('without a Spec, one ticket takes the Spec row: magenta Ticket #N · title · base ← head, no state', () => {
+  const title = '[pr-hint] 提示行只显示当前目录的 PR；「← N agents」始终隐藏';
+  const pr = { ...base, spec: null, isDraft: true, tickets: [t(22, 'doing', { title })] };
+  const { lines } = cardLines(pr, NOW, 120, zh);
+  expect(lines[1]?.text).toBe('Ticket #22 · 提示行只显示当前目录的 PR；「← N agents」始终隐藏 · 集成分支 main ← spec/12-dark-mode');
+  expect(lines[1]?.parts[0]?.color).toBe('magenta');
+  expect(lines[3]?.text).toBe('● #22 进行中 提示行只显示当前目录的 PR；「← N agents」始终隐藏');
+  expect(texts(pr, 60)[1]).toMatch(/^Ticket #22 · .+… · integration branch main ← spec\/12-dark-mode$/);
+});
+
+test('without a Spec, two or more tickets show only the branches, magenta', () => {
+  const { lines } = cardLines({ ...base, spec: null, tickets: many(2) }, NOW, 90, zh);
+  expect(lines[1]?.parts).toEqual([{ text: '集成分支 main ← spec/12-dark-mode', color: 'magenta' }]);
 });
 
 test('the integration branch label follows the language', () => {
@@ -140,6 +155,14 @@ test('ticketSubjects drops the lead every ticket shares, keeping the ordinal and
   const mixed = ticketSubjects([mk(1, '深色模式 ① · 骨架'), mk(2, '导出 ① · 格式')]);
   expect(mixed.get(1)).toBe('深色模式 ① · 骨架');
   expect(ticketSubjects([mk(1, '深色模式 ① · 骨架')]).get(1)).toBe('深色模式 ① · 骨架');
+});
+
+test('ticketSubjects drops a leading [mod] tag, before the shared lead is looked for', () => {
+  const mk = (number: number, title: string) => ({ number, title }) as never;
+  expect(ticketSubjects([mk(1, '[pr-hint] 提示行')]).get(1)).toBe('提示行');
+  const shared = ticketSubjects([mk(1, '[pr-hint] 深色模式 ① · 骨架'), mk(2, '[pr-hint] 深色模式 ② · 配色')]);
+  expect(shared.get(1)).toBe('① 骨架');
+  expect(shared.get(2)).toBe('② 配色');
 });
 
 test('withoutAgents drops the agents pill so the row keeps one length while typing', () => {
