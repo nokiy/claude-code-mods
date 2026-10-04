@@ -102,6 +102,17 @@ describe('ticket status from git', () => {
     expect([...mergedByCommits(heads, [6])]).toEqual([6]);
     expect(mergedByCommits([], [1]).size).toBe(0);
   });
+  test('mergedByCommits: CJK <type>（<scope>）：<text> #N headlines ending in the ticket number', () => {
+    const heads = [
+      'feat（canvas）：修复对象选区 #132',
+      'docs（chat）：将编辑器头部注释改为英文 #107',
+      'feat（canvas）：#133 不在末尾的描述',
+      'chore: 吸收 #8',
+      'feat（canvas）：交付 #116',
+      'fix（canvas）：编号连写 #1340',
+    ];
+    expect([...mergedByCommits(heads, [8, 107, 132, 133, 134])].sort((a, b) => a - b)).toEqual([107, 132]);
+  });
   const mk = (number: number, status: TicketStatus): PrTicket => ({ number, title: '', state: '', progress: null, status, branch: null, ahead: 0 });
   test('summarize: merged = merged + done, accepted = done', () => {
     expect(summarize([mk(1, 'merged'), mk(2, 'done'), mk(3, 'todo'), mk(4, 'doing')])).toEqual({ merged: 2, done: 1, total: 4 });

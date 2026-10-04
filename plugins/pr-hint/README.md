@@ -41,14 +41,14 @@ The issues the PR closes (the ones GitHub links to it, else the `Closes #N` line
 
 ## How a ticket's status is derived
 
-From the local git repository only (no `git fetch`, no model calls):
+From the local git branches plus the PR's commit headlines (no `git fetch`, no model calls), first match wins:
 
 | Status | Rule |
 | --- | --- |
-| not started | no branch named `*/<N>-*` (or `<N>-*`) exists |
-| in progress | some branch of the ticket is ahead of the PR head |
-| merged | every branch of the ticket is merged into the PR head |
 | accepted (green dot) | the issue is closed, or its acceptance table (a table whose header has `State` and `Rounds`) is all ✓ |
+| in progress | a ticket branch (`*/<N>-*` or `<N>-*`) is the PR head, or is ahead of it |
+| merged | a PR commit headline names the ticket: `<type>(#N): …`, `<type>（<scope>）：… #N` (the number ends the headline), or a `Merge …` headline naming a `/N-` branch. A branch that is merged alone does not count, and neither does a passing mention such as `chore: absorb #N` |
+| not started | none of the above |
 
 `merged a/b` counts merged and accepted tickets; `accepted c/d` counts accepted ones. `N commits behind` tells how many commits the ticket's branch has that the PR head does not.
 
