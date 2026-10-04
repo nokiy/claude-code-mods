@@ -23,7 +23,7 @@ const LEAD = /^(.+?)\s*([①-⑳]|\d+[a-z]?)?\s*·\s*(.+)$/u;
 
 /**
  * When every ticket (two or more) shares the same lead (the Spec's subject), drops it and
- * keeps the ordinal and what this ticket does: `⑦ 切号 + 重启`. Otherwise the title is unchanged.
+ * keeps the ordinal and what this ticket does: `② 编辑器配色`. Otherwise the title is unchanged.
  */
 export function ticketSubjects(tickets: readonly PrTicket[]): Map<number, string> {
   const parsed = tickets.map(t => ({ n: t.number, title: t.title, m: LEAD.exec(t.title) }));
