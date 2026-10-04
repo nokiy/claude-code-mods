@@ -1,0 +1,110 @@
+// Unit tests for the pure helpers (CI fold, cell widths, wrapping, git ticket status), all on synthetic data.
+import { describe, expect, test } from 'claude-code/testing';
+import type { PrTicket, TicketStatus } from '../types';
+import { parseAcceptance, parseCi, relTime, shortTitle, sortTickets, summarize, ticketBranches, ticketStatus, truncate, width, wrapCells } from './parse';
+import { strings } from './strings';
+
+describe('parseCi', () => {
+  test('folds CheckRun and StatusContext', () => {
+    const ci = parseCi([
+      { status: 'COMPLETED', conclusion: 'SUCCESS' },
+      { status: 'COMPLETED', conclusion: 'FAILURE' },
+      { status: 'IN_PROGRESS', conclusion: '' },
+      { state: 'SUCCESS' },
+    ]);
+    expect(ci).toEqual({ ok: 2, fail: 1, pending: 1, total: 4 });
+  });
+  test('empty', () => {
+    expect(parseCi([]).total).toBe(0);
+  });
+});
+
+describe('cell widths', () => {
+  test('truncate cuts by cells with an ellipsis', () => {
+    expect(truncate('abcdef', 4)).toBe('abc…');
+    expect(truncate('abc', 4)).toBe('abc');
+    expect(truncate('中文标题很长', 5)).toBe('中文…');
+  });
+  test('wrapCells: one row, two rows, and a cut last row', () => {
+    expect(wrapCells('abc', 5, 2)).toEqual(['abc']);
+    expect(wrapCells('abcdefgh', 5, 2)).toEqual(['abcde', 'fgh']);
+    expect(wrapCells('abcdefghijklmno', 5, 2)).toEqual(['abcde', 'fghi…']);
+    expect(wrapCells('中文标题很长', 4, 2)).toEqual(['中文', '标…']);
+    expect(wrapCells('', 5, 2)).toEqual([]);
+  });
+});
+
+describe('parseAcceptance', () => {
+  const TABLE = `## Acceptance
+| Item | Target/source | State | Rounds | Rewrites |
+|------|---------------|-------|--------|----------|
+| a | x | ✓ | 0 | 0 |
+| b | y | ✅ done | 2 | 0 |
+| c | z | DONE | 1 | 0 |
+| d | w | ✗ | 3 | 1 |
+| e | v | needs-info | 0 | 0 |
+
+after`;
+  test('counts rows, ✓/✅/done and max rounds', () => {
+    expect(parseAcceptance(TABLE)).toEqual({ done: 3, total: 5, maxRounds: 3 });
+  });
+  test('no table -> null', () => {
+    expect(parseAcceptance('just text\n| a | b |\n|---|---|\n| 1 | 2 |')).toBeNull();
+  });
+  test('a table without State/Rounds is skipped for a later one', () => {
+    expect(parseAcceptance(`| a | b |\n|---|---|\n| 1 | 2 |\n\n${TABLE}`)?.total).toBe(5);
+  });
+});
+
+describe('ticket status from git', () => {
+  const names = [
+    'dev', 'worktree-14-x', 'feat/14-theme-toggle', 'origin/feat/14-theme-toggle',
+    'fix/16-save-settings', 'origin/docs/17-wrapup', 'spec/12-dark-mode', 'feat/140-other',
+  ];
+  test('branch matching: (^|/)N-, no worktree-*', () => {
+    expect(ticketBranches(14, names)).toEqual(['feat/14-theme-toggle', 'origin/feat/14-theme-toggle']);
+    expect(ticketBranches(17, names)).toEqual(['origin/docs/17-wrapup']);
+    expect(ticketBranches(13, names)).toEqual([]);
+    expect(ticketBranches(14, ['worktree-14-x'])).toEqual([]);
+  });
+  test('status rules: CLOSED or an all-✓ table is done and overrides git', () => {
+    expect(ticketStatus('OPEN', null, [])).toBe('todo');
+    expect(ticketStatus('OPEN', null, [0, 3])).toBe('doing');
+    expect(ticketStatus('OPEN', null, [0, 0])).toBe('merged');
+    expect(ticketStatus('CLOSED', null, [5])).toBe('done');
+    expect(ticketStatus('OPEN', { done: 3, total: 3, maxRounds: 0 }, [4])).toBe('done');
+    expect(ticketStatus('OPEN', { done: 0, total: 0, maxRounds: 0 }, [])).toBe('todo');
+    expect(ticketStatus('OPEN', { done: 2, total: 3, maxRounds: 0 }, [0])).toBe('merged');
+  });
+  const mk = (number: number, status: TicketStatus): PrTicket => ({ number, title: '', state: '', progress: null, status, branch: null, ahead: 0 });
+  test('summarize: merged = merged + done, accepted = done', () => {
+    expect(summarize([mk(1, 'merged'), mk(2, 'done'), mk(3, 'todo'), mk(4, 'doing')])).toEqual({ merged: 2, done: 1, total: 4 });
+  });
+  test('sortTickets: in progress, not started, merged, done, stable within a status', () => {
+    const sorted = sortTickets([mk(1, 'done'), mk(2, 'merged'), mk(3, 'todo'), mk(4, 'doing'), mk(5, 'doing'), mk(6, 'merged')]);
+    expect(sorted.map(x => x.number)).toEqual([4, 5, 3, 2, 6, 1]);
+  });
+});
+
+describe('shortTitle', () => {
+  test('cuts at —— , " — " or （ then truncates', () => {
+    expect(shortTitle('设置页 ② · 主题按系统切换——台账 / 标定（吸收 #3）', 30)).toBe('设置页 ② · 主题按系统切换');
+    expect(shortTitle('Dark mode · 深色 — Feature Spec', 30)).toBe('Dark mode · 深色');
+    expect(shortTitle('标题（备注）', 30)).toBe('标题');
+    expect(width(shortTitle('一二三四五六七八九十一二三四五六七八九十', 30))).toBeLessThanOrEqual(30);
+  });
+});
+
+describe('relTime', () => {
+  const NOW = Date.parse('2026-01-10T12:00:00Z');
+  const en = strings('en');
+  const zh = strings('zh');
+  test('English and Chinese, from seconds to days', () => {
+    expect(relTime('2026-01-10T11:59:50Z', NOW, en)).toBe('just now');
+    expect(relTime('2026-01-10T11:55:00Z', NOW, en)).toBe('5 min ago');
+    expect(relTime('2026-01-10T10:00:00Z', NOW, en)).toBe('2 h ago');
+    expect(relTime('2026-01-07T12:00:00Z', NOW, en)).toBe('3 d ago');
+    expect(relTime('2026-01-10T10:00:00Z', NOW, zh)).toBe('2 小时前');
+    expect(relTime('nope', NOW, en)).toBe('unknown');
+  });
+});
