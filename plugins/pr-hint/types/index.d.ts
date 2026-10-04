@@ -20,11 +20,12 @@ export type PrTicket = {
   ahead: number;
 };
 
+/** Where the session stands: its directory, the repository root above it, and the checked-out branch (`HEAD` when detached). */
+export type Where = { cwd: string; root: string; branch: string };
+
 export type PrData = {
-  /** The session directory the PR was read in; drawn only while the session is still there. */
-  cwd: string;
-  /** The local branch checked out when the PR was read (`HEAD` when detached); drawn only while it is still the checked-out one. */
-  branch: string;
+  /** Where the PR was read; drawn only while the session is still in that repository root (any subfolder) on that branch. */
+  where: Where;
   number: number;
   title: string;
   state: string;

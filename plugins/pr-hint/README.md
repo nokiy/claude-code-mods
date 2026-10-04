@@ -31,9 +31,9 @@ Hover the hint row to preview a card above the prompt; it hides when the pointer
 ╰──────────────────────────────────────────────────────────────────────────╯
 ```
 
-Top to bottom: the PR title, the Spec and the integration branch (`base ← head`; with no Spec, a single ticket takes the Spec's place as `Ticket #N · title`, several tickets show the branches alone), CI and the counts, one line per ticket (nothing is dropped), then the PR link and when pr-hint last fetched from GitHub (`fetched`, the only time shown). The `↻ refresh` button at the card's top right refreshes by hand (see Refresh). Tickets are ordered in progress, not started, merged, accepted. A `↻N` after CI counts checks still running.
+Top to bottom: the PR title, the Spec and the integration branch (`base ← head`; with no Spec, a single ticket takes the Spec's place as `Ticket #N · title`, several tickets show the branches alone), CI and the counts, one line per ticket (nothing is dropped), then the PR link and when pr-hint last fetched from GitHub (`fetched`, the only time shown). The `↻ refresh` button at the card's top right refreshes by hand (see Refresh). Tickets are ordered in progress, not started, merged, accepted. A leading `[mod]` scope tag on a ticket title (as in `[pr-hint] Edit form`) is left off the card. A `↻N` after CI counts checks still running.
 
-The PR shown always belongs to the current directory: after a `cd`, a `/clear` or a repo switch the old PR is gone at the next redraw and the new directory's is read. With no PR, or a merged or closed one, the band and the hint row stay as Claude Code draws them, except when the `← N agents` pill is present: then the pill is removed and that frame's line is redrawn from the text (with a PR the pill is hidden to make room).
+The PR shown always belongs to where the session is: the **repository root plus the branch**. A `cd` into a subfolder of the same repository changes nothing; a `cd` to another repository, a `git checkout` of another branch, or a `/clear` elsewhere hides the old PR at once and reads the new place's (see Refresh). Only a PR whose head branch lives in this repository counts; a fork's PR of the same branch name is ignored. With no PR, or a merged or closed one, the band and the hint row stay as Claude Code draws them, except when the `← N agents` pill is present: then the pill is removed and that frame's line is redrawn from the text (with a PR the pill is hidden to make room).
 
 ## Spec and tickets
 
@@ -54,16 +54,18 @@ From the local git repository only (no `git fetch`, no model calls):
 
 ## Refresh
 
-Two tiers, each on its own timer, never overlapping (a tick that finds another refresh running is skipped) and redrawing only when something changed. Session start and the end of every turn run a full refresh (PR, tickets and git status); one asked for while another refresh is running waits for it instead of being dropped.
+Two tiers, each on its own timer, never overlapping (a tick that finds another refresh running is skipped). The 20 s tier redraws only when the refs it reads changed; every gh fetch redraws, because its `fetched` time moves. Session start and the end of every turn run a full refresh (PR, tickets and git status); one asked for while a full refresh is already running waits for that one and shares its answer instead of starting another.
 
 | Every | Reads | Recomputes ticket statuses when |
 | --- | --- | --- |
-| 20 s | `git for-each-ref` (local, no network) | the branches and their commits differ from the last look: local merges, new commits, deleted branches; it also reads the checked-out branch, so a `git checkout` in the same directory drops the old branch's PR and triggers a full refresh |
+| 20 s | local git only, no network: the repository root, the checked-out branch and `git for-each-ref` | the branches and their commits differ from the last look: local merges, new commits, deleted branches. When the root or branch differs from where the last fetch ran (a PR found or not), it triggers a full refresh, so a `git checkout` onto a branch that has a PR shows it within 20 s, not 5 min |
 | 5 min | one `gh api graphql` request: the PR (resolved by `gh` from the session directory's repository and current branch), its CI and commits, and every closing issue | always (a full refresh) |
 
 Only a PR into a non-default branch, which GitHub links to no issue, costs a second request: its `Closes #N` issues by number. Need fresher data sooner? Press the button, or end a turn.
 
-**Manual refresh:** press `↻ refresh` on the card for a full refresh (it waits for a running one to finish; the button reads `refreshing…` meanwhile and ignores extra presses). When it ends a toast says what changed (`PR #23 updated: merged 0/1 → 1/1 · CI ✓1/1`), `PR #23 is up to date`, or `No open PR on this branch`, even if the card has been closed. The footer's `fetched` time is the last successful answer from GitHub; the 20 s git recompute does not move it.
+A failed fetch (gh exits non-zero, times out, answers something unreadable or with GraphQL errors) is not "no PR": the PR already shown stays, with its old `fetched` time. Only a successful answer with no open PR clears it.
+
+**Manual refresh:** press ` ↻ refresh ` on the card for a full refresh (it joins a running one; the button reads `refreshing…` meanwhile and ignores extra presses). When it ends a toast says what changed (`PR #23 updated: merged 0/1 → 1/1 · CI ✓1/1`), `PR #23 is up to date`, `No open PR on this branch`, or `Fetch failed, try again later`, even if the card has been closed. The footer's `fetched` time is the last successful answer from GitHub; the 20 s git recompute does not move it.
 
 Git status uses `git branch -a` and `git rev-list --count`; everything runs in the session's directory.
 

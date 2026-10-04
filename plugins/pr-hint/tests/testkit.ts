@@ -1,4 +1,4 @@
-// Shared fixtures and mocks for the register, refresh, cwd and branch test suites: synthetic `gh api graphql` and git answers, the session directory and a call tally.
+// Shared fixtures and mocks for the register, refresh and location test suites: synthetic `gh api graphql` and git answers, the session directory, mount helpers and a call tally.
 import { mock, test } from 'claude-code/testing';
 
 // The PR as the card reads it; `gql` wraps it into GraphQL's nodes shape. `linked` is the closing issues GitHub links.
@@ -24,7 +24,8 @@ type On = Parameters<typeof mock.env>[0];
 
 // Mutable test state: the session's directory (a test moves it to stand for a cd or a /clear),
 // the `git for-each-ref` answer, ticket 7's issue, and whether GitHub links the closing issues (a PR into a non-default branch has none).
-export const st = { dir: '/tmp/x', cwdFails: false, refs: 'refs/heads/dev aaa\n', issue7: ISSUE as unknown, gate: null as Promise<void> | null, linked: true, branch: 'dev', ghBranch: null as string | null };
+// `root` is the repository root git reports (null: the session directory itself); `ghFails` makes every gh call exit 1 (a transient failure).
+export const st = { dir: '/tmp/x', root: null as string | null, ghFails: false, cwdFails: false, refs: 'refs/heads/dev aaa\n', issue7: ISSUE as unknown, gate: null as Promise<void> | null, linked: true, branch: 'dev', ghBranch: null as string | null };
 // gql counts PR requests, issues the follow-up by-number requests.
 export const tally = { refs: 0, branch: 0, gql: 0, issues: 0 };
 
@@ -48,6 +49,7 @@ export const reply = (argv: readonly string[]) => {
   if (argv[0] === 'git') {
     if (argv[1] === 'for-each-ref') return ok(st.refs);
     if (argv[1] === 'rev-parse' && argv.includes('--abbrev-ref')) return ok(`${st.branch}\n`);
+    if (argv[1] === 'rev-parse' && argv.includes('--show-toplevel')) return ok(`${st.root ?? st.dir}\n`);
     if (argv[1] === 'rev-parse') return ok('abc\n');
     if (argv[1] === 'branch') return ok('dev\nspec/12-dark-mode\nfeat/7-theme-toggle\nworktree-7-x\n');
     if (argv[1] === 'rev-list') return ok(argv[3]?.endsWith('feat/7-theme-toggle') ? '2\n' : '0\n');
@@ -58,6 +60,8 @@ export const reply = (argv: readonly string[]) => {
 // The language comes from the session's settings and LANG: none here, so English.
 export const quiet = (on: On) => {
   st.dir = '/tmp/x';
+  st.root = null;
+  st.ghFails = false;
   st.cwdFails = false;
   on('session.cwd', async () => {
     if (st.cwdFails) throw new Error('cwd unavailable');
@@ -101,8 +105,10 @@ export const wire = (on: On, ghHere?: string) => {
       tally[isPr ? 'gql' : 'issues']++;
       if (isPr && st.gate) await st.gate;
     }
+    if (e.argv[0] === 'gh' && st.ghFails) return { value: { exitCode: 1, stdout: '', stderr: 'HTTP 502', ...done } };
+    // Elsewhere gh answers successfully, with no PR.
     if (e.argv[0] === 'gh' && ((ghHere !== undefined && st.dir !== ghHere) || (st.ghBranch !== null && st.branch !== st.ghBranch))) {
-      return { value: { exitCode: 1, stdout: '', stderr: '', ...done } };
+      return { value: { exitCode: 0, stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: [] } } } }), stderr: '', ...done } };
     }
     return { value: { ...reply(e.argv), stderr: '', ...done } };
   });

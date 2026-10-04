@@ -10,7 +10,7 @@ const zh = strings('zh');
 const NOW = Date.parse('2026-01-10T11:00:00Z');
 const SPEC = { number: 12, title: 'Dark mode · 深色模式贯穿设置页与编辑器，系统主题自动跟随与手动切换 — Feature Spec' };
 const base: PrData = {
-  cwd: '/tmp/x', branch: 'spec/12-dark-mode',
+  where: { cwd: '/tmp/x', root: '/tmp/x', branch: 'spec/12-dark-mode' },
   number: 15, title: 'short title', state: 'OPEN', isDraft: false, base: 'main', head: 'spec/12-dark-mode',
   url: 'u', fetchedAt: NOW - 30_000, ci: { ok: 1, fail: 0, pending: 0, total: 1 }, tickets: [], spec: SPEC,
 };

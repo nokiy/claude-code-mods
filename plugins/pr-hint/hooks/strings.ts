@@ -22,6 +22,7 @@ const EN = {
   upToDate: (n: number) => `PR #${n} is up to date`,
   changed: (n: number, what: string) => `PR #${n} updated: ${what}`,
   gone: 'No open PR on this branch',
+  failed: 'Fetch failed, try again later',
   rel: {
     unknown: 'unknown',
     now: 'just now',
@@ -50,6 +51,7 @@ const ZH: Strings = {
   upToDate: n => `PR #${n} 已是最新`,
   changed: (n, what) => `PR #${n} 已更新：${what}`,
   gone: '当前分支已没有打开的 PR',
+  failed: '拉取失败，稍后再试',
   rel: {
     unknown: '未知',
     now: '刚刚',

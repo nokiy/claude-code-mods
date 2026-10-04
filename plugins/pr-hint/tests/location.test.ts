@@ -37,31 +37,93 @@ test('a PR read in directory A is not drawn once the session is in B (no PR ther
 
 // A tick in another directory must drop the cache itself: back in A afterwards, the old PR is gone
 // (a tick that kept it, or recomputed from it, would leave A's PR in the atom for A to draw again).
-for (const [name, ms] of [['20s git', 20_000], ['5 min gh', 300_000]] as const) {
-  test(`the ${name} tick in another directory drops the cache instead of reusing it`, async ($, on) => {
-    const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
-    wire(on, '/tmp/a');
-    st.dir = '/tmp/a';
-    engineLines(on);
-    await $.session.start({ cwd: '/tmp/a' } as never);
-    await clock.settle();
-    const ui = await mountHint($);
-    expect(await ui.find({ type: 'Text', text: /^PR #10$/ })).toBeDefined();
-    await ui.unmount();
+// The 5 min gh tick needs no twin of this: it only refetches, and register.test.ts covers it at an unchanged place.
+test('the 20s tick in another directory drops the cache instead of reusing it', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  wire(on, '/tmp/a');
+  st.dir = '/tmp/a';
+  engineLines(on);
+  await $.session.start({ cwd: '/tmp/a' } as never);
+  await clock.settle();
+  const ui = await mountHint($);
+  expect(await ui.find({ type: 'Text', text: /^PR #10$/ })).toBeDefined();
+  await ui.unmount();
 
-    st.dir = '/tmp/b';
-    st.refs = 'refs/heads/dev aaa\nrefs/heads/other bbb\n';
-    const branchBefore = tally.branch;
-    await clock.advance(ms);
-    // Not recomputed from A's cache: no status recompute (git `branch` listing) for B.
-    expect(tally.branch).toBe(branchBefore);
-    st.dir = '/tmp/a';
-    const ui2 = await mountHint($);
-    expect(await ui2.find({ type: 'Button', key: 'pin' })).toBeUndefined();
-    expect(JSON.stringify(await ui2.drawn())).not.toContain('PR #');
-    await ui2.unmount();
-  });
-}
+  st.dir = '/tmp/b';
+  st.refs = 'refs/heads/dev aaa\nrefs/heads/other bbb\n';
+  const branchBefore = tally.branch;
+  await clock.advance(20_000);
+  await clock.settle();
+  // Not recomputed from A's cache: no status recompute (git `branch` listing) for B.
+  expect(tally.branch).toBe(branchBefore);
+  st.dir = '/tmp/a';
+  const ui2 = await mountHint($);
+  expect(await ui2.find({ type: 'Button', key: 'pin' })).toBeUndefined();
+  expect(JSON.stringify(await ui2.drawn())).not.toContain('PR #');
+  await ui2.unmount();
+});
+
+test('a cd into a subfolder of the same repository keeps the PR drawn and costs no fetch; leaving the repository hides it at once', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  wire(on);
+  st.dir = '/tmp/x';
+  st.root = '/tmp/x';
+  engineLines(on);
+  await $.session.start({ cwd: '/tmp/x' } as never);
+  await clock.settle();
+  const before = tally.gql;
+
+  st.dir = '/tmp/x/sub/deeper';
+  const ui = await mountHint($);
+  expect(await ui.find({ type: 'Text', text: /^PR #10$/ })).toBeDefined();
+  await clock.advance(20_000);
+  await clock.settle();
+  expect(tally.gql).toBe(before);
+  expect(await ui.find({ type: 'Text', text: /^PR #10$/ })).toBeDefined();
+  await ui.unmount();
+
+  // A sibling folder that merely shares the name prefix is another place.
+  st.dir = '/tmp/xy';
+  st.root = '/tmp/xy';
+  st.ghBranch = 'elsewhere';
+  const ui2 = await mountHint($);
+  expect(JSON.stringify(await ui2.drawn())).not.toContain('PR #');
+  await ui2.unmount();
+});
+
+test('no PR on branch A, then a checkout of branch B that has one: one 20s tick later PR # shows', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  wire(on);
+  engineLines(on);
+  st.branch = 'feat/a';
+  st.ghBranch = 'feat/b';
+  await $.session.start({ cwd: '/tmp/x' } as never);
+  await clock.settle();
+  const ui = await mountHint($);
+  expect(JSON.stringify(await ui.drawn())).not.toContain('PR #');
+  await ui.unmount();
+  const before = tally.gql;
+
+  st.branch = 'feat/b';
+  await clock.advance(20_000);
+  await clock.settle();
+  expect(tally.gql).toBe(before + 1);
+  const ui2 = await mountHint($);
+  expect(await ui2.find({ type: 'Text', text: /^PR #10$/ })).toBeDefined();
+  await ui2.unmount();
+});
+
+test('the branch tier reads only local git: no gh call while the place stays the same, with or without a PR', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  wire(on);
+  st.ghBranch = 'feat/b';
+  st.branch = 'feat/a';
+  await $.session.start({ cwd: '/tmp/x' } as never);
+  await clock.settle();
+  const before = tally.gql;
+  await clock.advance(100_000);
+  expect(tally.gql).toBe(before);
+});
 
 test('a failing cwd read draws nothing and does not throw from the render', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });

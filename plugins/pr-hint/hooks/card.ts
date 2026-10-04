@@ -60,6 +60,8 @@ const ticketLine = (t: PrTicket, subject: string, s: Strings, inner: number): Ca
 const ciText = (ci: PrData['ci'], s: Strings): string =>
   ci.total === 0 ? s.noCi : `CI ✓${ci.ok}/${ci.total}${ci.fail > 0 ? ` ✗${ci.fail}` : ''}${ci.pending > 0 ? ` ↻${ci.pending}` : ''}`;
 
+const stateText = (p: PrData): string => (p.isDraft ? `${p.state} (draft)` : p.state);
+
 /**
  * The toast after a manual refresh: what changed between `prev` and `next` (title, state, CI,
  * merged and accepted counts, number of tickets), "up to date" when nothing did, or that the PR is gone.
@@ -69,10 +71,9 @@ export function refreshText(prev: PrData | null, next: PrData | null, s: Strings
   if (prev === null) return s.upToDate(next.number);
   const a = summarize(prev.tickets);
   const b = summarize(next.tickets);
-  const state = (p: PrData) => (p.isDraft ? `${p.state} (draft)` : p.state);
   const parts = [
     prev.title !== next.title ? `“${next.title}”` : '',
-    state(prev) !== state(next) ? `${state(prev)} → ${state(next)}` : '',
+    stateText(prev) !== stateText(next) ? `${stateText(prev)} → ${stateText(next)}` : '',
     ciText(prev.ci, s) !== ciText(next.ci, s) ? ciText(next.ci, s) : '',
     a.merged !== b.merged || a.total !== b.total ? `${s.merged} ${a.merged}/${a.total} → ${b.merged}/${b.total}` : '',
     a.done !== b.done || a.total !== b.total ? `${s.accepted} ${a.done}/${a.total} → ${b.done}/${b.total}` : '',
@@ -111,7 +112,7 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings, 
   } else if (pr.tickets.length >= 2) {
     meta = line([{ text: branches, color: 'magenta' }]);
   } else {
-    meta = line([{ text: `${s.integration} ${pr.base} ← ${pr.head} · ${pr.isDraft ? `${pr.state} (draft)` : pr.state}` }]);
+    meta = line([{ text: `${branches} · ${stateText(pr)}` }]);
   }
 
   const { ci } = pr;
@@ -131,7 +132,7 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings, 
 
   return {
     lines: [...title, meta, summary, ...sortTickets(pr.tickets).map(t => ticketLine(t, subjects.get(t.number) ?? t.title, s, inner))],
-    footer: s.fetched(relTime(new Date(pr.fetchedAt).toISOString(), nowMs, s)),
+    footer: s.fetched(relTime(pr.fetchedAt, nowMs, s)),
   };
 }
 

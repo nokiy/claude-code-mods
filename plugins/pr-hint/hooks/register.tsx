@@ -1,13 +1,14 @@
 // Hooks entry of pr-hint; refreshes PR data and draws the PromptHint line plus its hover-preview, click-to-pin card.
-// The engine's `$` and the PR atom stay in this file (the validator follows them nowhere else); text and parsing live in card.ts, graphql.ts, parse.ts and strings.ts.
+// The engine's `$` and the PR atom stay in this file (the validator follows them nowhere else); text and parsing live in card.ts, graphql.ts, parse.ts and strings.ts; tests are in ../tests.
 import { atom, read, update } from 'claude-code';
 import type { EngineInterface, Register } from 'claude-code';
 import { cardLines, hintLayout, hintSpans, refreshText, withoutAgents } from './card';
 import { PR_ARGS, PR_QUERY, REPO_ARGS, issuesQuery, parseGraphql, parseIssues, splitIssues } from './graphql';
-import { closingNumbers, mergedByCommits, parsePr, prHead, summarize, ticketBranches, ticketStatus, width } from './parse';
+import type { PrJson } from './graphql';
+import { closingNumbers, isInside, mergedByCommits, parsePr, pickShown, prHead, sameWhere, summarize, ticketBranches, ticketStatus, width } from './parse';
 import { pickLang, strings } from './strings';
 import type { Strings } from './strings';
-import type { PrData, PrTicket } from '../types';
+import type { PrData, PrTicket, Where } from '../types';
 
 const pr = atom({ plugin: 'pr-hint', key: 'pr' } as const, null);
 // Whether the card is pinned open (a press on the hint row's pin toggles it).
@@ -20,25 +21,27 @@ const SCOPE = 'pr-hint-card';
 
 // Module-level on purpose: the validator wants `$` passed only to top-level
 // functions of this file. A reload drops it with the rest of the environment.
-let isBusy = false;
-// A full refresh asked for while busy; it runs right after instead of being dropped.
-let isFullPending = false;
-// Callers of that queued full refresh (the manual ↻); released when it has run.
-let fullWaiters: Array<() => void> = [];
+// full: PR, tickets and git, one gh request · git: local refs only.
+type Mode = 'full' | 'git';
+// The refresh in flight, if any, and its mode: a tick that finds one is skipped, a full request joins a running full one
+// (and waits for it) instead of queueing another.
+let running: { mode: Mode; done: Promise<void> } | null = null;
+// Set synchronously by the ↻ press, before any await, so two presses cannot both start.
+let isManual = false;
+// Whether the last full fetch got no usable answer from gh (then the data it left is the previous one).
+let fetchFailed = false;
 // The two tier timers of this load; a repeated session.start cancels them before making new ones.
 let timers: Array<{ cancel: () => void }> = [];
 // `git for-each-ref` output at the last status computation; the git tier recomputes only when it differs.
 let refSnap: string | null = null;
-// The checked-out branch as last read locally (`HEAD` when detached); the render and the 20s tier compare PR data against it.
-let curBranch: string | null = null;
-type Json = NonNullable<ReturnType<typeof parseGraphql>>;
-// The open PR as last read: the directory and branch it was read on, its JSON, the tickets as gh gave them (`raw`)
-// and with their git status (`tickets`). The git tier recomputes from this without asking gh.
-// `fetchedAt` is when gh last answered; the git recompute keeps it.
-type Cache = { cwd: string; branch: string; json: Json; raw: PrTicket[]; tickets: PrTicket[]; spec: PrData['spec']; fetchedAt: number };
+// Where the session was last seen (render and 20s tier read it; the render compares PR data against it),
+// and where the last full fetch ran, PR found or not: the 20s tier refetches when the two differ.
+let curWhere: Where | null = null;
+let fetchedWhere: Where | null = null;
+// The open PR as last read: where, its JSON, the tickets as gh gave them (`raw`) and with their git status (`tickets`).
+// The git tier recomputes from this without asking gh. `fetchedAt` is when gh last answered; the git recompute keeps it.
+type Cache = { where: Where; json: PrJson; raw: PrTicket[]; tickets: PrTicket[]; spec: PrData['spec']; fetchedAt: number };
 let cache: Cache | null = null;
-// full: PR, tickets and git, one gh request · git: local refs only.
-type Mode = 'full' | 'git';
 
 // The UI strings: the language option is read once per load (it needs the session's settings and LANG), English until then.
 let langOption: unknown = 'auto';
@@ -72,8 +75,6 @@ async function applyStatuses($: EngineInterface, tickets: PrTicket[], headRef: s
       if (c.exitCode === 0 && Number.isFinite(n)) found.push({ b, n });
     }
     const ahead = Math.max(0, ...found.map(f => f.n));
-    // Shown branch: the one furthest ahead; among equals a local one before its origin/ twin.
-    const shown = [...found].sort((x, y) => y.n - x.n || Number(x.b.startsWith('origin/')) - Number(y.b.startsWith('origin/')))[0];
     out.push({
       ...tk,
       status: ticketStatus(tk.state, tk.progress, {
@@ -81,17 +82,23 @@ async function applyStatuses($: EngineInterface, tickets: PrTicket[], headRef: s
         counts: found.map(f => f.n),
         isMerged: merged.has(tk.number),
       }),
-      branch: shown?.b ?? null,
+      branch: pickShown(found),
       ahead,
     });
   }
   return out;
 }
 
-// Local git only: the checked-out branch (`HEAD` when detached); null when git fails.
-async function readBranch($: EngineInterface): Promise<string | null> {
-  const r = await $.process.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD']);
-  return r.exitCode === 0 ? r.stdout.trim() : null;
+// Local git only: where the session stands (directory, repository root, branch); null when any read fails.
+async function readWhere($: EngineInterface): Promise<Where | null> {
+  try {
+    const cwd = await $.session.cwd();
+    const top = await $.process.run(['git', 'rev-parse', '--show-toplevel']);
+    const head = await $.process.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD']);
+    return top.exitCode === 0 && head.exitCode === 0 ? { cwd, root: top.stdout.trim(), branch: head.stdout.trim() } : null;
+  } catch {
+    return null;
+  }
 }
 
 // Local git only: the heads and remotes with their commits; null when git fails.
@@ -101,118 +108,138 @@ async function readRefs($: EngineInterface): Promise<string | null> {
 }
 
 // Statuses from local git plus the PR's commits; remembers the ref snapshot they were computed at.
-async function settle($: EngineInterface, raw: PrTicket[], json: Json, refs: string | null): Promise<PrTicket[]> {
+async function settle($: EngineInterface, raw: PrTicket[], json: PrJson, refs: string | null): Promise<PrTicket[]> {
   refSnap = refs ?? refSnap;
   const { headRef, headlines } = prHead(json);
   return applyStatuses($, raw, headRef, headlines);
 }
 
-// Never throws: any failure (no gh, no PR, bad JSON) reads as "no PR". One `gh api graphql` request brings the PR
-// and its closing issues; only a PR into a non-default branch (GitHub links no issue) costs a second one for its `Closes #N` issues.
-async function fetchPr($: EngineInterface): Promise<PrData | null> {
+// Never throws. One `gh api graphql` request brings the PR and its closing issues; only a PR into a non-default
+// branch (GitHub links no issue) costs a second one for its `Closes #N` issues. Only a usable answer without an
+// open PR of this repository clears the data. undefined = gh gave no usable answer (failed, timed out, bad JSON,
+// GraphQL errors): the data read at this same place stays; data from another place is dropped, it is never drawn.
+async function fetchPr($: EngineInterface): Promise<PrData | null | undefined> {
+  // Runs in the session's working directory by default; the data is tagged with where it was read, before gh runs.
+  const where = await readWhere($);
+  if (where !== null) curWhere = fetchedWhere = where;
+  const fail = () => {
+    fetchFailed = true;
+    if (cache !== null && sameWhere(cache.where, where)) return undefined;
+    return (cache = null);
+  };
   try {
-    // Runs in the session's working directory by default; the data is tagged with it, read before gh runs.
-    const cwd = await $.session.cwd();
-    const branch = (await readBranch($)) ?? '';
-    curBranch = branch;
+    if (where === null) return fail();
     const r = await $.process.run(['gh', ...PR_ARGS, '-f', `query=${PR_QUERY}`]);
-    const json = r.exitCode === 0 ? parseGraphql(r.stdout) : null;
+    const answer = r.exitCode === 0 ? parseGraphql(r.stdout) : null;
+    if (answer === null || !answer.ok) return fail();
     // Only an OPEN PR is shown; merged or closed reads as no PR.
-    if (!json) return (cache = null);
+    const json = answer.pr;
+    if (json === null) {
+      fetchFailed = false;
+      return (cache = null);
+    }
 
-    let issues = json.closingIssuesReferences as Json[];
+    let issues = json.closingIssuesReferences;
     const nums = closingNumbers(json);
     if (issues.length === 0 && nums.length > 0) {
       const more = await $.process.run(['gh', ...REPO_ARGS, '-f', `query=${issuesQuery(nums)}`]);
-      issues = more.exitCode === 0 ? parseIssues(more.stdout) : [];
+      if (more.exitCode !== 0) return fail();
+      issues = parseIssues(more.stdout);
     }
     const refs = await readRefs($);
     const { raw, spec } = splitIssues(issues);
-    cache = { cwd, branch, json, raw, spec, tickets: await settle($, raw, json, refs), fetchedAt: await $.clock.now() };
-    return parsePr(json, cwd, cache.tickets, spec, cache.fetchedAt, branch);
+    cache = { where, json, raw, spec, tickets: await settle($, raw, json, refs), fetchedAt: await $.clock.now() };
+    fetchFailed = false;
+    return parsePr(json, where, cache.tickets, spec, cache.fetchedAt);
   } catch {
-    return (cache = null);
+    return fail();
   }
 }
 
 // One tier's work. undefined = nothing changed, leave the atom alone.
 async function step($: EngineInterface, mode: Mode): Promise<PrData | null | undefined> {
   if (mode === 'full') return fetchPr($);
-  const c = cache;
-  if (c === null) return undefined;
   try {
-    // Local branch read: a failed read leaves the last known one.
-    curBranch = (await readBranch($)) ?? curBranch;
-    // Another directory's or branch's cache is no use here: drop it, clear the atom and read the PR anew.
-    if (!await isCurrent($, c.cwd, c.branch)) {
-      cache = null;
+    // Local reads only; a failed read leaves everything as it was.
+    const where = await readWhere($);
+    if (where === null) return undefined;
+    curWhere = where;
+    // Another repository or branch than the last fetch's (PR found or not): read the PR anew; the render already hides the old one.
+    if (!sameWhere(where, fetchedWhere)) {
       void refresh($, 'full');
-      return null;
+      return undefined;
     }
+    const c = cache;
+    if (c === null) return undefined;
     const refs = await readRefs($);
     if (refs === null || refs === refSnap) return undefined;
     c.tickets = await settle($, c.raw, c.json, refs);
-    return parsePr(c.json, c.cwd, c.tickets, c.spec, c.fetchedAt, c.branch);
+    return parsePr(c.json, c.where, c.tickets, c.spec, c.fetchedAt);
   } catch {
     return undefined;
   }
 }
 
-// Guarded so tiers never overlap: a tick that finds it busy is skipped, a full refresh is queued
-// and its promise resolves once that queued run has finished.
-async function refresh($: EngineInterface, mode: Mode): Promise<void> {
-  if (isBusy) {
-    if (mode !== 'full') return;
-    isFullPending = true;
-    return new Promise<void>(resolve => void fullWaiters.push(resolve));
-  }
-  isBusy = true;
+async function run($: EngineInterface, mode: Mode): Promise<void> {
   try {
     const next = await step($, mode);
     if (next === undefined) return;
     const prev = await read($, pr);
     if (JSON.stringify(prev) !== JSON.stringify(next)) await update($, pr, () => next);
-  } finally {
-    isBusy = false;
-    if (isFullPending) {
-      isFullPending = false;
-      const waiters = fullWaiters;
-      fullWaiters = [];
-      void refresh($, 'full').finally(() => waiters.forEach(release => release()));
-    }
+  } catch {
+    fetchFailed = true;
   }
 }
 
-// The ↻ press: one full refresh that really finishes, then a toast saying what changed.
+// One refresh at a time. A git tick that finds one running is skipped; a full request that finds a full one running
+// waits for that one and shares its answer instead of queueing another (a git tick in flight is waited out, then it runs).
+async function refresh($: EngineInterface, mode: Mode): Promise<void> {
+  while (running !== null) {
+    if (mode === 'git') return;
+    const { mode: was, done } = running;
+    await done;
+    if (was === 'full') return;
+  }
+  // `running` is set before this function's first await, so two callers cannot both start.
+  const done = run($, mode).finally(() => { running = null; });
+  running = { mode, done };
+  await done;
+}
+
+// The ↻ press: one full refresh that really finishes, then a toast saying what changed, or that the fetch failed.
 // Further presses while it runs are ignored; the toast shows whether or not the card is still open.
 async function manualRefresh($: EngineInterface): Promise<void> {
-  if ((await read($, refreshing)) === true) return;
-  await update($, refreshing, () => true);
+  if (isManual) return;
+  isManual = true;
   try {
+    await update($, refreshing, () => true);
     const before = await read($, pr);
     await refresh($, 'full');
-    $.ui.toast(refreshText(before, await read($, pr), t), { timeoutMs: 5000 });
-  } finally {
-    await update($, refreshing, () => false);
-  }
-}
-
-// Whether data read in `cwd` on `branch` belongs to where the session is now (same directory and the
-// branch last read locally); a failed read counts as "not here". The single comparison point.
-async function isCurrent($: EngineInterface, cwd: string, branch: string): Promise<boolean> {
-  try {
-    return cwd === await $.session.cwd() && branch === curBranch;
+    $.ui.toast(fetchFailed ? t.failed : refreshText(before, await read($, pr), t), { timeoutMs: 5000 });
   } catch {
-    return false;
+    $.ui.toast(t.failed, { timeoutMs: 5000 });
+  } finally {
+    isManual = false;
+    await update($, refreshing, () => false).catch(() => undefined);
   }
 }
 
-// The PR to draw: null when there is none or it was read in another directory or on another branch (/clear, cd,
-// repo and branch switches all end up here), and then `isStale` says the atom is out of date. Never throws.
+// The PR to draw: null when there is none or it was read elsewhere. Elsewhere = the session's directory is outside the
+// repository root it was read in, or the root or branch last seen locally (fetch, 20s tier) differs (/clear, cd, repo and
+// branch switches); then `isStale` says the atom is out of date. A subfolder of the same repo is still here.
+// A failed cwd read only hides (no refresh asked). Never throws. The only cwd check at render: git runs in fetch and the 20s tier.
 async function currentPr($: EngineInterface): Promise<{ data: PrData | null; isStale: boolean }> {
   const data = await read($, pr);
   if (data === null) return { data: null, isStale: false };
-  return (await isCurrent($, data.cwd, data.branch)) ? { data, isStale: false } : { data: null, isStale: true };
+  try {
+    const cwd = await $.session.cwd();
+    const { where } = data;
+    // Also inside the directory it was read from: git's root may be a symlink-resolved path the session's cwd is not spelled in.
+    const isHere = (isInside(cwd, where.root) || isInside(cwd, where.cwd)) && sameWhere(where, curWhere);
+    return isHere ? { data, isStale: false } : { data: null, isStale: true };
+  } catch {
+    return { data: null, isStale: false };
+  }
 }
 
 export const register: Register = (on, options) => {
@@ -314,7 +341,8 @@ export const register: Register = (on, options) => {
     const inner = Math.max(20, e.props.bodyColumns - 4);
     const isPinned = (await read($, pinned)) === true;
     const isRefreshing = (await read($, refreshing)) === true;
-    const label = isRefreshing ? t.refreshing : t.refresh;
+    // Padded by a cell each side, like the pin: a plain Button's hit area is its label cells.
+    const label = ` ${isRefreshing ? t.refreshing : t.refresh} `;
     // The title wraps in what the button (plus a 1-cell gap) leaves of the first row.
     const card = cardLines(data, await $.clock.now(), inner, t, Math.max(10, inner - width(label) - 1));
     const [head, ...rest] = card.lines;

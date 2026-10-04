@@ -1,4 +1,4 @@
-// Renders PromptHint and AbovePrompt through the plugin with gh and git output mocked beneath it, on synthetic data; the cwd and agents-pill cases live in cwd.test.ts.
+// Renders PromptHint and AbovePrompt through the plugin with gh and git output mocked beneath it, on synthetic data; the location (directory, branch) and agents-pill cases live in location.test.ts.
 import { expect, mock, test } from 'claude-code/testing';
 import { BAND_PROPS, ISSUE, PR, PROPS, VIEWPORT, done, quiet, reply, st, tally, wire } from './testkit';
 
@@ -8,7 +8,7 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
     quiet(on);
     on('session.start', async (_$, e) => ({ cwd: e.cwd }));
     on('process.run', async (_$, e) => {
-      if (!hasPr) return { value: { exitCode: 1, stdout: '', stderr: 'no pull requests found', ...done } };
+      if (!hasPr && e.argv[0] === 'gh') return { value: { exitCode: 0, stdout: '{"data":{"repository":{"pullRequests":{"nodes":[]}}}}', stderr: '', ...done } };
       return { value: { ...reply(e.argv), stderr: '', ...done } };
     });
     // Stands for the engine's own line, which the plugin passes through when there is no PR.
@@ -194,7 +194,7 @@ test('two session.start events leave one timer per tier', async ($, on) => {
   expect(tally.gql).toBe(base.gql + 1);
 });
 
-test('a full refresh asked for while busy runs right after', async ($, on) => {
+test('a full refresh asked for while a full fetch is in flight joins it instead of queueing another', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
   let open = () => {};
   wire(on);
@@ -204,6 +204,10 @@ test('a full refresh asked for while busy runs right after', async ($, on) => {
   await clock.settle();
   expect(tally.gql).toBe(1);
   open();
+  await clock.settle();
+  expect(tally.gql).toBe(1);
+  // Once it has finished, the next request is a new fetch.
+  await $.session.start({ cwd: '/tmp/x' } as never);
   await clock.settle();
   expect(tally.gql).toBe(2);
 });
