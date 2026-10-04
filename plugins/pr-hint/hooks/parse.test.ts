@@ -2,7 +2,7 @@
 import { describe, expect, test } from 'claude-code/testing';
 import type { PrTicket, TicketStatus } from '../types';
 import type { TicketFacts } from './parse';
-import { bodyClosingNumbers, closingNumbers, mergedByCommits, parseAcceptance, parseCi, relTime, shortTitle, sortTickets, summarize, ticketBranches, ticketStatus, truncate, width, wrapCells } from './parse';
+import { bodyClosingNumbers, closingNumbers, mergedByCommits, parseAcceptance, parseCi, parsePr, relTime, shortTitle, sortTickets, summarize, ticketBranches, ticketStatus, truncate, width, wrapCells } from './parse';
 import { strings } from './strings';
 
 describe('parseCi', () => {
@@ -151,4 +151,10 @@ describe('relTime', () => {
     expect(relTime('2026-01-10T10:00:00Z', NOW, zh)).toBe('2 小时前');
     expect(relTime('nope', NOW, en)).toBe('unknown');
   });
+});
+
+test('parsePr returns the whole PrData, tagged with the directory it was read in', () => {
+  const data = parsePr({ number: 10, title: 'T', state: 'OPEN', baseRefName: 'dev', headRefName: 'feat/1-x', url: 'u' }, '/tmp/a', []);
+  expect(data.cwd).toBe('/tmp/a');
+  expect(data).toMatchObject({ number: 10, title: 'T', base: 'dev', head: 'feat/1-x', tickets: [], spec: null });
 });

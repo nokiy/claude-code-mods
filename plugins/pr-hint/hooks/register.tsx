@@ -133,7 +133,7 @@ async function fetchPr($: EngineInterface, mode: 'full' | 'pr'): Promise<PrData 
     } else {
       cache.json = json;
     }
-    return { ...parsePr(cache.json, cache.tickets, cache.spec), cwd };
+    return parsePr(cache.json, cwd, cache.tickets, cache.spec);
   } catch {
     return (cache = null);
   }
@@ -146,7 +146,7 @@ async function step($: EngineInterface, mode: Mode): Promise<PrData | null | und
   if (c === null) return undefined;
   try {
     // Another directory's cache is no use here: drop it and clear the atom.
-    if (c.cwd !== await $.session.cwd()) return (cache = null);
+    if (!await isHere($, c.cwd)) return (cache = null);
     const refs = await readRefs($);
     if (mode === 'git') {
       if (refs === null || refs === refSnap) return undefined;
@@ -158,7 +158,7 @@ async function step($: EngineInterface, mode: Mode): Promise<PrData | null | und
       c.spec = spec;
     }
     c.tickets = await settle($, c.raw, c.json, refs);
-    return { ...parsePr(c.json, c.tickets, c.spec), cwd: c.cwd };
+    return parsePr(c.json, c.cwd, c.tickets, c.spec);
   } catch {
     return undefined;
   }
@@ -185,14 +185,21 @@ async function refresh($: EngineInterface, mode: Mode): Promise<void> {
   }
 }
 
-// The PR to draw, or null when there is none or it was read in another directory (/clear, cd and
-// repo switches all end up here); a stale one asks for a full refresh at once.
-async function currentPr($: EngineInterface): Promise<PrData | null> {
+// Whether data read in `cwd` belongs to where the session is now; a failed read counts as "not here".
+async function isHere($: EngineInterface, cwd: string): Promise<boolean> {
+  try {
+    return cwd === await $.session.cwd();
+  } catch {
+    return false;
+  }
+}
+
+// The PR to draw: null when there is none or it was read in another directory (/clear, cd and repo
+// switches all end up here), and then `isStale` says the atom is out of date. Never throws.
+async function currentPr($: EngineInterface): Promise<{ data: PrData | null; isStale: boolean }> {
   const data = await read($, pr);
-  if (data === null) return null;
-  if (data.cwd === await $.session.cwd()) return data;
-  void refresh($, 'full');
-  return null;
+  if (data === null) return { data: null, isStale: false };
+  return (await isHere($, data.cwd)) ? { data, isStale: false } : { data: null, isStale: true };
 }
 
 export const register: Register = (on, options) => {
@@ -222,11 +229,13 @@ export const register: Register = (on, options) => {
   // (Box and Text have no onPress) and a Button has no colour at rest, so the press lives on
   // the small glyph and `PR #N` keeps its colour. The Box is the hover handle: the card shares its `scope`.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const data = await currentPr($);
+    const { data, isStale } = await currentPr($);
+    // Only this row asks for the refresh of a stale PR; the card just hides, so a cd costs one full refresh.
+    if (isStale) void refresh($, 'full');
+    const hint = withoutAgents(e.props.hint);
     if (data === null) {
       // No PR: the engine's line stays live unless it carries the agents pill, which is always hidden.
-      const bare = withoutAgents(e.props.hint);
-      return bare === e.props.hint ? next(e) : next({ ...e, props: { ...e.props, hint: bare } });
+      return hint === e.props.hint ? next(e) : next({ ...e, props: { ...e.props, hint } });
     }
     await ensureLang($);
 
@@ -234,7 +243,6 @@ export const register: Register = (on, options) => {
     const columns = e.viewport?.columns ?? 80;
     const isPinned = (await read($, pinned)) === true;
     // Room for the PR group: the row less the hint text, the " · " separator, the glyph + space and a 2-cell margin.
-    const hint = withoutAgents(e.props.hint);
     const layout = hintLayout(data, columns - width(hint) - 3 - 2 - 2, t);
     const sum = summarize(data.tickets);
 
@@ -288,7 +296,7 @@ export const register: Register = (on, options) => {
   // clipped by the bottom slot. It is hidden until the hint row's scope is hovered, and always
   // shown while pinned; the band scrolls by itself when taller than maxRows, so no ticket is dropped.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const data = await currentPr($);
+    const { data } = await currentPr($);
     if (data === null || e.props.hasSurvey) return next(e);
     await ensureLang($);
 

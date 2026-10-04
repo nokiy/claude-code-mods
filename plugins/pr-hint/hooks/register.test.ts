@@ -1,50 +1,11 @@
-// Renders PromptHint and AbovePrompt through the plugin with gh and git output mocked beneath it, on synthetic data.
+// Renders PromptHint and AbovePrompt through the plugin with gh and git output mocked beneath it, on synthetic data; the cwd and agents-pill cases live in cwd.test.ts.
 import { expect, mock, test } from 'claude-code/testing';
-
-const PR = {
-  number: 10, title: 'Add dark mode', state: 'OPEN', isDraft: false, reviewDecision: '',
-  statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }], additions: 3, deletions: 3,
-  changedFiles: 1, closingIssuesReferences: [{ number: 7 }, { number: 12 }], mergeable: 'MERGEABLE',
-  baseRefName: 'dev', headRefName: 'spec/12-dark-mode', url: 'https://example.test/pull/10',
-  updatedAt: '2026-01-10T10:51:08Z',
-};
-const ISSUE = {
-  number: 7, title: 'Theme toggle', state: 'OPEN',
-  body: '| Item | Target/source | State | Rounds | Rewrites |\n|--|--|--|--|--|\n| a | b | ✓ | 2 | 0 |\n| c | d | ✗ | 0 | 0 |',
-};
-const SPEC = {
-  number: 12, title: 'Dark mode · 深色模式贯穿设置页与编辑器 — Feature Spec', state: 'OPEN', body: '',
-  labels: [{ name: 'enhancement' }, { name: 'spec' }],
-};
-// gh and git answers: ticket 7 has one branch two commits ahead of the head.
-let refs = 'refs/heads/dev aaa\n';
-const reply = (argv: readonly string[]) => {
-  const ok = (stdout: string) => ({ exitCode: 0, stdout });
-  if (argv[0] === 'git') {
-    if (argv[1] === 'for-each-ref') return ok(refs);
-    if (argv[1] === 'rev-parse') return ok('abc\n');
-    if (argv[1] === 'branch') return ok('dev\nspec/12-dark-mode\nfeat/7-theme-toggle\nworktree-7-x\n');
-    if (argv[1] === 'rev-list') return ok(argv[3]?.endsWith('feat/7-theme-toggle') ? '2\n' : '0\n');
-  }
-  if (argv[1] === 'issue') return ok(JSON.stringify(argv[3] === '12' ? SPEC : ISSUE));
-  return ok(JSON.stringify(PR));
-};
-const PROPS = { isDraft: false, isWorking: false, hint: '▸▸ bypass permissions on' };
-// The language comes from the session's settings and LANG: none here, so English.
-// The directory the session is in; a test moves it to stand for a cd or a /clear.
-let dir = '/tmp/x';
-const quiet = (on: Parameters<typeof mock.env>[0]) => {
-  dir = '/tmp/x';
-  on('session.cwd', async () => ({ value: dir }));
-  mock.env(on, {});
-  on('settings.read', async () => ({ value: {} }));
-};
+import { BAND_PROPS, ISSUE, PR, PROPS, VIEWPORT, done, quiet, reply, st, tally, wire } from './testkit';
 
 for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
   test(`PromptHint ${name}`, async ($, on) => {
     const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
     quiet(on);
-    const done = { isStdoutTruncated: false, isStderrTruncated: false };
     on('session.start', async (_$, e) => ({ cwd: e.cwd }));
     on('process.run', async (_$, e) => {
       if (!hasPr) return { value: { exitCode: 1, stdout: '', stderr: 'no pull requests found', ...done } };
@@ -56,7 +17,7 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
     await $.session.start({ cwd: '/tmp/x' } as never);
     await clock.settle();
 
-    const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
+    const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: VIEWPORT });
     const hint = await ui.find({ type: 'Text', text: /bypass permissions/ });
     expect(hint).toBeDefined();
     const pr = await ui.find({ type: 'Button', key: 'pin' });
@@ -85,10 +46,7 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       expect(tree0).not.toContain('Spec #');
 
       // The AbovePrompt band: hidden with hover reveal until pinned, the full hierarchy, all tickets.
-      const band = await $.ui.mount({
-        plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt',
-        props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100 } as never,
-      });
+      const band = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS });
       const root = (await band.drawn()) as unknown as {
         props: { display?: string }; hover?: { scope?: string; display?: string }; children: Array<{ children?: unknown[] }>;
       };
@@ -117,10 +75,7 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
     } else {
       expect(pr).toBeUndefined();
       // No PR: the band passes through to the engine's own (stand-in) drawing too.
-      const band = await $.ui.mount({
-        plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt',
-        props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100 } as never,
-      });
+      const band = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS });
       expect(await band.find({ type: 'Text', text: /engine band/ })).toBeDefined();
       expect(JSON.stringify(await band.drawn())).not.toContain('pr-hint-card');
       await band.unmount();
@@ -132,7 +87,6 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
 test('hint is drawn as spans (no nested engine element) and the timers reuse cached tickets', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
   quiet(on);
-  const done = { isStdoutTruncated: false, isStderrTruncated: false };
   let issueCalls = 0;
   let gitCalls = 0;
   on('session.start', async (_$, e) => ({ cwd: e.cwd }));
@@ -145,7 +99,7 @@ test('hint is drawn as spans (no nested engine element) and the timers reuse cac
   await clock.settle();
   expect(issueCalls).toBe(2);
 
-  const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
+  const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: VIEWPORT });
   expect(await ui.find({ type: 'Button', key: 'pin' })).toBeDefined();
   expect(JSON.stringify(await ui.drawn())).not.toContain('"type":"engine"');
   await ui.unmount();
@@ -161,7 +115,6 @@ for (const state of ['MERGED', 'CLOSED']) {
   test(`a ${state} PR reads as no PR: the engine line is untouched`, async ($, on) => {
     const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
     quiet(on);
-    const done = { isStdoutTruncated: false, isStderrTruncated: false };
     on('session.start', async (_$, e) => ({ cwd: e.cwd }));
     on('process.run', async (_$, e) => {
       const out = e.argv[1] === 'pr' ? { ...PR, state } : {};
@@ -170,94 +123,16 @@ for (const state of ['MERGED', 'CLOSED']) {
     on('ui.render', { component: 'PromptHint' }, async (_$, e) => ({ type: 'Text', children: [e.props.hint] }) as never);
     await $.session.start({ cwd: '/tmp/x' } as never);
     await clock.settle();
-    const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
+    const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: VIEWPORT });
     expect(await ui.find({ type: 'Button', key: 'pin' })).toBeUndefined();
     expect(await ui.find({ type: 'Text', text: /bypass permissions/ })).toBeDefined();
     await ui.unmount();
   });
 }
 
-test('a PR read in directory A is not drawn once the session is in B (no PR there)', async ($, on) => {
-  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
-  quiet(on);
-  dir = '/tmp/a';
-  on('session.start', async (_$, e) => ({ cwd: e.cwd }));
-  on('process.run', async (_$, e) => {
-    // gh answers only in A, as a repo with no PR for B.
-    const r = dir === '/tmp/a' ? reply(e.argv) : { exitCode: 1, stdout: '' };
-    return { value: { ...r, stderr: '', ...done } };
-  });
-  on('ui.render', { component: 'AbovePrompt' }, async () => ({ type: 'Text', children: ['engine band'] }) as never);
-  on('ui.render', { component: 'PromptHint' }, async (_$, e) => ({ type: 'Text', children: [e.props.hint] }) as never);
-  await $.session.start({ cwd: '/tmp/a' } as never);
-  await clock.settle();
-  const props = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100 } as never;
-  const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
-  const band = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props });
-  expect(await ui.find({ type: 'Text', text: /^PR #10$/ })).toBeDefined();
-
-  // /clear or cd: no session.start, no timer yet; the next draw already drops the old PR.
-  dir = '/tmp/b';
-  await ui.unmount();
-  await band.unmount();
-  const ui2 = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
-  const band2 = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props });
-  expect(JSON.stringify(await ui2.drawn())).not.toContain('PR #');
-  expect(await ui2.find({ type: 'Text', text: /bypass permissions/ })).toBeDefined();
-  expect(await band2.find({ type: 'Text', text: /engine band/ })).toBeDefined();
-  expect(JSON.stringify(await band2.drawn())).not.toContain('pr-hint-card');
-  // The stale draw kicked a full refresh, which read no PR in B and cleared the atom.
-  await clock.settle();
-  expect(JSON.stringify(await ui2.drawn())).not.toContain('PR #');
-  await ui2.unmount();
-  await band2.unmount();
-});
-
-test('the 20s tick in another directory drops the cache instead of reusing it', async ($, on) => {
-  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
-  wire(on);
-  dir = '/tmp/a';
-  on('ui.render', { component: 'PromptHint' }, async (_$, e) => ({ type: 'Text', children: [e.props.hint] }) as never);
-  await $.session.start({ cwd: '/tmp/a' } as never);
-  await clock.settle();
-  const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
-  expect(await ui.find({ type: 'Text', text: /^PR #10$/ })).toBeDefined();
-  await ui.unmount();
-  dir = '/tmp/b';
-  const issuesBefore = tally.issue;
-  refs = 'refs/heads/dev aaa\nrefs/heads/other bbb\n';
-  await clock.advance(20_000);
-  // Cleared, not recomputed from A's cache: no issue or status calls were made for B.
-  expect(tally.issue).toBe(issuesBefore);
-  const ui2 = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
-  expect(await ui2.find({ type: 'Button', key: 'pin' })).toBeUndefined();
-  await ui2.unmount();
-});
-
-test('without a PR the agents pill is still hidden; a hint without it is passed through', async ($, on) => {
-  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
-  quiet(on);
-  on('session.start', async (_$, e) => ({ cwd: e.cwd }));
-  on('process.run', async () => ({ value: { exitCode: 1, stdout: '', stderr: '', ...done } }));
-  on('ui.render', { component: 'PromptHint' }, async (_$, e) => ({ type: 'Text', children: [e.props.hint] }) as never);
-  await $.session.start({ cwd: '/tmp/x' } as never);
-  await clock.settle();
-  const mount = (hint: string) => $.ui.mount({
-    plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: { ...PROPS, hint }, viewport: { columns: 160, rows: 50 },
-  });
-  const ui = await mount('▸▸ bypass permissions on · ← 3 agents');
-  expect(JSON.stringify(await ui.drawn())).not.toContain('← 3 agents');
-  expect(await ui.find({ type: 'Text', text: /bypass permissions on/ })).toBeDefined();
-  await ui.unmount();
-  const plain = await mount('▸▸ bypass permissions on');
-  expect(await plain.find({ type: 'Text', text: /^▸▸ bypass permissions on$/ })).toBeDefined();
-  await plain.unmount();
-});
-
 test('the ticket cache is recomputed when headRefOid changes', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
   quiet(on);
-  const done = { isStdoutTruncated: false, isStderrTruncated: false };
   let oid = 'aaa';
   let issueCalls = 0;
   on('session.start', async (_$, e) => ({ cwd: e.cwd }));
@@ -276,29 +151,6 @@ test('the ticket cache is recomputed when headRefOid changes', async ($, on) => 
   expect(issueCalls).toBe(4);
 });
 
-// Three tiers: 20 s local git, 60 s PR, 5 min issues.
-const done = { isStdoutTruncated: false, isStderrTruncated: false };
-const tally = { refs: 0, branch: 0, pr: 0, issue: 0 };
-let issue7 = ISSUE;
-const wire = (on: Parameters<typeof mock.env>[0], gate?: Promise<void>) => {
-  Object.assign(tally, { refs: 0, branch: 0, pr: 0, issue: 0 });
-  refs = 'refs/heads/dev aaa\n';
-  issue7 = ISSUE;
-  quiet(on);
-  on('session.start', async (_$, e) => ({ cwd: e.cwd }));
-  on('process.run', async (_$, e) => {
-    if (e.argv[1] === 'for-each-ref') tally.refs++;
-    if (e.argv[1] === 'branch') tally.branch++;
-    if (e.argv[1] === 'issue') tally.issue++;
-    if (e.argv[1] === 'pr') {
-      tally.pr++;
-      if (gate) await gate;
-    }
-    const r = e.argv[1] === 'issue' && e.argv[3] === '7' ? { exitCode: 0, stdout: JSON.stringify(issue7) } : reply(e.argv);
-    return { value: { ...r, stderr: '', ...done } };
-  });
-};
-
 test('the 20s tick: an unchanged ref snapshot recomputes nothing, a changed one recomputes with no gh call', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
   wire(on);
@@ -311,7 +163,7 @@ test('the 20s tick: an unchanged ref snapshot recomputes nothing, a changed one 
   expect(tally.pr).toBe(base.pr);
   expect(tally.issue).toBe(base.issue);
 
-  refs = 'refs/heads/dev aaa\nrefs/heads/feat/12-x bbb\n';
+  st.refs = 'refs/heads/dev aaa\nrefs/heads/feat/12-x bbb\n';
   const before = { ...tally };
   await clock.advance(20_000);
   expect(tally.branch).toBe(before.branch + 1);
@@ -324,12 +176,9 @@ test('the 5 min tick re-reads the issues and flips a CLOSED ticket to accepted',
   wire(on);
   await $.session.start({ cwd: '/tmp/x' } as never);
   await clock.settle();
-  const band = await $.ui.mount({
-    plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100 } as never,
-  });
+  const band = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS });
   expect(await band.find({ type: 'Text', text: /^● #7 in progress/ })).toBeDefined();
-  issue7 = { ...ISSUE, state: 'CLOSED' };
+  st.issue7 = { ...ISSUE, state: 'CLOSED' };
   await clock.advance(240_000);
   const issuesBefore = tally.issue;
   expect(await band.find({ type: 'Text', text: /^● #7 in progress/ })).toBeDefined();
