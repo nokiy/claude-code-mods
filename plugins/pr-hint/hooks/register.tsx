@@ -166,17 +166,29 @@ export const register: Register = (on, options) => {
             onPress={() => update($, pinned, p => !p)}
           />
         </Box>
-        <Text key="pr-group" wrap="truncate-end">
-          <Text>{' '}</Text>
-          <Text color="cyan" bold>{`PR #${data.number}`}</Text>
-          <Text>{` ${layout.title}`}</Text>
-          {layout.hasSummary ? <Text dimColor>{' · '}</Text> : null}
-          {layout.hasSummary ? <Text>{`${t.merged} `}</Text> : null}
-          {layout.hasSummary ? <Text color="blueBright" bold>{`${sum.merged}/${sum.total}`}</Text> : null}
-          {layout.hasSummary ? <Text dimColor>{' · '}</Text> : null}
-          {layout.hasSummary ? <Text>{`${t.accepted} `}</Text> : null}
-          {layout.hasSummary ? <Text color="green" bold>{`${sum.done}/${sum.total}`}</Text> : null}
-        </Text>
+        <Box flexShrink={0}>
+          <Text key="pr-num">
+            <Text>{' '}</Text>
+            <Text color="cyan" bold>{`PR #${data.number}`}</Text>
+          </Text>
+        </Box>
+        {/* Only the title shrinks: the row's real width (the engine's own pills included) decides
+            where it is cut, so the counts after it always stay whole. */}
+        <Box flexShrink={1}>
+          <Text key="pr-title" wrap="truncate-end">{` ${layout.hasSummary ? data.title : layout.title}`}</Text>
+        </Box>
+        {layout.hasSummary ? (
+          <Box flexShrink={0}>
+            <Text key="pr-sum">
+              <Text dimColor>{' · '}</Text>
+              <Text>{`${t.merged} `}</Text>
+              <Text color="blueBright" bold>{`${sum.merged}/${sum.total}`}</Text>
+              <Text dimColor>{' · '}</Text>
+              <Text>{`${t.accepted} `}</Text>
+              <Text color="green" bold>{`${sum.done}/${sum.total}`}</Text>
+            </Text>
+          </Box>
+        ) : null}
       </Box>
     );
   });

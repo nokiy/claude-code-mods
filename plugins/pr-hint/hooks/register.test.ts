@@ -60,7 +60,9 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       // One row: the hint, the ▸ pin Button, then `PR #N` (cyan, bold), title and counts in one Text.
       expect((await ui.find({ type: 'Text', text: /^▸▸ bypass/ }))?.text).toBe('▸▸ bypass permissions on · ');
       expect(pr?.props.label).toBe('▸');
-      expect((await ui.find({ type: 'Text', text: /Add dark mode/ }))?.text).toBe(' PR #10 Add dark mode · merged 0/1 · accepted 0/1');
+      // PR number, title (the only part that shrinks) and counts are separate pieces of one row.
+      expect((await ui.find({ type: 'Text', text: /Add dark mode/ }))?.text).toBe(' Add dark mode');
+      expect((await ui.find({ type: 'Text', text: /merged/ }))?.text).toBe(' · merged 0/1 · accepted 0/1');
       const num = await ui.find({ type: 'Text', text: /^PR #10$/ });
       expect(num?.props.color).toBe('cyan');
       expect(num?.props.bold).toBe(true);
