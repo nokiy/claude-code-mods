@@ -200,17 +200,40 @@ export function ticketBranches(n: number, names: readonly string[]): string[] {
   return names.filter(b => !b.startsWith('worktree-') && re.test(b));
 }
 
+/** PR commit headlines -> tickets they merged: `<type>(#N): ...`, or a merge headline naming a `/N-` branch. Body mentions never count. */
+export function mergedByCommits(headlines: readonly string[], numbers: readonly number[]): Set<number> {
+  const wanted = new Set(numbers);
+  const out = new Set<number>();
+  for (const h of headlines) {
+    const m = /^[a-z]+\(#(\d+)\):/.exec(h);
+    if (m && wanted.has(Number(m[1]))) out.add(Number(m[1]));
+    if (!h.startsWith('Merge')) continue;
+    for (const b of h.matchAll(/\/(\d+)-/g)) if (wanted.has(Number(b[1]))) out.add(Number(b[1]));
+  }
+  return out;
+}
+
+/** Local and git facts about one ticket. */
+export type TicketFacts = {
+  /** A ticket branch is the PR head itself (single-ticket delivery). */
+  isHead: boolean;
+  /** One `rev-list --count <head>..<branch>` per local ticket branch. */
+  counts: readonly number[];
+  /** A PR commit headline names the ticket (see mergedByCommits). */
+  isMerged: boolean;
+}
+
 /**
- * Ticket status from local facts. `counts` holds one
- * `rev-list --count <head>..<branch>` per branch of the ticket.
- * done = issue CLOSED, or an acceptance table that is all ✓ (n > 0);
- * it overrides the git-derived statuses.
+ * Ticket status, by priority: done (issue CLOSED, or an all-✓ acceptance table)
+ * > doing (a ticket branch is the head, or a branch is ahead of it)
+ * > merged (a PR commit headline names it) > todo.
+ * Branch existence alone only ever means "doing".
  */
-export function ticketStatus(state: string, progress: PrProgress | null, counts: readonly number[]): TicketStatus {
+export function ticketStatus(state: string, progress: PrProgress | null, facts: TicketFacts): TicketStatus {
   if (state === 'CLOSED') return 'done';
   if (progress && progress.total > 0 && progress.done === progress.total) return 'done';
-  if (counts.length === 0) return 'todo';
-  return counts.some(c => c > 0) ? 'doing' : 'merged';
+  if (facts.isHead || facts.counts.some(c => c > 0)) return 'doing';
+  return facts.isMerged ? 'merged' : 'todo';
 }
 
 /** `merged` counts merged and done tickets; `done` counts done ones (the accepted number). */

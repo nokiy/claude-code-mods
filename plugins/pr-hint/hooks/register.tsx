@@ -3,7 +3,7 @@
 import { atom, read, update } from 'claude-code';
 import type { EngineInterface, Register } from 'claude-code';
 import { cardLines, hintLayout, hintSpans, withoutAgents } from './card';
-import { closingNumbers, isSpecIssue, parseJson, parsePr, parseTicket, summarize, ticketBranches, ticketStatus, width } from './parse';
+import { closingNumbers, isSpecIssue, mergedByCommits, parseJson, parsePr, parseTicket, summarize, ticketBranches, ticketStatus, width } from './parse';
 import { pickLang, strings } from './strings';
 import type { Strings } from './strings';
 import type { PrData, PrTicket } from '../types';
@@ -16,7 +16,7 @@ const pinned = atom({ plugin: 'pr-hint', key: 'pinned' } as const, false);
 const SCOPE = 'pr-hint-card';
 
 const PR_FIELDS =
-  'number,title,state,isDraft,reviewDecision,statusCheckRollup,additions,deletions,changedFiles,closingIssuesReferences,mergeable,baseRefName,headRefName,url,updatedAt,body';
+  'number,title,state,isDraft,reviewDecision,statusCheckRollup,additions,deletions,changedFiles,closingIssuesReferences,mergeable,baseRefName,headRefName,headRefOid,commits,url,updatedAt,body';
 
 // Module-level on purpose: the validator wants `$` passed only to top-level
 // functions of this file. A reload drops it with the rest of the environment.
@@ -41,12 +41,13 @@ async function resolveHead($: EngineInterface, head: string): Promise<string | n
   return null;
 }
 
-// Sets each ticket's status from branch names and `rev-list --count head..branch`.
-async function applyStatuses($: EngineInterface, tickets: PrTicket[], headRef: string): Promise<PrTicket[]> {
+// Sets each ticket's status from the PR's commit headlines, branch names and `rev-list --count head..branch`.
+async function applyStatuses($: EngineInterface, tickets: PrTicket[], headRef: string, headlines: string[]): Promise<PrTicket[]> {
   const head = await resolveHead($, headRef);
   const list = head === null ? null : await $.process.run(['git', 'branch', '-a', '--format=%(refname:short)']);
   const names = list && list.exitCode === 0 ? list.stdout.split('\n').map(s => s.trim()).filter(Boolean) : [];
   const out: PrTicket[] = [];
+  const merged = mergedByCommits(headlines, tickets.map(tk => tk.number));
   for (const tk of tickets) {
     const found: Array<{ b: string; n: number }> = [];
     for (const b of head === null ? [] : ticketBranches(tk.number, names)) {
@@ -59,7 +60,11 @@ async function applyStatuses($: EngineInterface, tickets: PrTicket[], headRef: s
     const shown = [...found].sort((x, y) => y.n - x.n || Number(x.b.startsWith('origin/')) - Number(y.b.startsWith('origin/')))[0];
     out.push({
       ...tk,
-      status: ticketStatus(tk.state, tk.progress, found.map(f => f.n)),
+      status: ticketStatus(tk.state, tk.progress, {
+        isHead: ticketBranches(tk.number, [headRef]).length > 0,
+        counts: found.map(f => f.n),
+        isMerged: merged.has(tk.number),
+      }),
       branch: shown?.b ?? null,
       ahead,
     });
@@ -81,7 +86,8 @@ async function fetchPr($: EngineInterface, isFull: boolean): Promise<PrData | nu
     if (json.state !== 'OPEN') return null;
 
     const nums = closingNumbers(json);
-    const key = nums.join(',');
+    // The head commit is part of the key: when the head moves, statuses are recomputed.
+    const key = `${nums.join(',')}@${(typeof json.headRefOid === 'string' ? json.headRefOid : '')}`;
     if (isFull || cache === null || cache.key !== key) {
       const tickets: PrTicket[] = [];
       let spec: PrData['spec'] = null;
@@ -92,8 +98,9 @@ async function fetchPr($: EngineInterface, isFull: boolean): Promise<PrData | nu
         if (issue && isSpecIssue(issue)) spec = { number: Number(issue.number), title: String(issue.title ?? '') };
         else if (issue) tickets.push(parseTicket(issue));
       }
-      const headRef = typeof json.headRefName === 'string' ? json.headRefName : '';
-      cache = { key, tickets: await applyStatuses($, tickets, headRef), spec };
+      const commits = Array.isArray(json.commits) ? (json.commits as Array<Record<string, unknown>>) : [];
+      const headlines = commits.map(c => String(c.messageHeadline ?? ''));
+      cache = { key, tickets: await applyStatuses($, tickets, (typeof json.headRefName === 'string' ? json.headRefName : ''), headlines), spec };
     }
     return parsePr(json, cache.tickets, cache.spec);
   } catch {

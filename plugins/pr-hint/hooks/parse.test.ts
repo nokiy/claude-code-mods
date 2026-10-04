@@ -1,7 +1,8 @@
 // Unit tests for the pure helpers (CI fold, cell widths, wrapping, git ticket status), all on synthetic data.
 import { describe, expect, test } from 'claude-code/testing';
 import type { PrTicket, TicketStatus } from '../types';
-import { bodyClosingNumbers, closingNumbers, parseAcceptance, parseCi, relTime, shortTitle, sortTickets, summarize, ticketBranches, ticketStatus, truncate, width, wrapCells } from './parse';
+import type { TicketFacts } from './parse';
+import { bodyClosingNumbers, closingNumbers, mergedByCommits, parseAcceptance, parseCi, relTime, shortTitle, sortTickets, summarize, ticketBranches, ticketStatus, truncate, width, wrapCells } from './parse';
 import { strings } from './strings';
 
 describe('parseCi', () => {
@@ -67,14 +68,39 @@ describe('ticket status from git', () => {
     expect(ticketBranches(13, names)).toEqual([]);
     expect(ticketBranches(14, ['worktree-14-x'])).toEqual([]);
   });
+  const F = (o: Partial<TicketFacts> = {}): TicketFacts => ({ isHead: false, counts: [], isMerged: false, ...o });
   test('status rules: CLOSED or an all-✓ table is done and overrides git', () => {
-    expect(ticketStatus('OPEN', null, [])).toBe('todo');
-    expect(ticketStatus('OPEN', null, [0, 3])).toBe('doing');
-    expect(ticketStatus('OPEN', null, [0, 0])).toBe('merged');
-    expect(ticketStatus('CLOSED', null, [5])).toBe('done');
-    expect(ticketStatus('OPEN', { done: 3, total: 3, maxRounds: 0 }, [4])).toBe('done');
-    expect(ticketStatus('OPEN', { done: 0, total: 0, maxRounds: 0 }, [])).toBe('todo');
-    expect(ticketStatus('OPEN', { done: 2, total: 3, maxRounds: 0 }, [0])).toBe('merged');
+    expect(ticketStatus('CLOSED', null, F({ counts: [5] }))).toBe('done');
+    expect(ticketStatus('OPEN', { done: 3, total: 3, maxRounds: 0 }, F({ counts: [4], isHead: true }))).toBe('done');
+    expect(ticketStatus('OPEN', { done: 0, total: 0, maxRounds: 0 }, F())).toBe('todo');
+    expect(ticketStatus('OPEN', { done: 2, total: 3, maxRounds: 0 }, F({ isMerged: true }))).toBe('merged');
+  });
+  test('status rules: head branch or a branch ahead is doing; branches alone never mean merged', () => {
+    expect(ticketStatus('OPEN', null, F({ isHead: true }))).toBe('doing');
+    expect(ticketStatus('OPEN', null, F({ counts: [0, 3] }))).toBe('doing');
+    expect(ticketStatus('OPEN', null, F({ counts: [0, 3], isMerged: true }))).toBe('doing');
+    // Every branch fully merged, no headline: not started (the old rule said merged).
+    expect(ticketStatus('OPEN', null, F({ counts: [0, 0] }))).toBe('todo');
+  });
+  test('status rules: a deleted branch plus a headline is merged; neither is not started', () => {
+    expect(ticketStatus('OPEN', null, F({ isMerged: true }))).toBe('merged');
+    expect(ticketStatus('OPEN', null, F())).toBe('todo');
+  });
+  test('mergedByCommits: strict <type>(#N): headlines and merge headlines naming /N-', () => {
+    const heads = [
+      'feat(#5): add toggle',
+      'fix(#6): repair it',
+      'docs: absorb #7 into notes',
+      'chore: 吸收 #8',
+      "Merge branch 'fix/9-thing' into spec/1-demo",
+      'Merge pull request #3 from org/feat/10-other',
+      'refactor(#11) missing colon',
+      'fix: see feat(#12): quoted',
+    ];
+    expect([...mergedByCommits(heads, [5, 6, 7, 8, 9, 10, 11, 12, 13])].sort((a, b) => a - b)).toEqual([5, 6, 9, 10]);
+    // Numbers not asked for are ignored.
+    expect([...mergedByCommits(heads, [6])]).toEqual([6]);
+    expect(mergedByCommits([], [1]).size).toBe(0);
   });
   const mk = (number: number, status: TicketStatus): PrTicket => ({ number, title: '', state: '', progress: null, status, branch: null, ahead: 0 });
   test('summarize: merged = merged + done, accepted = done', () => {

@@ -170,3 +170,25 @@ for (const state of ['MERGED', 'CLOSED']) {
     await ui.unmount();
   });
 }
+
+test('the ticket cache is recomputed when headRefOid changes', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  quiet(on);
+  const done = { isStdoutTruncated: false, isStderrTruncated: false };
+  let oid = 'aaa';
+  let issueCalls = 0;
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }));
+  on('process.run', async (_$, e) => {
+    if (e.argv[1] === 'issue') issueCalls++;
+    const r = e.argv[1] === 'pr' ? { exitCode: 0, stdout: JSON.stringify({ ...PR, headRefOid: oid }) } : reply(e.argv);
+    return { value: { ...r, stderr: '', ...done } };
+  });
+  await $.session.start({ cwd: '/tmp/x' } as never);
+  await clock.settle();
+  expect(issueCalls).toBe(2);
+  await clock.advance(60_000);
+  expect(issueCalls).toBe(2);
+  oid = 'bbb';
+  await clock.advance(60_000);
+  expect(issueCalls).toBe(4);
+});
