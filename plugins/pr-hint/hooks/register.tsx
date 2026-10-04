@@ -13,9 +13,6 @@ const pr = atom({ plugin: 'pr-hint', key: 'pr' } as const, null);
 const PR_FIELDS =
   'number,title,state,isDraft,reviewDecision,statusCheckRollup,additions,deletions,changedFiles,closingIssuesReferences,mergeable,baseRefName,headRefName,url,updatedAt,body';
 
-// Shared hover scope: the hint row lights it, the AbovePrompt card is revealed by it.
-const SCOPE = 'pr-hint-card';
-
 // Module-level on purpose: the validator wants `$` passed only to top-level
 // functions of this file. A reload drops it with the rest of the environment.
 let isBusy = false;
@@ -129,8 +126,7 @@ export const register: Register = (on, options) => {
     return next(e);
   });
 
-  // Hint row: one Text of inline spans (nothing can stack). The Box is the hover handle:
-  // the AbovePrompt card below shares its `scope`.
+  // Hint row: one Text of inline spans (nothing can stack).
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const data = await read($, pr);
     if (data === null) return next(e);
@@ -143,7 +139,7 @@ export const register: Register = (on, options) => {
     const sum = summarize(data.tickets);
 
     return (
-      <Box key="pr-hint" flexDirection="row" hover={{ scope: SCOPE }}>
+      <Box key="pr-hint" flexDirection="row">
         <Text key="pr-group" wrap="truncate-end">
           {hintSpans(e.props.hint).map((p, i) => (
             <Text key={`h${i}`} color={p.color} dimColor={p.dim}>{p.text}</Text>
@@ -163,7 +159,7 @@ export const register: Register = (on, options) => {
   });
 
   // The detail card lives in the AbovePrompt band: an absolute Box under PromptHint is
-  // clipped by the bottom slot. It is hidden until the hint row's scope is hovered; the band
+  // clipped by the bottom slot. It is always shown while there is an OPEN PR; the band
   // scrolls by itself when taller than maxRows, so no ticket is dropped.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const data = await read($, pr);
@@ -177,8 +173,6 @@ export const register: Register = (on, options) => {
 
     return (
       <Box
-        display="none"
-        hover={{ scope: SCOPE, display: 'flex' }}
         flexDirection="column"
         borderStyle="round"
         paddingX={1}

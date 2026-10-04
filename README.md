@@ -6,7 +6,7 @@
 | --- | --- |
 | [paste-peek](plugins/paste-peek) | See the images you paste into the prompt, in real pixels, right above it. Switch with ⌥←/⌥→, zoom with ⌥↑, side pane with ⌥↓. **Terminal: Ghostty or kitty** (macOS). |
 | [agent-monitor](plugins/agent-monitor) | Watch your subagents: a live band above the prompt, and `/sub` with history, alerts (file conflicts, stalls, tier mismatches, denied calls), per-agent detail and a cost estimate. English UI, Chinese optional. |
-| [pr-hint](plugins/pr-hint) | See your branch's open PR on the prompt hint row; hover for the spec, integration branch, CI and every ticket's progress. Needs `gh` and a fullscreen terminal. English UI, Chinese optional. |
+| [pr-hint](plugins/pr-hint) | See your branch's open PR on the prompt hint row; a card above the prompt shows the spec, integration branch, CI and every ticket's progress. Needs `gh`. English UI, Chinese optional. |
 
 ### Zoom — ⌥↑
 

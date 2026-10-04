@@ -66,12 +66,12 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       expect(tree0).not.toContain('"type":"engine"');
       expect(tree0).not.toContain('flexGrow');
       expect(await ui.find({ type: 'Text', text: /● #12/ })).toBeUndefined();
-      // The hint row carries the hover scope; it has no card of its own.
-      expect(tree0).toContain('"hover":{"scope":"pr-hint-card"}');
+      // The hint row is a plain row: no hover, no card of its own.
+      expect(tree0).not.toContain('"hover"');
       expect(tree0).not.toContain('"position":"absolute"');
       expect(tree0).not.toContain('Spec #');
 
-      // The AbovePrompt band: a hidden card revealed by that scope, the full hierarchy, all tickets.
+      // The AbovePrompt band: an always-shown card, the full hierarchy, all tickets.
       const band = await $.ui.mount({
         plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt',
         props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100 } as never,
@@ -79,8 +79,8 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       const root = (await band.drawn()) as unknown as {
         props: { display?: string }; hover?: { scope?: string; display?: string }; children: Array<{ children?: unknown[] }>;
       };
-      expect(root.props.display).toBe('none');
-      expect(root.hover).toEqual({ scope: 'pr-hint-card', display: 'flex' });
+      expect(root.props.display).toBeUndefined();
+      expect(root.hover).toBeUndefined();
       const lines = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '');
       const idx = (re: RegExp) => lines.findIndex(l => re.test(l));
       // Order: title, Spec, CI + summary, ticket lines, link row (the Spec is not a ticket line).

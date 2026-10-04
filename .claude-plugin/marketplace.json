@@ -27,7 +27,7 @@
     {
       "name": "pr-hint",
       "source": "./plugins/pr-hint",
-      "description": "Shows the current branch's open PR on the prompt hint row (title, merged and accepted counts); hover expands the spec, integration branch, CI and every ticket's progress.",
+      "description": "Shows the current branch's open PR on the prompt hint row (title, merged and accepted counts); a card above the prompt shows the spec, integration branch, CI and every ticket's progress.",
       "version": "0.0.1",
       "author": { "name": "nokiy" },
       "homepage": "https://github.com/nokiy/claude-code-mods/tree/main/plugins/pr-hint",

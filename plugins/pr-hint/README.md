@@ -1,10 +1,10 @@
 # pr-hint
 
-Show the pull request of your current branch right on the prompt hint row, and hover it to see the spec, the integration branch and how far every ticket has come.
+Show the pull request of your current branch right on the prompt hint row, with a card above the prompt showing the spec, the integration branch and how far every ticket has come.
 
 [中文说明](README.zh-CN.md)
 
-> Requires Claude Code ≥ 2.1.287, the GitHub CLI (`gh`) authenticated for the repo, and a fullscreen terminal for the hover.
+> Requires Claude Code ≥ 2.1.287 and the GitHub CLI (`gh`) authenticated for the repo.
 
 ## What it does
 
@@ -16,7 +16,7 @@ When the branch your session is on has an **open** pull request, the hint row (t
 
 The mode phrase keeps its colour, the PR title takes all remaining width, and on narrow rows the counts drop first, then the title shrinks.
 
-Hover the row and a band above the prompt opens:
+While the PR is open, a card stays above the prompt (the band's `[-]` collapses it):
 
 ```
 ╭──────────────────────────────────────────────────────────────────────────╮
