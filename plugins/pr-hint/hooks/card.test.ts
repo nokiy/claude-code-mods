@@ -1,7 +1,7 @@
 // Tests the AbovePrompt card text (hierarchy, ordered full ticket lines), the hint layout and the hint spans, on synthetic data.
 import { expect, test } from 'claude-code/testing';
 import type { PrData, PrTicket } from '../types';
-import { cardLines, hintLayout, hintSpans, withoutAgents } from './card';
+import { cardLines, hintLayout, hintSpans, ticketSubjects, withoutAgents } from './card';
 import { width } from './parse';
 import { strings } from './strings';
 
@@ -125,6 +125,20 @@ test('hint row: under 8 cells for the title drops the summary first, then the ti
   expect(narrow.hasSummary).toBe(false);
   expect(width(narrow.title)).toBeGreaterThanOrEqual(7);
   expect(hintLayout({ ...base, tickets: [] }, 200, en).hasSummary).toBe(false);
+});
+
+test('ticketSubjects drops the lead every ticket shares, keeping the ordinal and the subject', () => {
+  const mk = (number: number, title: string) => ({ number, title }) as never;
+  const shared = ticketSubjects([
+    mk(1, '深色模式 ① · 骨架——设置页开关'),
+    mk(2, '深色模式 ② · 编辑器配色（吸收 #3）'),
+  ]);
+  expect(shared.get(1)).toBe('① 骨架——设置页开关');
+  expect(shared.get(2)).toBe('② 编辑器配色（吸收 #3）');
+  // Different leads, or a single ticket: titles stay as they are.
+  const mixed = ticketSubjects([mk(1, '深色模式 ① · 骨架'), mk(2, '导出 ① · 格式')]);
+  expect(mixed.get(1)).toBe('深色模式 ① · 骨架');
+  expect(ticketSubjects([mk(1, '深色模式 ① · 骨架')]).get(1)).toBe('深色模式 ① · 骨架');
 });
 
 test('withoutAgents drops the agents pill so the row keeps one length while typing', () => {

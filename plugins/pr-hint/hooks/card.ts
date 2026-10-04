@@ -17,10 +17,25 @@ export const STATUS_COLOR: Record<TicketStatus, string> = {
 
 const line = (parts: CardPart[]): CardLine => ({ text: parts.map(p => p.text).join(''), parts });
 
-// `● #9 merged <short title>`, then the branch (dim) and, when ahead, `N commits behind`.
+// A ticket title's lead before the first ` · `, split into the shared part and its ordinal:
+// `Codex 页重构 ⑦ · 切号 + 重启` → base `Codex 页重构`, ordinal `⑦`, rest `切号 + 重启`.
+const LEAD = /^(.+?)\s*([①-⑳]|\d+[a-z]?)?\s*·\s*(.+)$/u;
+
+/**
+ * When every ticket (two or more) shares the same lead (the Spec's subject), drops it and
+ * keeps the ordinal and what this ticket does: `⑦ 切号 + 重启`. Otherwise the title is unchanged.
+ */
+export function ticketSubjects(tickets: readonly PrTicket[]): Map<number, string> {
+  const parsed = tickets.map(t => ({ n: t.number, title: t.title, m: LEAD.exec(t.title) }));
+  const bases = new Set(parsed.map(p => p.m?.[1]?.trim() ?? null));
+  const shared = tickets.length >= 2 && bases.size === 1 && !bases.has(null);
+  return new Map(parsed.map(p => [p.n, shared && p.m ? `${p.m[2] ? `${p.m[2]} ` : ''}${p.m[3]}` : p.title]));
+}
+
+// `● #9 merged <subject>`, then the branch (dim) and, when ahead, `N commits behind`.
 // The status alone says where a ticket stands (accepted turns the dot green); no per-row counts.
 // The title takes the width the rest of the line leaves inside `inner`.
-const ticketLine = (t: PrTicket, s: Strings, inner: number): CardLine => {
+const ticketLine = (t: PrTicket, subject: string, s: Strings, inner: number): CardLine => {
   const color = STATUS_COLOR[t.status];
   const head = ` #${t.number} ${s.status[t.status]} `;
   const branch = t.branch ? ` · ${t.branch}` : '';
@@ -30,7 +45,7 @@ const ticketLine = (t: PrTicket, s: Strings, inner: number): CardLine => {
     { text: '●', color },
     { text: ` #${t.number} ` },
     { text: s.status[t.status], color },
-    { text: ` ${shortTitle(t.title, room)}` },
+    { text: ` ${shortTitle(subject, room)}` },
     ...(branch ? [{ text: branch, dim: true }] : []),
     ...(behind ? [{ text: behind, color: 'yellow' }] : []),
   ]);
@@ -64,6 +79,7 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings):
     ci.total === 0 ? s.noCi : `CI ✓${ci.ok}/${ci.total}${ci.fail > 0 ? ` ✗${ci.fail}` : ''}${ci.pending > 0 ? ` ⟳${ci.pending}` : ''}`;
   const ciColor = ci.total === 0 ? undefined : ci.fail > 0 ? 'red' : ci.pending > 0 ? 'yellow' : 'green';
   const sum = summarize(pr.tickets);
+  const subjects = ticketSubjects(pr.tickets);
   const summary = line([
     { text: ciText, color: ciColor },
     ...(pr.tickets.length === 0
@@ -77,7 +93,7 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings):
   ]);
 
   return {
-    lines: [...title, meta, summary, ...sortTickets(pr.tickets).map(t => ticketLine(t, s, inner))],
+    lines: [...title, meta, summary, ...sortTickets(pr.tickets).map(t => ticketLine(t, subjects.get(t.number) ?? t.title, s, inner))],
     footer: s.updated(relTime(pr.updatedAt, nowMs, s)),
   };
 }
