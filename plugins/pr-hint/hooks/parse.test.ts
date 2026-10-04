@@ -132,7 +132,7 @@ describe('closing numbers', () => {
 
 describe('shortTitle', () => {
   test('cuts at —— , " — " or （ then truncates', () => {
-    expect(shortTitle('设置页 ② · 主题按系统切换——台账 / 标定（吸收 #3）', 30)).toBe('设置页 ② · 主题按系统切换');
+    expect(shortTitle('设置页 ② · 主题按系统切换——设置页 / 主题（吸收 #3）', 30)).toBe('设置页 ② · 主题按系统切换');
     expect(shortTitle('Dark mode · 深色 — Feature Spec', 30)).toBe('Dark mode · 深色');
     expect(shortTitle('标题（备注）', 30)).toBe('标题');
     expect(width(shortTitle('一二三四五六七八九十一二三四五六七八九十', 30))).toBeLessThanOrEqual(30);
