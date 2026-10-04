@@ -18,7 +18,7 @@ export const STATUS_COLOR: Record<TicketStatus, string> = {
 const line = (parts: CardPart[]): CardLine => ({ text: parts.map(p => p.text).join(''), parts });
 
 // A ticket title's lead before the first ` · `, split into the shared part and its ordinal:
-// `Codex 页重构 ⑦ · 切号 + 重启` → base `Codex 页重构`, ordinal `⑦`, rest `切号 + 重启`.
+// `深色模式 ② · 编辑器配色` → base `深色模式`, ordinal `②`, rest `编辑器配色`.
 const LEAD = /^(.+?)\s*([①-⑳]|\d+[a-z]?)?\s*·\s*(.+)$/u;
 
 /**
