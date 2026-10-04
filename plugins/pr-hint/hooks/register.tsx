@@ -1,9 +1,10 @@
 // Hooks entry of pr-hint; refreshes PR data and draws the PromptHint line plus its hover-preview, click-to-pin card.
-// The engine's `$` and the PR atom stay in this file (the validator follows them nowhere else); text and parsing live in card.ts, parse.ts and strings.ts.
+// The engine's `$` and the PR atom stay in this file (the validator follows them nowhere else); text and parsing live in card.ts, graphql.ts, parse.ts and strings.ts.
 import { atom, read, update } from 'claude-code';
 import type { EngineInterface, Register } from 'claude-code';
 import { cardLines, hintLayout, hintSpans, refreshText, withoutAgents } from './card';
-import { closingNumbers, isSpecIssue, mergedByCommits, parseJson, parsePr, parseTicket, prHead, summarize, ticketBranches, ticketStatus, width } from './parse';
+import { PR_ARGS, PR_QUERY, REPO_ARGS, issuesQuery, parseGraphql, parseIssues, splitIssues } from './graphql';
+import { closingNumbers, mergedByCommits, parsePr, prHead, summarize, ticketBranches, ticketStatus, width } from './parse';
 import { pickLang, strings } from './strings';
 import type { Strings } from './strings';
 import type { PrData, PrTicket } from '../types';
@@ -17,9 +18,6 @@ const refreshing = atom({ plugin: 'pr-hint', key: 'refreshing' } as const, false
 // Shared hover scope: the hint row lights it, the AbovePrompt card is revealed by it.
 const SCOPE = 'pr-hint-card';
 
-const PR_FIELDS =
-  'number,title,state,isDraft,reviewDecision,statusCheckRollup,additions,deletions,changedFiles,closingIssuesReferences,mergeable,baseRefName,headRefName,headRefOid,commits,url,updatedAt,body';
-
 // Module-level on purpose: the validator wants `$` passed only to top-level
 // functions of this file. A reload drops it with the rest of the environment.
 let isBusy = false;
@@ -27,18 +25,18 @@ let isBusy = false;
 let isFullPending = false;
 // Callers of that queued full refresh (the manual ↻); released when it has run.
 let fullWaiters: Array<() => void> = [];
-// The three tier timers of this load; a repeated session.start cancels them before making new ones.
+// The two tier timers of this load; a repeated session.start cancels them before making new ones.
 let timers: Array<{ cancel: () => void }> = [];
-// `git for-each-ref` output at the last status computation; tier 1 recomputes only when it differs.
+// `git for-each-ref` output at the last status computation; the git tier recomputes only when it differs.
 let refSnap: string | null = null;
-type Json = NonNullable<ReturnType<typeof parseJson>>;
-// The open PR as last read: the directory it was read in, its JSON, the closing-issue numbers, the tickets as gh gave them (`raw`)
-// and with their git status (`tickets`). Tiers 1 and 3 recompute from this without asking gh for the PR.
-// `fetchedAt` is when gh last answered (full and pr fetches only); the git and issues recomputes keep it.
-type Cache = { cwd: string; key: string; json: Json; nums: number[]; raw: PrTicket[]; tickets: PrTicket[]; spec: PrData['spec']; fetchedAt: number };
+type Json = NonNullable<ReturnType<typeof parseGraphql>>;
+// The open PR as last read: the directory it was read in, its JSON, the tickets as gh gave them (`raw`)
+// and with their git status (`tickets`). The git tier recomputes from this without asking gh.
+// `fetchedAt` is when gh last answered; the git recompute keeps it.
+type Cache = { cwd: string; json: Json; raw: PrTicket[]; tickets: PrTicket[]; spec: PrData['spec']; fetchedAt: number };
 let cache: Cache | null = null;
-// full: PR, tickets and git · pr: the PR (tickets reused) · git: local refs only · issues: the closing issues.
-type Mode = 'full' | 'pr' | 'git' | 'issues';
+// full: PR, tickets and git, one gh request · git: local refs only.
+type Mode = 'full' | 'git';
 
 // The UI strings: the language option is read once per load (it needs the session's settings and LANG), English until then.
 let langOption: unknown = 'auto';
@@ -94,21 +92,6 @@ async function readRefs($: EngineInterface): Promise<string | null> {
   return r.exitCode === 0 ? r.stdout : null;
 }
 
-// Reads the closing issues; the one labelled `spec` is the Spec, not a ticket. `failed` counts issues gh did not answer.
-async function loadIssues($: EngineInterface, nums: number[]): Promise<{ raw: PrTicket[]; spec: PrData['spec']; failed: number }> {
-  const raw: PrTicket[] = [];
-  let spec: PrData['spec'] = null;
-  let failed = 0;
-  for (const n of nums) {
-    const res = await $.process.run(['gh', 'issue', 'view', String(n), '--json', 'number,title,state,body,labels']);
-    const issue = res.exitCode === 0 ? parseJson(res.stdout) : null;
-    if (issue && isSpecIssue(issue)) spec = { number: Number(issue.number), title: String(issue.title ?? '') };
-    else if (issue) raw.push(parseTicket(issue));
-    else failed++;
-  }
-  return { raw, spec, failed };
-}
-
 // Statuses from local git plus the PR's commits; remembers the ref snapshot they were computed at.
 async function settle($: EngineInterface, raw: PrTicket[], json: Json, refs: string | null): Promise<PrTicket[]> {
   refSnap = refs ?? refSnap;
@@ -116,30 +99,27 @@ async function settle($: EngineInterface, raw: PrTicket[], json: Json, refs: str
   return applyStatuses($, raw, headRef, headlines);
 }
 
-// Never throws: any failure (no gh, no PR, bad JSON) reads as "no PR".
-// `full` also re-reads the tickets and their git status; otherwise cached
-// ones are reused while the closing-issue numbers and the head commit are unchanged.
-async function fetchPr($: EngineInterface, mode: 'full' | 'pr'): Promise<PrData | null> {
+// Never throws: any failure (no gh, no PR, bad JSON) reads as "no PR". One `gh api graphql` request brings the PR
+// and its closing issues; only a PR into a non-default branch (GitHub links no issue) costs a second one for its `Closes #N` issues.
+async function fetchPr($: EngineInterface): Promise<PrData | null> {
   try {
     // Runs in the session's working directory by default; the data is tagged with it, read before gh runs.
     const cwd = await $.session.cwd();
-    const r = await $.process.run(['gh', 'pr', 'view', '--json', PR_FIELDS]);
-    const json = r.exitCode === 0 ? parseJson(r.stdout) : null;
+    const r = await $.process.run(['gh', ...PR_ARGS, '-f', `query=${PR_QUERY}`]);
+    const json = r.exitCode === 0 ? parseGraphql(r.stdout) : null;
     // Only an OPEN PR is shown; merged or closed reads as no PR.
-    if (!json || json.state !== 'OPEN') return (cache = null);
+    if (!json) return (cache = null);
 
+    let issues = json.closingIssuesReferences as Json[];
     const nums = closingNumbers(json);
-    // The head commit is part of the key: when the head moves, statuses are recomputed.
-    const key = `${nums.join(',')}@${(typeof json.headRefOid === 'string' ? json.headRefOid : '')}`;
-    if (mode === 'full' || cache === null || cache.key !== key || cache.cwd !== cwd) {
-      const refs = await readRefs($);
-      const { raw, spec } = await loadIssues($, nums);
-      cache = { cwd, key, json, nums, raw, spec, tickets: await settle($, raw, json, refs), fetchedAt: 0 };
-    } else {
-      cache.json = json;
+    if (issues.length === 0 && nums.length > 0) {
+      const more = await $.process.run(['gh', ...REPO_ARGS, '-f', `query=${issuesQuery(nums)}`]);
+      issues = more.exitCode === 0 ? parseIssues(more.stdout) : [];
     }
-    cache.fetchedAt = await $.clock.now();
-    return parsePr(cache.json, cwd, cache.tickets, cache.spec, cache.fetchedAt);
+    const refs = await readRefs($);
+    const { raw, spec } = splitIssues(issues);
+    cache = { cwd, json, raw, spec, tickets: await settle($, raw, json, refs), fetchedAt: await $.clock.now() };
+    return parsePr(json, cwd, cache.tickets, spec, cache.fetchedAt);
   } catch {
     return (cache = null);
   }
@@ -147,22 +127,14 @@ async function fetchPr($: EngineInterface, mode: 'full' | 'pr'): Promise<PrData 
 
 // One tier's work. undefined = nothing changed, leave the atom alone.
 async function step($: EngineInterface, mode: Mode): Promise<PrData | null | undefined> {
-  if (mode === 'full' || mode === 'pr') return fetchPr($, mode);
+  if (mode === 'full') return fetchPr($);
   const c = cache;
   if (c === null) return undefined;
   try {
     // Another directory's cache is no use here: drop it and clear the atom.
     if (!await isHere($, c.cwd)) return (cache = null);
     const refs = await readRefs($);
-    if (mode === 'git') {
-      if (refs === null || refs === refSnap) return undefined;
-    } else {
-      // A failed answer keeps what we have rather than dropping a ticket.
-      const { raw, spec, failed } = await loadIssues($, c.nums);
-      if (failed > 0 || JSON.stringify([raw, spec]) === JSON.stringify([c.raw, c.spec])) return undefined;
-      c.raw = raw;
-      c.spec = spec;
-    }
+    if (refs === null || refs === refSnap) return undefined;
     c.tickets = await settle($, c.raw, c.json, refs);
     return parsePr(c.json, c.cwd, c.tickets, c.spec, c.fetchedAt);
   } catch {
@@ -237,8 +209,7 @@ export const register: Register = (on, options) => {
     for (const tm of timers) tm.cancel();
     timers = [
       $.clock.every(20_000, () => void refresh($, 'git')),
-      $.clock.every(60_000, () => void refresh($, 'pr')),
-      $.clock.every(300_000, () => void refresh($, 'issues')),
+      $.clock.every(300_000, () => void refresh($, 'full')),
     ];
     return next(e);
   });
@@ -248,10 +219,10 @@ export const register: Register = (on, options) => {
     return next(e);
   });
 
-  // Hint row: the engine's hint, a one-glyph pin Button (▸ / ▾, the click that pins the card),
+  // Hint row: the engine's hint, a pin Button (` ▸ ` / ` ▾ `, the click that pins the card),
   // then `PR #N` (cyan, bold), the title and counts in one Text. Only a Button takes a press
-  // (Box and Text have no onPress) and a Button has no colour at rest, so the press lives on
-  // the small glyph and `PR #N` keeps its colour. The Box is the hover handle: the card shares its `scope`.
+  // (Box and Text have no onPress) and a plain Button's hit area is its label cells, so the pin
+  // is padded to three cells and `PR #N` keeps its colour. The Box is the hover handle: the card shares its `scope`.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const { data, isStale } = await currentPr($);
     // Only this row asks for the refresh of a stale PR; the card just hides, so a cd costs one full refresh.
@@ -266,7 +237,7 @@ export const register: Register = (on, options) => {
     const { Box, Button, Text } = $.ui.resolve(e);
     const columns = e.viewport?.columns ?? 80;
     const isPinned = (await read($, pinned)) === true;
-    // Room for the PR group: the row less the hint text, the " · " separator, the glyph + space and a 2-cell margin.
+    // Room for the PR group: the row less the hint text, the " ·" separator (2), the padded pin (3) and a 2-cell margin.
     const layout = hintLayout(data, columns - width(hint) - 3 - 2 - 2, t);
     const sum = summarize(data.tickets);
 
@@ -277,23 +248,20 @@ export const register: Register = (on, options) => {
             {hintSpans(hint).map((p, i) => (
               <Text key={`h${i}`} color={p.color} dimColor={p.dim}>{p.text}</Text>
             ))}
-            <Text dimColor>{' · '}</Text>
+            <Text dimColor>{' ·'}</Text>
           </Text>
         </Box>
         <Box flexShrink={0}>
           <Button
             key="pin"
-            label={isPinned ? '▾' : '▸'}
+            label={isPinned ? ' ▾ ' : ' ▸ '}
             plain
             hover={{ color: 'cyan', bold: true }}
             onPress={() => update($, pinned, p => !p)}
           />
         </Box>
         <Box flexShrink={0}>
-          <Text key="pr-num">
-            <Text>{' '}</Text>
-            <Text color="cyan" bold>{`PR #${data.number}`}</Text>
-          </Text>
+          <Text key="pr-num" color="cyan" bold>{`PR #${data.number}`}</Text>
         </Box>
         {/* Only the title shrinks: the row's real width (the engine's own pills included) decides
             where it is cut, so the counts after it always stay whole. */}
@@ -348,7 +316,7 @@ export const register: Register = (on, options) => {
         paddingX={1}
         {...(isPinned ? {} : { display: 'none' as const, hover: { scope: SCOPE, display: 'flex' as const } })}
       >
-        {/* First row: the PR title shrinks and truncates, the ↻ button keeps its full width at the right. */}
+        {/* First row: the PR title shrinks and truncates, the ↻ refresh button keeps its full width at the right. */}
         <Box flexDirection="row">
           <Box flexShrink={1} flexGrow={1}>{row(head!, 0)}</Box>
           <Box key="refresh-box" flexShrink={0} marginLeft={1}>

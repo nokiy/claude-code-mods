@@ -19,6 +19,8 @@ test('strings: both tables have the same keys, English is the default', () => {
   expect(Object.keys(zh.rel)).toEqual(Object.keys(en.rel));
   expect(en.openPr).toBe('Open PR');
   expect(zh.openPr).toBe('打开 PR');
+  expect([en.refresh, zh.refresh]).toEqual(['↻ refresh', '↻ 刷新']);
+  expect([en.fetched('5 min ago'), zh.fetched('5 分钟前')]).toEqual([' · fetched 5 min ago', ' · 拉取于 5 分钟前']);
   expect(en.behind(1)).toBe('1 commit behind');
   expect(en.behind(3)).toBe('3 commits behind');
 });

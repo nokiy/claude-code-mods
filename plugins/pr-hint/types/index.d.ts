@@ -30,8 +30,7 @@ export type PrData = {
   base: string;
   head: string;
   url: string;
-  updatedAt: string;
-  /** When pr-hint last read this PR from gh (ms, the engine clock); bumped by full and pr fetches, kept by git/issues recomputes. */
+  /** When pr-hint last read this PR from gh (ms, the engine clock); bumped by each gh fetch, kept by the git recompute. */
   fetchedAt: number;
   ci: PrCi;
   tickets: PrTicket[];

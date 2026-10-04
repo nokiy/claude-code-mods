@@ -131,7 +131,7 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings, 
 
   return {
     lines: [...title, meta, summary, ...sortTickets(pr.tickets).map(t => ticketLine(t, subjects.get(t.number) ?? t.title, s, inner))],
-    footer: s.updated(relTime(pr.updatedAt, nowMs, s)) + s.refreshed(relTime(new Date(pr.fetchedAt).toISOString(), nowMs, s)),
+    footer: s.fetched(relTime(new Date(pr.fetchedAt).toISOString(), nowMs, s)),
   };
 }
 

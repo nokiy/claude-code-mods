@@ -125,7 +125,6 @@ export function parsePr(pr: Json, cwd: string, tickets: PrTicket[], spec: PrData
     base: str(pr.baseRefName),
     head: str(pr.headRefName),
     url: str(pr.url),
-    updatedAt: str(pr.updatedAt),
     fetchedAt,
     ci: parseCi(pr.statusCheckRollup),
     tickets,
@@ -191,7 +190,7 @@ export function wrapCells(s: string, max: number, maxRows: number): string[] {
   return rows;
 }
 
-/** `updatedAt` relative to `nowMs`, in the UI language. */
+/** An ISO time relative to `nowMs`, in the UI language. */
 export function relTime(iso: string, nowMs: number, t: Strings): string {
   const at = Date.parse(iso);
   if (!Number.isFinite(at)) return t.rel.unknown;

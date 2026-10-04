@@ -1,4 +1,4 @@
-// Tests that a PR read in one directory is never drawn or refreshed from another (render, 20s and 5 min ticks, a failing cwd read), and the no-PR agents-pill rewrite.
+// Tests that a PR read in one directory is never drawn or refreshed from another (render, the 20s git and 5 min gh ticks, a failing cwd read), and the no-PR agents-pill rewrite.
 import { expect, mock, test } from 'claude-code/testing';
 import { BAND_PROPS, PROPS, VIEWPORT, st, tally, wire } from './testkit';
 
@@ -29,19 +29,19 @@ test('a PR read in directory A is not drawn once the session is in B (no PR ther
   st.dir = '/tmp/b';
   await ui.unmount();
   await band.unmount();
-  const prBefore = tally.pr;
+  const prBefore = tally.gql;
   // The card alone only hides: it does not ask for a refresh.
   const band2 = await mountBand($);
   expect(await band2.find({ type: 'Text', text: /engine band/ })).toBeDefined();
   expect(JSON.stringify(await band2.drawn())).not.toContain('pr-hint-card');
   await clock.settle();
-  expect(tally.pr).toBe(prBefore);
+  expect(tally.gql).toBe(prBefore);
   // The hint row asks for one full refresh, which reads no PR in B and clears the atom.
   const ui2 = await mountHint($);
   expect(JSON.stringify(await ui2.drawn())).not.toContain('PR #');
   expect(await ui2.find({ type: 'Text', text: /bypass permissions/ })).toBeDefined();
   await clock.settle();
-  expect(tally.pr).toBe(prBefore + 1);
+  expect(tally.gql).toBe(prBefore + 1);
   expect(JSON.stringify(await ui2.drawn())).not.toContain('PR #');
   await ui2.unmount();
   await band2.unmount();
@@ -49,7 +49,7 @@ test('a PR read in directory A is not drawn once the session is in B (no PR ther
 
 // A tick in another directory must drop the cache itself: back in A afterwards, the old PR is gone
 // (a tick that kept it, or recomputed from it, would leave A's PR in the atom for A to draw again).
-for (const [name, ms] of [['20s git', 20_000], ['5 min issues', 300_000]] as const) {
+for (const [name, ms] of [['20s git', 20_000], ['5 min gh', 300_000]] as const) {
   test(`the ${name} tick in another directory drops the cache instead of reusing it`, async ($, on) => {
     const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
     wire(on, undefined, '/tmp/a');
@@ -62,11 +62,11 @@ for (const [name, ms] of [['20s git', 20_000], ['5 min issues', 300_000]] as con
     await ui.unmount();
 
     st.dir = '/tmp/b';
-    const issuesBefore = tally.issue;
     st.refs = 'refs/heads/dev aaa\nrefs/heads/other bbb\n';
+    const branchBefore = tally.branch;
     await clock.advance(ms);
-    // Not recomputed from A's cache: no issue calls for B.
-    expect(tally.issue).toBe(issuesBefore);
+    // Not recomputed from A's cache: no status recompute (git `branch` listing) for B.
+    expect(tally.branch).toBe(branchBefore);
     st.dir = '/tmp/a';
     const ui2 = await mountHint($);
     expect(await ui2.find({ type: 'Button', key: 'pin' })).toBeUndefined();

@@ -1,4 +1,4 @@
-// Tests the card's ↻ button: a press runs a full fetch (waiting out a busy refresh) and always toasts what changed.
+// Tests the card's ↻ refresh button: a press runs a full fetch (waiting out a busy refresh) and always toasts what changed.
 import { expect, mock, test } from 'claude-code/testing';
 import { BAND_PROPS, ISSUE, PR, st, tally, wire } from './testkit';
 
@@ -20,25 +20,25 @@ async function setup($: Dollar, on: Parameters<typeof wire>[0]) {
   return { clock, band, toasts };
 }
 
-test('↻ is on the card header row; a press runs a full fetch and toasts the change, then "up to date"', async ($, on) => {
+test('↻ refresh is on the card header row; a press runs a full fetch and toasts the change, then "up to date"', async ($, on) => {
   const { clock, band, toasts } = await setup($, on);
   const btn = await band.find({ type: 'Button', key: 'refresh' });
-  expect(btn?.props.label).toBe('↻');
+  expect(btn?.props.label).toBe('↻ refresh');
   expect(btn?.props.plain).toBe(true);
 
   st.issue7 = { ...ISSUE, state: 'CLOSED' };
-  const before = tally.pr;
+  const before = tally.gql;
   await band.press({ key: 'refresh' });
   await clock.settle();
-  expect(tally.pr).toBe(before + 1);
+  expect(tally.gql).toBe(before + 1);
   expect(toasts).toEqual(['PR #10 updated: merged 0/1 → 1/1 · accepted 0/1 → 1/1']);
 
   await band.press({ key: 'refresh' });
   await clock.settle();
   expect(toasts).toEqual([toasts[0], 'PR #10 is up to date']);
-  // The footer shows the fetch time, not just GitHub's update time.
-  expect((await band.findAll({ type: 'Text' })).some(x => /refreshed just now$/.test(x.text ?? ''))).toBe(true);
-  expect((await band.find({ type: 'Button', key: 'refresh' }))?.props.label).toBe('↻');
+  // The footer shows the fetch time and nothing else.
+  expect((await band.findAll({ type: 'Text' })).some(x => /^Open PR · fetched just now$/.test(x.text ?? ''))).toBe(true);
+  expect((await band.find({ type: 'Button', key: 'refresh' }))?.props.label).toBe('↻ refresh');
   await band.unmount();
 });
 
@@ -59,8 +59,8 @@ test('while another refresh is busy the press waits for the queued full one, sho
   const { clock, band, toasts } = await setup($, on);
   let release = () => {};
   st.gate = new Promise<void>(r => (release = r));
-  // The 60 s tick starts a PR refresh that hangs on gh.
-  await clock.advance(60_000);
+  // The 5 min tick starts a refresh that hangs on gh.
+  await clock.advance(300_000);
   st.issue7 = { ...ISSUE, state: 'CLOSED' };
   const first = band.press({ key: 'refresh' });
   await clock.settle();
@@ -74,6 +74,6 @@ test('while another refresh is busy the press waits for the queued full one, sho
   await second;
   await clock.settle();
   expect(toasts).toEqual(['PR #10 updated: merged 0/1 → 1/1 · accepted 0/1 → 1/1']);
-  expect((await band.find({ type: 'Button', key: 'refresh' }))?.props.label).toBe('↻');
+  expect((await band.find({ type: 'Button', key: 'refresh' }))?.props.label).toBe('↻ refresh');
   await band.unmount();
 });

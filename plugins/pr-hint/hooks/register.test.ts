@@ -25,8 +25,8 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       expect(pr).toBeDefined();
       const tree0 = JSON.stringify(await ui.drawn());
       // One row: the hint, the ▸ pin Button, then `PR #N` (cyan, bold), title and counts in one Text.
-      expect((await ui.find({ type: 'Text', text: /^▸▸ bypass/ }))?.text).toBe('▸▸ bypass permissions on · ');
-      expect(pr?.props.label).toBe('▸');
+      expect((await ui.find({ type: 'Text', text: /^▸▸ bypass/ }))?.text).toBe('▸▸ bypass permissions on ·');
+      expect(pr?.props.label).toBe(' ▸ ');
       // PR number, title (the only part that shrinks) and counts are separate pieces of one row.
       expect((await ui.find({ type: 'Text', text: /Add dark mode/ }))?.text).toBe(' Add dark mode');
       expect((await ui.find({ type: 'Text', text: /merged/ }))?.text).toBe(' · merged 0/1 · accepted 0/1');
@@ -69,7 +69,7 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       expect(idx(/^PR #10 /)).toBeLessThan(idx(/^Spec #12 Dark mode · 深色模式贯穿设置页与编辑器 · integration branch dev ← spec\/12-dark-mode/));
       expect(idx(/^Spec #12/)).toBeLessThan(idx(/^CI ✓1\/1 · merged 0\/1 · accepted 0\/1/));
       expect(idx(/^CI ✓1/)).toBeLessThan(idx(/^● #7 in progress Theme toggle · feat\/7-theme-toggle · 2 commits behind/));
-      expect(idx(/^● #7/)).toBeLessThan(idx(/^Open PR · updated .* · refreshed just now$/));
+      expect(idx(/^● #7/)).toBeLessThan(idx(/^Open PR · fetched just now$/));
       expect(lines.some(l => l.startsWith('● #12'))).toBe(false);
       await band.unmount();
     } else {
@@ -84,31 +84,25 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
   });
 }
 
-test('hint is drawn as spans (no nested engine element) and the timers reuse cached tickets', async ($, on) => {
+test('hint is drawn as spans (no nested engine element) and a minute of timers asks gh for nothing', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
-  quiet(on);
-  let issueCalls = 0;
-  let gitCalls = 0;
-  on('session.start', async (_$, e) => ({ cwd: e.cwd }));
-  on('process.run', async (_$, e) => {
-    if (e.argv[1] === 'issue') issueCalls++;
-    if (e.argv[0] === 'git' && e.argv[1] !== 'for-each-ref') gitCalls++;
-    return { value: { ...reply(e.argv), stderr: '', ...done } };
-  });
+  wire(on);
   await $.session.start({ cwd: '/tmp/x' } as never);
   await clock.settle();
-  expect(issueCalls).toBe(2);
+  // One GraphQL request carried the PR and both closing issues.
+  expect(tally.gql).toBe(1);
+  expect(tally.issues).toBe(0);
 
   const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: VIEWPORT });
   expect(await ui.find({ type: 'Button', key: 'pin' })).toBeDefined();
   expect(JSON.stringify(await ui.drawn())).not.toContain('"type":"engine"');
   await ui.unmount();
 
-  const gitBefore = gitCalls;
+  const base = { ...tally };
   await clock.advance(60_000);
-  expect(issueCalls).toBe(2);
-  // The ticks find nothing new: no status recompute, no issue calls.
-  expect(gitCalls).toBe(gitBefore);
+  // Three git ticks find the same refs: no status recompute, no gh call.
+  expect(tally.branch).toBe(base.branch);
+  expect(tally.gql).toBe(1);
 });
 
 for (const state of ['MERGED', 'CLOSED']) {
@@ -116,40 +110,21 @@ for (const state of ['MERGED', 'CLOSED']) {
     const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
     quiet(on);
     on('session.start', async (_$, e) => ({ cwd: e.cwd }));
-    on('process.run', async (_$, e) => {
-      const out = e.argv[1] === 'pr' ? { ...PR, state } : {};
-      return { value: { exitCode: 0, stdout: JSON.stringify(out), stderr: '', ...done } };
-    });
+    on('process.run', async (_$, e) => ({ value: { ...reply(e.argv), stderr: '', ...done } }));
     on('ui.render', { component: 'PromptHint' }, async (_$, e) => ({ type: 'Text', children: [e.props.hint] }) as never);
-    await $.session.start({ cwd: '/tmp/x' } as never);
-    await clock.settle();
+    PR.state = state;
+    try {
+      await $.session.start({ cwd: '/tmp/x' } as never);
+      await clock.settle();
+    } finally {
+      PR.state = 'OPEN';
+    }
     const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: VIEWPORT });
     expect(await ui.find({ type: 'Button', key: 'pin' })).toBeUndefined();
     expect(await ui.find({ type: 'Text', text: /bypass permissions/ })).toBeDefined();
     await ui.unmount();
   });
 }
-
-test('the ticket cache is recomputed when headRefOid changes', async ($, on) => {
-  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
-  quiet(on);
-  let oid = 'aaa';
-  let issueCalls = 0;
-  on('session.start', async (_$, e) => ({ cwd: e.cwd }));
-  on('process.run', async (_$, e) => {
-    if (e.argv[1] === 'issue') issueCalls++;
-    const r = e.argv[1] === 'pr' ? { exitCode: 0, stdout: JSON.stringify({ ...PR, headRefOid: oid }) } : reply(e.argv);
-    return { value: { ...r, stderr: '', ...done } };
-  });
-  await $.session.start({ cwd: '/tmp/x' } as never);
-  await clock.settle();
-  expect(issueCalls).toBe(2);
-  await clock.advance(60_000);
-  expect(issueCalls).toBe(2);
-  oid = 'bbb';
-  await clock.advance(60_000);
-  expect(issueCalls).toBe(4);
-});
 
 test('the 20s tick: an unchanged ref snapshot recomputes nothing, a changed one recomputes with no gh call', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
@@ -160,18 +135,18 @@ test('the 20s tick: an unchanged ref snapshot recomputes nothing, a changed one 
   await clock.advance(20_000);
   expect(tally.refs).toBe(base.refs + 1);
   expect(tally.branch).toBe(base.branch);
-  expect(tally.pr).toBe(base.pr);
-  expect(tally.issue).toBe(base.issue);
+  expect(tally.gql).toBe(base.gql);
+  expect(tally.issues).toBe(base.issues);
 
   st.refs = 'refs/heads/dev aaa\nrefs/heads/feat/12-x bbb\n';
   const before = { ...tally };
   await clock.advance(20_000);
   expect(tally.branch).toBe(before.branch + 1);
-  expect(tally.pr).toBe(before.pr);
-  expect(tally.issue).toBe(before.issue);
+  expect(tally.gql).toBe(before.gql);
+  expect(tally.issues).toBe(before.issues);
 });
 
-test('the 5 min tick re-reads the issues and flips a CLOSED ticket to accepted', async ($, on) => {
+test('the 5 min tick makes one GraphQL request and flips a CLOSED ticket to accepted', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
   wire(on);
   await $.session.start({ cwd: '/tmp/x' } as never);
@@ -179,12 +154,28 @@ test('the 5 min tick re-reads the issues and flips a CLOSED ticket to accepted',
   const band = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS });
   expect(await band.find({ type: 'Text', text: /^● #7 in progress/ })).toBeDefined();
   st.issue7 = { ...ISSUE, state: 'CLOSED' };
-  await clock.advance(240_000);
-  const issuesBefore = tally.issue;
+  await clock.advance(280_000);
+  // Nothing asks gh before the 5 min mark (the 20 s ticks are local git only).
+  expect(tally.gql).toBe(1);
   expect(await band.find({ type: 'Text', text: /^● #7 in progress/ })).toBeDefined();
-  await clock.advance(60_000);
-  expect(tally.issue).toBeGreaterThan(issuesBefore);
+  await clock.advance(20_000);
+  expect(tally.gql).toBe(2);
+  expect(tally.issues).toBe(0);
   expect(await band.find({ type: 'Text', text: /^● #7 accepted/ })).toBeDefined();
+  await band.unmount();
+});
+
+test('a PR GitHub links no issue to (non-default base) reads its Closes #N issues with one more request', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  wire(on);
+  st.linked = false;
+  await $.session.start({ cwd: '/tmp/x' } as never);
+  await clock.settle();
+  expect(tally.gql).toBe(1);
+  expect(tally.issues).toBe(1);
+  const band = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS });
+  expect(await band.find({ type: 'Text', text: /^● #7 in progress Theme toggle/ })).toBeDefined();
+  expect(await band.find({ type: 'Text', text: /^Spec #12 / })).toBeDefined();
   await band.unmount();
 });
 
@@ -198,10 +189,9 @@ test('two session.start events leave one timer per tier', async ($, on) => {
   const base = { ...tally };
   await clock.advance(20_000);
   expect(tally.refs).toBe(base.refs + 1);
-  await clock.advance(40_000);
-  // 60 s in all: three git ticks, one PR tick.
-  expect(tally.refs).toBe(base.refs + 3);
-  expect(tally.pr).toBe(base.pr + 1);
+  await clock.advance(280_000);
+  // 5 min in all: one gh tick (a stacked second timer would make two).
+  expect(tally.gql).toBe(base.gql + 1);
 });
 
 test('a full refresh asked for while busy runs right after', async ($, on) => {
@@ -211,9 +201,8 @@ test('a full refresh asked for while busy runs right after', async ($, on) => {
   await $.session.start({ cwd: '/tmp/x' } as never);
   await $.session.start({ cwd: '/tmp/x' } as never);
   await clock.settle();
-  expect(tally.pr).toBe(1);
+  expect(tally.gql).toBe(1);
   open();
   await clock.settle();
-  expect(tally.pr).toBe(2);
-  expect(tally.issue).toBe(4);
+  expect(tally.gql).toBe(2);
 });
