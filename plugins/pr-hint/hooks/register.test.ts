@@ -53,22 +53,23 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
     const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
     const hint = await ui.find({ type: 'Text', text: /bypass permissions/ });
     expect(hint).toBeDefined();
-    const pr = await ui.find({ type: 'Text', text: /PR #10/ });
+    const pr = await ui.find({ type: 'Button', key: 'pin' });
     if (hasPr) {
       expect(pr).toBeDefined();
       const tree0 = JSON.stringify(await ui.drawn());
-      // The hint and the PR group are ONE Text of inline spans: hint, PR, title, summary; no Spec on the row.
-      const group = await ui.find({ type: 'Text', text: /^▸▸ bypass/ });
-      expect(group?.text).toBe('▸▸ bypass permissions on · PR #10 Add dark mode · merged 0/1 · accepted 0/1');
+      // One row: the hint Text, the `PR #N` Button (the pin), then the title and counts; no Spec on the row.
+      expect((await ui.find({ type: 'Text', text: /^▸▸ bypass/ }))?.text).toBe('▸▸ bypass permissions on · ');
+      expect(pr?.props.label).toBe('PR #10');
+      expect((await ui.find({ type: 'Text', text: /Add dark mode/ }))?.text).toBe(' Add dark mode · merged 0/1 · accepted 0/1');
       // The mode phrase is red, as the engine draws it; the engine element is not nested; no spacer.
       const spans = await ui.findAll({ type: 'Text', text: /bypass permissions on/ });
       expect(spans.some(s => s.props.color === 'red')).toBe(true);
       expect(tree0).not.toContain('"type":"engine"');
       expect(tree0).not.toContain('flexGrow');
       expect(await ui.find({ type: 'Text', text: /● #12/ })).toBeUndefined();
-      // The hint row carries the hover scope and the pin Button; no card of its own.
+      // The hint row carries the hover scope; no 📌, the PR number is the click target; no card of its own.
       expect(tree0).toContain('"scope":"pr-hint-card"');
-      expect(await ui.find({ type: 'Button', key: 'pin' })).toBeDefined();
+      expect(tree0).not.toContain('📌');
       expect(tree0).not.toContain('"position":"absolute"');
       expect(tree0).not.toContain('Spec #');
 
@@ -134,7 +135,7 @@ test('hint is drawn as spans (no nested engine element) and the 60s timer reuses
   expect(issueCalls).toBe(2);
 
   const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
-  expect(await ui.find({ type: 'Text', text: /PR #10/ })).toBeDefined();
+  expect(await ui.find({ type: 'Button', key: 'pin' })).toBeDefined();
   expect(JSON.stringify(await ui.drawn())).not.toContain('"type":"engine"');
   await ui.unmount();
 
@@ -159,7 +160,7 @@ for (const state of ['MERGED', 'CLOSED']) {
     await $.session.start({ cwd: '/tmp/x' } as never);
     await clock.settle();
     const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
-    expect(await ui.find({ type: 'Text', text: /PR #10/ })).toBeUndefined();
+    expect(await ui.find({ type: 'Button', key: 'pin' })).toBeUndefined();
     expect(await ui.find({ type: 'Text', text: /bypass permissions/ })).toBeDefined();
     await ui.unmount();
   });

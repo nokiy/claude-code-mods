@@ -131,9 +131,9 @@ export const register: Register = (on, options) => {
     return next(e);
   });
 
-  // Hint row: one Text of inline spans (nothing can stack), then a plain pin Button.
-  // Only a Button takes a press (Box and Text have no onPress), so the pin is the click target.
-  // The Box is the hover handle: the AbovePrompt card shares its `scope`.
+  // Hint row: the engine's hint, then `PR #N` as a plain Button, then the title and counts.
+  // Only a Button takes a press (Box and Text have no onPress), so the PR number is the
+  // click target that pins the card. The Box is the hover handle: the card shares its `scope`.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const data = await read($, pr);
     if (data === null) return next(e);
@@ -141,19 +141,30 @@ export const register: Register = (on, options) => {
 
     const { Box, Button, Text } = $.ui.resolve(e);
     const columns = e.viewport?.columns ?? 80;
-    const isPinned = (await read($, pinned)) === true;
-    // Room for the PR group: the row less the hint text, the " · " separator, the pin (space + 2 cells) and a 2-cell margin.
-    const layout = hintLayout(data, columns - width(e.props.hint) - 3 - 3 - 2, t);
+    // Room for the PR group: the row less the hint text, the " · " separator and a 2-cell margin.
+    const layout = hintLayout(data, columns - width(e.props.hint) - 3 - 2, t);
     const sum = summarize(data.tickets);
 
     return (
       <Box key="pr-hint" flexDirection="row" hover={{ scope: SCOPE }}>
+        <Box flexShrink={0}>
+          <Text key="hint">
+            {hintSpans(e.props.hint).map((p, i) => (
+              <Text key={`h${i}`} color={p.color} dimColor={p.dim}>{p.text}</Text>
+            ))}
+            <Text dimColor>{' · '}</Text>
+          </Text>
+        </Box>
+        <Box flexShrink={0}>
+          <Button
+            key="pin"
+            label={`PR #${data.number}`}
+            plain
+            hover={{ color: 'cyan', underline: true }}
+            onPress={() => update($, pinned, p => !p)}
+          />
+        </Box>
         <Text key="pr-group" wrap="truncate-end">
-          {hintSpans(e.props.hint).map((p, i) => (
-            <Text key={`h${i}`} color={p.color} dimColor={p.dim}>{p.text}</Text>
-          ))}
-          <Text dimColor>{' · '}</Text>
-          <Text color="cyan" bold>{`PR #${data.number}`}</Text>
           <Text>{` ${layout.title}`}</Text>
           {layout.hasSummary ? <Text dimColor>{' · '}</Text> : null}
           {layout.hasSummary ? <Text>{`${t.merged} `}</Text> : null}
@@ -162,8 +173,6 @@ export const register: Register = (on, options) => {
           {layout.hasSummary ? <Text>{`${t.accepted} `}</Text> : null}
           {layout.hasSummary ? <Text color="green" bold>{`${sum.done}/${sum.total}`}</Text> : null}
         </Text>
-        <Text>{' '}</Text>
-        <Button key="pin" label="📌" plain dimColor={!isPinned} onPress={() => update($, pinned, p => !p)} />
       </Box>
     );
   });

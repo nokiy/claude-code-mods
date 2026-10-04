@@ -1,7 +1,7 @@
 {
   "name": "pr-hint",
   "version": "0.0.1",
-  "description": "Shows the current branch's open PR on the prompt hint row (title, merged and accepted counts); hover the hint row to preview a card of the spec, integration branch, CI and every ticket's progress, click its pin to keep it open.",
+  "description": "Shows the current branch's open PR on the prompt hint row (title, merged and accepted counts); hover the hint row to preview a card of the spec, integration branch, CI and every ticket's progress, click the PR number to keep it open.",
   "author": {
     "name": "nokiy"
   },
