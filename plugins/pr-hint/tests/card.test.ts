@@ -1,9 +1,9 @@
 // Tests the AbovePrompt card text (hierarchy, ordered full ticket lines), the hint layout and the hint spans, on synthetic data.
 import { expect, test } from 'claude-code/testing';
 import type { PrData, PrTicket } from '../types';
-import { cardLines, hintLayout, hintSpans, refreshText, ticketSubjects, withoutAgents } from './card';
-import { width } from './parse';
-import { strings } from './strings';
+import { cardLines, hintLayout, hintSpans, refreshText, ticketSubjects, withoutAgents } from '../hooks/card';
+import { width } from '../hooks/parse';
+import { strings } from '../hooks/strings';
 
 const en = strings('en');
 const zh = strings('zh');

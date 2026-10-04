@@ -1,10 +1,9 @@
 // Tests the card's ↻ refresh button: a press runs a full fetch (waiting out a busy refresh) and always toasts what changed.
 import { expect, mock, test } from 'claude-code/testing';
 import { BAND_PROPS, ISSUE, PR, st, tally, wire } from './testkit';
+import type { Dollar } from './testkit';
 
 const NOW = Date.parse('2026-01-10T11:00:00Z');
-
-type Dollar = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[0];
 
 async function setup($: Dollar, on: Parameters<typeof wire>[0]) {
   const clock = mock.clock(on, { now: NOW });

@@ -1,7 +1,7 @@
 // Tests the GraphQL unwrapping (PR node, closing issues, labels, CI contexts, by-number issues) on answers shaped like GitHub's, and that the parsers read the result as `gh pr view` was read.
 import { expect, test } from 'claude-code/testing';
-import { PR_ARGS, PR_QUERY, issuesQuery, parseGraphql, parseIssues, splitIssues } from './graphql';
-import { closingNumbers, parsePr, prHead } from './parse';
+import { PR_ARGS, PR_QUERY, issuesQuery, parseGraphql, parseIssues, splitIssues } from '../hooks/graphql';
+import { closingNumbers, parsePr, prHead } from '../hooks/parse';
 
 const issue = (number: number, labels: string[] = []) => ({
   number, title: `t${number}`, state: 'OPEN', body: '', labels: { nodes: labels.map(name => ({ name })) },

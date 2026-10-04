@@ -1,6 +1,6 @@
 // Tests the language pick and that both string tables carry the same keys.
 import { expect, test } from 'claude-code/testing';
-import { pickLang, strings } from './strings';
+import { pickLang, strings } from '../hooks/strings';
 
 test('pickLang: the option wins; auto follows the Claude Code language setting, then the locale', () => {
   expect(pickLang('zh', 'English', 'en_US.UTF-8')).toBe('zh');

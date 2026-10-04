@@ -1,5 +1,5 @@
 // Shared fixtures and mocks for the register, refresh, cwd and branch test suites: synthetic `gh api graphql` and git answers, the session directory and a call tally.
-import { mock } from 'claude-code/testing';
+import { mock, test } from 'claude-code/testing';
 
 // The PR as the card reads it; `gql` wraps it into GraphQL's nodes shape. `linked` is the closing issues GitHub links.
 export const PR = {
@@ -67,9 +67,23 @@ export const quiet = (on: On) => {
   on('settings.read', async () => ({ value: {} }));
 };
 
-// Two tiers: 20 s local git, 5 min `gh api graphql`. `gate` holds every PR request until it resolves;
+export type Dollar = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[0];
+
+export const mountHint = ($: Dollar, hint = PROPS.hint) => $.ui.mount({
+  plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: { ...PROPS, hint }, viewport: VIEWPORT,
+});
+export const mountBand = ($: Dollar) => $.ui.mount({
+  plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS,
+});
+// Stands for the engine's own band and hint line, which the plugin passes through when there is no PR.
+export const engineLines = (on: On) => {
+  on('ui.render', { component: 'AbovePrompt' }, async () => ({ type: 'Text', children: ['engine band'] }) as never);
+  on('ui.render', { component: 'PromptHint' }, async (_$, e) => ({ type: 'Text', children: [e.props.hint] }) as never);
+};
+
+// Two tiers: 20 s local git, 5 min `gh api graphql`. Set `st.gate` after wire() to hold every PR request until it resolves;
 // `ghHere` limits the gh answers to one directory and `st.ghBranch` to one branch (elsewhere gh finds no PR).
-export const wire = (on: On, gate?: Promise<void>, ghHere?: string) => {
+export const wire = (on: On, ghHere?: string) => {
   Object.assign(tally, { refs: 0, branch: 0, gql: 0, issues: 0 });
   st.refs = 'refs/heads/dev aaa\n';
   st.issue7 = ISSUE;
@@ -85,7 +99,6 @@ export const wire = (on: On, gate?: Promise<void>, ghHere?: string) => {
     if (e.argv[0] === 'gh') {
       const isPr = (e.argv[e.argv.length - 1] ?? '').includes('pullRequests(');
       tally[isPr ? 'gql' : 'issues']++;
-      if (isPr && gate) await gate;
       if (isPr && st.gate) await st.gate;
     }
     if (e.argv[0] === 'gh' && ((ghHere !== undefined && st.dir !== ghHere) || (st.ghBranch !== null && st.branch !== st.ghBranch))) {

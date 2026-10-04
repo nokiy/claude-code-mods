@@ -197,7 +197,8 @@ test('two session.start events leave one timer per tier', async ($, on) => {
 test('a full refresh asked for while busy runs right after', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
   let open = () => {};
-  wire(on, new Promise<void>(r => { open = r; }));
+  wire(on);
+  st.gate = new Promise<void>(r => { open = r; });
   await $.session.start({ cwd: '/tmp/x' } as never);
   await $.session.start({ cwd: '/tmp/x' } as never);
   await clock.settle();

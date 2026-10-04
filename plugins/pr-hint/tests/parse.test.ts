@@ -1,9 +1,9 @@
 // Unit tests for the pure helpers (CI fold, cell widths, wrapping, git ticket status), all on synthetic data.
 import { describe, expect, test } from 'claude-code/testing';
 import type { PrTicket, TicketStatus } from '../types';
-import type { TicketFacts } from './parse';
-import { bodyClosingNumbers, closingNumbers, mergedByCommits, parseAcceptance, parseCi, parsePr, relTime, shortTitle, sortTickets, summarize, ticketBranches, ticketStatus, truncate, width, wrapCells } from './parse';
-import { strings } from './strings';
+import type { TicketFacts } from '../hooks/parse';
+import { bodyClosingNumbers, closingNumbers, mergedByCommits, parseAcceptance, parseCi, parsePr, relTime, shortTitle, sortTickets, summarize, ticketBranches, ticketStatus, truncate, width, wrapCells } from '../hooks/parse';
+import { strings } from '../hooks/strings';
 
 describe('parseCi', () => {
   test('folds CheckRun and StatusContext', () => {
