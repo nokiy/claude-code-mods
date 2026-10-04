@@ -54,7 +54,15 @@ From the local git repository only (no `git fetch`, no model calls):
 
 ## Refresh
 
-On session start and after every turn (PR, tickets and git status), and every 60 s for the PR only. Data comes from `gh pr view`, `gh issue view`, `git branch -a` and `git rev-list --count`, run in the session's directory.
+Three tiers, each on its own timer, never overlapping (a tick that finds another refresh running is skipped) and redrawing only when something changed. Session start and the end of every turn run a full refresh (PR, tickets and git status); one asked for while another refresh is running waits for it instead of being dropped.
+
+| Every | Reads | Recomputes ticket statuses when |
+| --- | --- | --- |
+| 20 s | `git for-each-ref` (local, no network) | the branches and their commits differ from the last look: local merges, new commits, deleted branches |
+| 60 s | `gh pr view` | the PR's head commit or closing issues changed |
+| 5 min | `gh issue view` for each closing issue | an issue closed or its acceptance table changed (a ticket turns accepted) |
+
+Git status uses `git branch -a` and `git rev-list --count`; everything runs in the session's directory.
 
 ## Settings
 

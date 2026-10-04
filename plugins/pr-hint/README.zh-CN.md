@@ -54,7 +54,15 @@
 
 ## 刷新
 
-会话开始和每轮结束时刷新全部（PR、ticket、git 状态），另有每 60 秒一次只刷新 PR。数据来自会话目录下的 `gh pr view`、`gh issue view`、`git branch -a` 和 `git rev-list --count`。
+分三档，各用一个定时器，互不重叠（遇到别的刷新还在跑就跳过这一拍），只有数据变了才重绘。会话开始和每轮结束做一次全量刷新（PR、ticket、git 状态）；若此时别的刷新还在跑，会排在它后面执行，不会被丢掉。
+
+| 间隔 | 读取 | 何时重算 ticket 状态 |
+| --- | --- | --- |
+| 20 秒 | `git for-each-ref`（本地，不联网） | 分支或其提交与上次不同：本地合并、新提交、删除分支 |
+| 60 秒 | `gh pr view` | PR 的 head 提交或关闭的 issue 变了 |
+| 5 分钟 | 对每个关闭的 issue 执行 `gh issue view` | issue 已关闭或验收表变了（ticket 变为已验收） |
+
+git 状态用 `git branch -a` 和 `git rev-list --count`；全部在会话目录下运行。
 
 ## 设置
 

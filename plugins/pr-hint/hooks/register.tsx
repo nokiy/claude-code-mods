@@ -3,7 +3,7 @@
 import { atom, read, update } from 'claude-code';
 import type { EngineInterface, Register } from 'claude-code';
 import { cardLines, hintLayout, hintSpans, withoutAgents } from './card';
-import { closingNumbers, isSpecIssue, mergedByCommits, parseJson, parsePr, parseTicket, summarize, ticketBranches, ticketStatus, width } from './parse';
+import { closingNumbers, isSpecIssue, mergedByCommits, parseJson, parsePr, parseTicket, prHead, summarize, ticketBranches, ticketStatus, width } from './parse';
 import { pickLang, strings } from './strings';
 import type { Strings } from './strings';
 import type { PrData, PrTicket } from '../types';
@@ -21,8 +21,19 @@ const PR_FIELDS =
 // Module-level on purpose: the validator wants `$` passed only to top-level
 // functions of this file. A reload drops it with the rest of the environment.
 let isBusy = false;
-// Tickets (with their git status) cached by the closing-issue numbers.
-let cache: { key: string; tickets: PrTicket[]; spec: PrData['spec'] } | null = null;
+// A full refresh asked for while busy; it runs right after instead of being dropped.
+let isFullPending = false;
+// The three tier timers of this load; a repeated session.start cancels them before making new ones.
+let timers: Array<{ cancel: () => void }> = [];
+// `git for-each-ref` output at the last status computation; tier 1 recomputes only when it differs.
+let refSnap: string | null = null;
+type Json = NonNullable<ReturnType<typeof parseJson>>;
+// The open PR as last read: its JSON, the closing-issue numbers, the tickets as gh gave them (`raw`)
+// and with their git status (`tickets`). Tiers 1 and 3 recompute from this without asking gh for the PR.
+type Cache = { key: string; json: Json; nums: number[]; raw: PrTicket[]; tickets: PrTicket[]; spec: PrData['spec'] };
+let cache: Cache | null = null;
+// full: PR, tickets and git · pr: the PR (tickets reused) · git: local refs only · issues: the closing issues.
+type Mode = 'full' | 'pr' | 'git' | 'issues';
 
 // The UI strings: the language option is read once per load (it needs the session's settings and LANG), English until then.
 let langOption: unknown = 'auto';
@@ -72,52 +83,102 @@ async function applyStatuses($: EngineInterface, tickets: PrTicket[], headRef: s
   return out;
 }
 
+// Local git only: the heads and remotes with their commits; null when git fails.
+async function readRefs($: EngineInterface): Promise<string | null> {
+  const r = await $.process.run(['git', 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads', 'refs/remotes']);
+  return r.exitCode === 0 ? r.stdout : null;
+}
+
+// Reads the closing issues; the one labelled `spec` is the Spec, not a ticket. `failed` counts issues gh did not answer.
+async function loadIssues($: EngineInterface, nums: number[]): Promise<{ raw: PrTicket[]; spec: PrData['spec']; failed: number }> {
+  const raw: PrTicket[] = [];
+  let spec: PrData['spec'] = null;
+  let failed = 0;
+  for (const n of nums) {
+    const res = await $.process.run(['gh', 'issue', 'view', String(n), '--json', 'number,title,state,body,labels']);
+    const issue = res.exitCode === 0 ? parseJson(res.stdout) : null;
+    if (issue && isSpecIssue(issue)) spec = { number: Number(issue.number), title: String(issue.title ?? '') };
+    else if (issue) raw.push(parseTicket(issue));
+    else failed++;
+  }
+  return { raw, spec, failed };
+}
+
+// Statuses from local git plus the PR's commits; remembers the ref snapshot they were computed at.
+async function settle($: EngineInterface, raw: PrTicket[], json: Json, refs: string | null): Promise<PrTicket[]> {
+  refSnap = refs ?? refSnap;
+  const { headRef, headlines } = prHead(json);
+  return applyStatuses($, raw, headRef, headlines);
+}
+
 // Never throws: any failure (no gh, no PR, bad JSON) reads as "no PR".
-// `isFull` also re-reads the tickets and their git status; otherwise cached
-// ones are reused while the closing-issue numbers are unchanged.
-async function fetchPr($: EngineInterface, isFull: boolean): Promise<PrData | null> {
+// `full` also re-reads the tickets and their git status; otherwise cached
+// ones are reused while the closing-issue numbers and the head commit are unchanged.
+async function fetchPr($: EngineInterface, mode: 'full' | 'pr'): Promise<PrData | null> {
   try {
     // Runs in the session's working directory by default.
     const r = await $.process.run(['gh', 'pr', 'view', '--json', PR_FIELDS]);
-    if (r.exitCode !== 0) return null;
-    const json = parseJson(r.stdout);
-    if (!json) return null;
+    const json = r.exitCode === 0 ? parseJson(r.stdout) : null;
     // Only an OPEN PR is shown; merged or closed reads as no PR.
-    if (json.state !== 'OPEN') return null;
+    if (!json || json.state !== 'OPEN') return (cache = null);
 
     const nums = closingNumbers(json);
     // The head commit is part of the key: when the head moves, statuses are recomputed.
     const key = `${nums.join(',')}@${(typeof json.headRefOid === 'string' ? json.headRefOid : '')}`;
-    if (isFull || cache === null || cache.key !== key) {
-      const tickets: PrTicket[] = [];
-      let spec: PrData['spec'] = null;
-      for (const n of nums) {
-        const res = await $.process.run(['gh', 'issue', 'view', String(n), '--json', 'number,title,state,body,labels']);
-        const issue = res.exitCode === 0 ? parseJson(res.stdout) : null;
-        // The issue labelled `spec` is the Spec, not a ticket.
-        if (issue && isSpecIssue(issue)) spec = { number: Number(issue.number), title: String(issue.title ?? '') };
-        else if (issue) tickets.push(parseTicket(issue));
-      }
-      const commits = Array.isArray(json.commits) ? (json.commits as Array<Record<string, unknown>>) : [];
-      const headlines = commits.map(c => String(c.messageHeadline ?? ''));
-      cache = { key, tickets: await applyStatuses($, tickets, (typeof json.headRefName === 'string' ? json.headRefName : ''), headlines), spec };
+    if (mode === 'full' || cache === null || cache.key !== key) {
+      const refs = await readRefs($);
+      const { raw, spec } = await loadIssues($, nums);
+      cache = { key, json, nums, raw, spec, tickets: await settle($, raw, json, refs) };
+    } else {
+      cache.json = json;
     }
-    return parsePr(json, cache.tickets, cache.spec);
+    return parsePr(cache.json, cache.tickets, cache.spec);
   } catch {
-    return null;
+    return (cache = null);
   }
 }
 
-// Guarded so overlapping triggers (timer + turn end) never stack gh calls.
-async function refresh($: EngineInterface, isFull: boolean): Promise<void> {
-  if (isBusy) return;
+// One tier's work. undefined = nothing changed, leave the atom alone.
+async function step($: EngineInterface, mode: Mode): Promise<PrData | null | undefined> {
+  if (mode === 'full' || mode === 'pr') return fetchPr($, mode);
+  const c = cache;
+  if (c === null) return undefined;
+  try {
+    const refs = await readRefs($);
+    if (mode === 'git') {
+      if (refs === null || refs === refSnap) return undefined;
+    } else {
+      // A failed answer keeps what we have rather than dropping a ticket.
+      const { raw, spec, failed } = await loadIssues($, c.nums);
+      if (failed > 0 || JSON.stringify([raw, spec]) === JSON.stringify([c.raw, c.spec])) return undefined;
+      c.raw = raw;
+      c.spec = spec;
+    }
+    c.tickets = await settle($, c.raw, c.json, refs);
+    return parsePr(c.json, c.tickets, c.spec);
+  } catch {
+    return undefined;
+  }
+}
+
+// Guarded so tiers never overlap: a tick that finds it busy is skipped, a full refresh is queued.
+async function refresh($: EngineInterface, mode: Mode): Promise<void> {
+  if (isBusy) {
+    if (mode === 'full') isFullPending = true;
+    return;
+  }
   isBusy = true;
   try {
-    const next = await fetchPr($, isFull);
+    const next = await step($, mode);
+    if (next === undefined) return;
     const prev = await read($, pr);
     if (JSON.stringify(prev) !== JSON.stringify(next)) await update($, pr, () => next);
   } finally {
     isBusy = false;
+    if (isFullPending) {
+      isFullPending = false;
+      void refresh($, 'full');
+    }
   }
 }
 
@@ -127,14 +188,19 @@ export const register: Register = (on, options) => {
   t = strings('en');
 
   on('session.start', async ($, e, next) => {
-    void refresh($, true);
-    // The timer refreshes the PR view only; tickets wait for session/turn events.
-    $.clock.every(60_000, () => void refresh($, false));
+    void refresh($, 'full');
+    // One timer per tier: a second session.start replaces them instead of stacking.
+    for (const tm of timers) tm.cancel();
+    timers = [
+      $.clock.every(20_000, () => void refresh($, 'git')),
+      $.clock.every(60_000, () => void refresh($, 'pr')),
+      $.clock.every(300_000, () => void refresh($, 'issues')),
+    ];
     return next(e);
   });
 
   on('turn.complete', async ($, e, next) => {
-    void refresh($, true);
+    void refresh($, 'full');
     return next(e);
   });
 

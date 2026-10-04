@@ -96,6 +96,12 @@ export function closingNumbers(pr: Json): number[] {
   return nums.length > 0 ? nums : bodyClosingNumbers(str(pr.body));
 }
 
+/** The PR head's branch name and its commits' headlines, as the status rules read them. */
+export function prHead(pr: Json): { headRef: string; headlines: string[] } {
+  const commits = Array.isArray(pr.commits) ? (pr.commits as Json[]) : [];
+  return { headRef: typeof pr.headRefName === 'string' ? pr.headRefName : '', headlines: commits.map(c => String(c.messageHeadline ?? '')) };
+}
+
 export function parseTicket(issue: Json): PrTicket {
   return {
     number: num(issue.number),
