@@ -31,6 +31,8 @@ export type PrData = {
   head: string;
   url: string;
   updatedAt: string;
+  /** When pr-hint last read this PR from gh (ms, the engine clock); bumped by full and pr fetches, kept by git/issues recomputes. */
+  fetchedAt: number;
   ci: PrCi;
   tickets: PrTicket[];
   /** The closing issue labelled `spec`; kept out of tickets and every count. */
@@ -43,6 +45,8 @@ declare module 'claude-code' {
       pr: PrData | null;
       /** The card is pinned open by a press on the hint row's pin. */
       pinned: boolean;
+      /** A manual ↻ refresh is running. */
+      refreshing: boolean;
     };
   }
 }

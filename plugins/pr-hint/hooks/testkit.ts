@@ -25,7 +25,7 @@ type On = Parameters<typeof mock.env>[0];
 
 // Mutable test state: the session's directory (a test moves it to stand for a cd or a /clear),
 // the `git for-each-ref` answer and ticket 7's issue.
-export const st = { dir: '/tmp/x', cwdFails: false, refs: 'refs/heads/dev aaa\n', issue7: ISSUE as unknown };
+export const st = { dir: '/tmp/x', cwdFails: false, refs: 'refs/heads/dev aaa\n', issue7: ISSUE as unknown, gate: null as Promise<void> | null };
 export const tally = { refs: 0, branch: 0, pr: 0, issue: 0 };
 
 // gh and git answers: ticket 7 has one branch two commits ahead of the head.
@@ -59,6 +59,7 @@ export const wire = (on: On, gate?: Promise<void>, ghHere?: string) => {
   Object.assign(tally, { refs: 0, branch: 0, pr: 0, issue: 0 });
   st.refs = 'refs/heads/dev aaa\n';
   st.issue7 = ISSUE;
+  st.gate = null;
   quiet(on);
   on('session.start', async (_$, e) => ({ cwd: e.cwd }));
   on('process.run', async (_$, e) => {
@@ -68,6 +69,7 @@ export const wire = (on: On, gate?: Promise<void>, ghHere?: string) => {
     if (e.argv[1] === 'pr') {
       tally.pr++;
       if (gate) await gate;
+      if (st.gate) await st.gate;
     }
     if (e.argv[0] === 'gh' && ghHere !== undefined && st.dir !== ghHere) {
       return { value: { exitCode: 1, stdout: '', stderr: '', ...done } };

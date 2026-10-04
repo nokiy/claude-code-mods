@@ -1,7 +1,7 @@
 // Tests the AbovePrompt card text (hierarchy, ordered full ticket lines), the hint layout and the hint spans, on synthetic data.
 import { expect, test } from 'claude-code/testing';
 import type { PrData, PrTicket } from '../types';
-import { cardLines, hintLayout, hintSpans, ticketSubjects, withoutAgents } from './card';
+import { cardLines, hintLayout, hintSpans, refreshText, ticketSubjects, withoutAgents } from './card';
 import { width } from './parse';
 import { strings } from './strings';
 
@@ -12,7 +12,7 @@ const SPEC = { number: 12, title: 'Dark mode · 深色模式贯穿设置页与�
 const base: PrData = {
   cwd: '/tmp/x',
   number: 15, title: 'short title', state: 'OPEN', isDraft: false, base: 'main', head: 'spec/12-dark-mode',
-  url: 'u', updatedAt: '2026-01-10T10:00:00Z', ci: { ok: 1, fail: 0, pending: 0, total: 1 }, tickets: [], spec: SPEC,
+  url: 'u', updatedAt: '2026-01-10T10:00:00Z', fetchedAt: NOW - 30_000, ci: { ok: 1, fail: 0, pending: 0, total: 1 }, tickets: [], spec: SPEC,
 };
 const t = (number: number, status: PrTicket['status'], over: Partial<PrTicket> = {}): PrTicket => ({
   number, title: `title ${number}`, state: 'OPEN', progress: null, status, branch: null, ahead: 0, ...over,
@@ -92,7 +92,7 @@ test('Chinese strings: the same card in Chinese', () => {
   expect(out[2]).toBe('CI ✓1/1 · 合入 0/2 · 验收 0/2');
   expect(out[3]).toBe('● #16 进行中 title 16 · fix/16-save-settings · 还差 3 个提交');
   expect(out[4]).toBe('● #9 未开始 title 9');
-  expect(cardLines(base, NOW, 90, zh).footer).toBe(' · 更新于 1 小时前');
+  expect(cardLines(base, NOW, 90, zh).footer).toBe(' · 更新于 1 小时前 · 刷新于 刚刚');
 });
 
 test('ticket order: in progress, not started, merged, done', () => {
@@ -108,8 +108,31 @@ test('a long title wraps to at most 3 rows', () => {
   expect(out[3]?.text).toMatch(/^Spec #12/);
 });
 
-test('footer reads updated', () => {
-  expect(cardLines(base, NOW, 90, en).footer).toBe(' · updated 1 h ago');
+test('footer reads updated and refreshed', () => {
+  expect(cardLines(base, NOW, 90, en).footer).toBe(' · updated 1 h ago · refreshed just now');
+  expect(cardLines({ ...base, fetchedAt: NOW - 5 * 60_000 }, NOW, 90, en).footer).toBe(' · updated 1 h ago · refreshed 5 min ago');
+});
+
+test('the title wraps within titleInner while the other rows keep inner', () => {
+  const out = cardLines({ ...base, title: 'x'.repeat(60) }, NOW, 40, en, 30).lines;
+  expect(width(out[0]!.text)).toBeLessThanOrEqual(30);
+});
+
+test('refreshText: lists only what changed, in both languages', () => {
+  const before = { ...base, tickets: [t(7, 'doing')] };
+  const after = { ...before, ci: { ok: 1, fail: 0, pending: 0, total: 1 }, tickets: [t(7, 'merged')] };
+  expect(refreshText(before, after, en)).toBe('PR #15 updated: merged 0/1 → 1/1');
+  expect(refreshText(before, { ...after, ci: { ok: 0, fail: 1, pending: 0, total: 1 }, title: 'new' }, en))
+    .toBe('PR #15 updated: “new” · CI ✓0/1 ✗1 · merged 0/1 → 1/1');
+  expect(refreshText(before, { ...after, tickets: [t(7, 'done'), t(8, 'todo')], isDraft: true }, zh))
+    .toBe('PR #15 已更新：OPEN → OPEN (draft) · 合入 0/1 → 1/2 · 验收 0/1 → 1/2 · Tickets 1 → 2');
+});
+
+test('refreshText: unchanged (fetchedAt alone does not count) and gone', () => {
+  expect(refreshText(base, { ...base, fetchedAt: NOW }, en)).toBe('PR #15 is up to date');
+  expect(refreshText(base, { ...base, fetchedAt: NOW }, zh)).toBe('PR #15 已是最新');
+  expect(refreshText(base, null, en)).toBe('No open PR on this branch');
+  expect(refreshText(base, null, zh)).toBe('当前分支已没有打开的 PR');
 });
 
 const LONG = '主题 Dark深色模式贯穿设置页与编辑器，系统主题自动跟随与手动切换，添加深色模式——设置页 / 主题（吸收 #3）';

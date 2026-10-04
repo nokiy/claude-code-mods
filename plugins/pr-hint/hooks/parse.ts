@@ -115,7 +115,7 @@ export function parseTicket(issue: Json): PrTicket {
   };
 }
 
-export function parsePr(pr: Json, cwd: string, tickets: PrTicket[], spec: PrData['spec'] = null): PrData {
+export function parsePr(pr: Json, cwd: string, tickets: PrTicket[], spec: PrData['spec'] = null, fetchedAt = 0): PrData {
   return {
     cwd,
     number: num(pr.number),
@@ -126,6 +126,7 @@ export function parsePr(pr: Json, cwd: string, tickets: PrTicket[], spec: PrData
     head: str(pr.headRefName),
     url: str(pr.url),
     updatedAt: str(pr.updatedAt),
+    fetchedAt,
     ci: parseCi(pr.statusCheckRollup),
     tickets,
     spec,

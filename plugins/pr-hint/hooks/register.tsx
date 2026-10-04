@@ -2,7 +2,7 @@
 // The engine's `$` and the PR atom stay in this file (the validator follows them nowhere else); text and parsing live in card.ts, parse.ts and strings.ts.
 import { atom, read, update } from 'claude-code';
 import type { EngineInterface, Register } from 'claude-code';
-import { cardLines, hintLayout, hintSpans, withoutAgents } from './card';
+import { cardLines, hintLayout, hintSpans, refreshText, withoutAgents } from './card';
 import { closingNumbers, isSpecIssue, mergedByCommits, parseJson, parsePr, parseTicket, prHead, summarize, ticketBranches, ticketStatus, width } from './parse';
 import { pickLang, strings } from './strings';
 import type { Strings } from './strings';
@@ -11,6 +11,8 @@ import type { PrData, PrTicket } from '../types';
 const pr = atom({ plugin: 'pr-hint', key: 'pr' } as const, null);
 // Whether the card is pinned open (a press on the hint row's pin toggles it).
 const pinned = atom({ plugin: 'pr-hint', key: 'pinned' } as const, false);
+// Whether a manual ↻ refresh is running (the card's button shows it and ignores presses).
+const refreshing = atom({ plugin: 'pr-hint', key: 'refreshing' } as const, false);
 
 // Shared hover scope: the hint row lights it, the AbovePrompt card is revealed by it.
 const SCOPE = 'pr-hint-card';
@@ -23,6 +25,8 @@ const PR_FIELDS =
 let isBusy = false;
 // A full refresh asked for while busy; it runs right after instead of being dropped.
 let isFullPending = false;
+// Callers of that queued full refresh (the manual ↻); released when it has run.
+let fullWaiters: Array<() => void> = [];
 // The three tier timers of this load; a repeated session.start cancels them before making new ones.
 let timers: Array<{ cancel: () => void }> = [];
 // `git for-each-ref` output at the last status computation; tier 1 recomputes only when it differs.
@@ -30,7 +34,8 @@ let refSnap: string | null = null;
 type Json = NonNullable<ReturnType<typeof parseJson>>;
 // The open PR as last read: the directory it was read in, its JSON, the closing-issue numbers, the tickets as gh gave them (`raw`)
 // and with their git status (`tickets`). Tiers 1 and 3 recompute from this without asking gh for the PR.
-type Cache = { cwd: string; key: string; json: Json; nums: number[]; raw: PrTicket[]; tickets: PrTicket[]; spec: PrData['spec'] };
+// `fetchedAt` is when gh last answered (full and pr fetches only); the git and issues recomputes keep it.
+type Cache = { cwd: string; key: string; json: Json; nums: number[]; raw: PrTicket[]; tickets: PrTicket[]; spec: PrData['spec']; fetchedAt: number };
 let cache: Cache | null = null;
 // full: PR, tickets and git · pr: the PR (tickets reused) · git: local refs only · issues: the closing issues.
 type Mode = 'full' | 'pr' | 'git' | 'issues';
@@ -129,11 +134,12 @@ async function fetchPr($: EngineInterface, mode: 'full' | 'pr'): Promise<PrData 
     if (mode === 'full' || cache === null || cache.key !== key || cache.cwd !== cwd) {
       const refs = await readRefs($);
       const { raw, spec } = await loadIssues($, nums);
-      cache = { cwd, key, json, nums, raw, spec, tickets: await settle($, raw, json, refs) };
+      cache = { cwd, key, json, nums, raw, spec, tickets: await settle($, raw, json, refs), fetchedAt: 0 };
     } else {
       cache.json = json;
     }
-    return parsePr(cache.json, cwd, cache.tickets, cache.spec);
+    cache.fetchedAt = await $.clock.now();
+    return parsePr(cache.json, cwd, cache.tickets, cache.spec, cache.fetchedAt);
   } catch {
     return (cache = null);
   }
@@ -158,17 +164,19 @@ async function step($: EngineInterface, mode: Mode): Promise<PrData | null | und
       c.spec = spec;
     }
     c.tickets = await settle($, c.raw, c.json, refs);
-    return parsePr(c.json, c.cwd, c.tickets, c.spec);
+    return parsePr(c.json, c.cwd, c.tickets, c.spec, c.fetchedAt);
   } catch {
     return undefined;
   }
 }
 
-// Guarded so tiers never overlap: a tick that finds it busy is skipped, a full refresh is queued.
+// Guarded so tiers never overlap: a tick that finds it busy is skipped, a full refresh is queued
+// and its promise resolves once that queued run has finished.
 async function refresh($: EngineInterface, mode: Mode): Promise<void> {
   if (isBusy) {
-    if (mode === 'full') isFullPending = true;
-    return;
+    if (mode !== 'full') return;
+    isFullPending = true;
+    return new Promise<void>(resolve => void fullWaiters.push(resolve));
   }
   isBusy = true;
   try {
@@ -180,8 +188,24 @@ async function refresh($: EngineInterface, mode: Mode): Promise<void> {
     isBusy = false;
     if (isFullPending) {
       isFullPending = false;
-      void refresh($, 'full');
+      const waiters = fullWaiters;
+      fullWaiters = [];
+      void refresh($, 'full').finally(() => waiters.forEach(release => release()));
     }
+  }
+}
+
+// The ↻ press: one full refresh that really finishes, then a toast saying what changed.
+// Further presses while it runs are ignored; the toast shows whether or not the card is still open.
+async function manualRefresh($: EngineInterface): Promise<void> {
+  if ((await read($, refreshing)) === true) return;
+  await update($, refreshing, () => true);
+  try {
+    const before = await read($, pr);
+    await refresh($, 'full');
+    $.ui.toast(refreshText(before, await read($, pr), t), { timeoutMs: 5000 });
+  } finally {
+    await update($, refreshing, () => false);
   }
 }
 
@@ -300,11 +324,22 @@ export const register: Register = (on, options) => {
     if (data === null || e.props.hasSurvey) return next(e);
     await ensureLang($);
 
-    const { Box, Text, Link } = $.ui.resolve(e);
+    const { Box, Button, Text, Link } = $.ui.resolve(e);
     // Border (2) + paddingX (2) leave this many cells for text.
     const inner = Math.max(20, e.props.bodyColumns - 4);
     const isPinned = (await read($, pinned)) === true;
-    const card = cardLines(data, await $.clock.now(), inner, t);
+    const isRefreshing = (await read($, refreshing)) === true;
+    const label = isRefreshing ? t.refreshing : t.refresh;
+    // The title wraps in what the button (plus a 1-cell gap) leaves of the first row.
+    const card = cardLines(data, await $.clock.now(), inner, t, Math.max(10, inner - width(label) - 1));
+    const [head, ...rest] = card.lines;
+    const row = (l: NonNullable<typeof head>, i: number) => (
+      <Text key={String(i)} wrap="truncate-end">
+        {l.parts.map((p, j) => (
+          <Text key={String(j)} color={p.color} bold={p.bold} dimColor={p.dim}>{p.text}</Text>
+        ))}
+      </Text>
+    );
 
     return (
       <Box
@@ -313,13 +348,20 @@ export const register: Register = (on, options) => {
         paddingX={1}
         {...(isPinned ? {} : { display: 'none' as const, hover: { scope: SCOPE, display: 'flex' as const } })}
       >
-        {card.lines.map((l, i) => (
-          <Text key={String(i)} wrap="truncate-end">
-            {l.parts.map((p, j) => (
-              <Text key={String(j)} color={p.color} bold={p.bold} dimColor={p.dim}>{p.text}</Text>
-            ))}
-          </Text>
-        ))}
+        {/* First row: the PR title shrinks and truncates, the ↻ button keeps its full width at the right. */}
+        <Box flexDirection="row">
+          <Box flexShrink={1} flexGrow={1}>{row(head!, 0)}</Box>
+          <Box key="refresh-box" flexShrink={0} marginLeft={1}>
+            <Button
+              key="refresh"
+              label={label}
+              plain
+              hover={{ color: 'cyan', bold: true }}
+              onPress={() => manualRefresh($)}
+            />
+          </Box>
+        </Box>
+        {rest.map((l, i) => row(l, i + 1))}
         <Text wrap="truncate-end">
           <Link href={data.url} label={t.openPr} />
           <Text>{card.footer}</Text>

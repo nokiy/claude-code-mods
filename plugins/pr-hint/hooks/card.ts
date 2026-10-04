@@ -57,14 +57,38 @@ const ticketLine = (t: PrTicket, subject: string, s: Strings, inner: number): Ca
   ]);
 };
 
+const ciText = (ci: PrData['ci'], s: Strings): string =>
+  ci.total === 0 ? s.noCi : `CI ✓${ci.ok}/${ci.total}${ci.fail > 0 ? ` ✗${ci.fail}` : ''}${ci.pending > 0 ? ` ↻${ci.pending}` : ''}`;
+
+/**
+ * The toast after a manual refresh: what changed between `prev` and `next` (title, state, CI,
+ * merged and accepted counts, number of tickets), "up to date" when nothing did, or that the PR is gone.
+ */
+export function refreshText(prev: PrData | null, next: PrData | null, s: Strings): string {
+  if (next === null) return s.gone;
+  if (prev === null) return s.upToDate(next.number);
+  const a = summarize(prev.tickets);
+  const b = summarize(next.tickets);
+  const state = (p: PrData) => (p.isDraft ? `${p.state} (draft)` : p.state);
+  const parts = [
+    prev.title !== next.title ? `“${next.title}”` : '',
+    state(prev) !== state(next) ? `${state(prev)} → ${state(next)}` : '',
+    ciText(prev.ci, s) !== ciText(next.ci, s) ? ciText(next.ci, s) : '',
+    a.merged !== b.merged || a.total !== b.total ? `${s.merged} ${a.merged}/${a.total} → ${b.merged}/${b.total}` : '',
+    a.done !== b.done || a.total !== b.total ? `${s.accepted} ${a.done}/${a.total} → ${b.done}/${b.total}` : '',
+    prev.tickets.length !== next.tickets.length ? `${s.tickets} ${prev.tickets.length} → ${next.tickets.length}` : '',
+  ].filter(Boolean);
+  return parts.length === 0 ? s.upToDate(next.number) : s.changed(next.number, parts.join(' · '));
+}
+
 /**
  * The card, top to bottom, `inner` cells wide: the PR title (wrapped to at most
  * 3 rows), the Spec with its integration branch, the CI and merged/accepted summary,
  * then one line per ticket. `footer` follows the link.
  */
-export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings): { lines: CardLine[]; footer: string } {
+export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings, titleInner = inner): { lines: CardLine[]; footer: string } {
   const prefix = `PR #${pr.number}`;
-  const title = wrapCells(`${prefix} ${pr.title}`, inner, 3).map((text, i) =>
+  const title = wrapCells(`${prefix} ${pr.title}`, titleInner, 3).map((text, i) =>
     i === 0 && text.startsWith(prefix)
       ? line([{ text: prefix, color: 'cyan', bold: true }, { text: text.slice(prefix.length) }])
       : line([{ text }]),
@@ -91,12 +115,10 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings):
   }
 
   const { ci } = pr;
-  const ciText =
-    ci.total === 0 ? s.noCi : `CI ✓${ci.ok}/${ci.total}${ci.fail > 0 ? ` ✗${ci.fail}` : ''}${ci.pending > 0 ? ` ↻${ci.pending}` : ''}`;
   const ciColor = ci.total === 0 ? undefined : ci.fail > 0 ? 'red' : ci.pending > 0 ? 'yellow' : 'green';
   const sum = summarize(pr.tickets);
   const summary = line([
-    { text: ciText, color: ciColor },
+    { text: ciText(ci, s), color: ciColor },
     ...(pr.tickets.length === 0
       ? [{ text: ` · ${s.noTickets}` }]
       : [
@@ -109,7 +131,7 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings):
 
   return {
     lines: [...title, meta, summary, ...sortTickets(pr.tickets).map(t => ticketLine(t, subjects.get(t.number) ?? t.title, s, inner))],
-    footer: s.updated(relTime(pr.updatedAt, nowMs, s)),
+    footer: s.updated(relTime(pr.updatedAt, nowMs, s)) + s.refreshed(relTime(new Date(pr.fetchedAt).toISOString(), nowMs, s)),
   };
 }
 
