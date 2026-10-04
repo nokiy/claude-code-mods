@@ -1,5 +1,5 @@
 // Pure parsers and text helpers for gh JSON, acceptance tables, git ticket status and cell-width layout; no engine calls.
-import type { PrCi, PrData, PrProgress, PrTicket, TicketStatus } from '../types';
+import type { PrCi, PrData, PrProgress, PrTicket, TicketStatus, Where } from '../types';
 import type { Strings } from './strings';
 
 const DONE = /✓|✅|done/i;
@@ -115,8 +115,9 @@ export function parseTicket(issue: Json): PrTicket {
   };
 }
 
-export function parsePr(pr: Json, tickets: PrTicket[], spec: PrData['spec'] = null): PrData {
+export function parsePr(pr: Json, where: Where, tickets: PrTicket[], spec: PrData['spec'] = null, fetchedAt = 0): PrData {
   return {
+    where,
     number: num(pr.number),
     title: str(pr.title),
     state: str(pr.state),
@@ -124,7 +125,7 @@ export function parsePr(pr: Json, tickets: PrTicket[], spec: PrData['spec'] = nu
     base: str(pr.baseRefName),
     head: str(pr.headRefName),
     url: str(pr.url),
-    updatedAt: str(pr.updatedAt),
+    fetchedAt,
     ci: parseCi(pr.statusCheckRollup),
     tickets,
     spec,
@@ -189,9 +190,20 @@ export function wrapCells(s: string, max: number, maxRows: number): string[] {
   return rows;
 }
 
-/** `updatedAt` relative to `nowMs`, in the UI language. */
-export function relTime(iso: string, nowMs: number, t: Strings): string {
-  const at = Date.parse(iso);
+/** Two places are the same when repository root and branch agree; the directory inside the repo does not matter. */
+export const sameWhere = (a: Where | null, b: Where | null): boolean => a !== null && b !== null && a.root === b.root && a.branch === b.branch;
+
+/** Whether `cwd` is the repository `root` or a folder below it (a pure prefix test, no git). */
+export const isInside = (cwd: string, root: string): boolean => cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`);
+
+/** The ticket branch the card shows: the one furthest ahead; among equals a local one before its origin/ twin. Null when none. */
+export function pickShown(found: ReadonlyArray<{ b: string; n: number }>): string | null {
+  const sorted = [...found].sort((x, y) => y.n - x.n || Number(x.b.startsWith('origin/')) - Number(y.b.startsWith('origin/')));
+  return sorted[0]?.b ?? null;
+}
+
+/** A time (ms) relative to `nowMs`, in the UI language; a non-finite time reads as unknown. */
+export function relTime(at: number, nowMs: number, t: Strings): string {
   if (!Number.isFinite(at)) return t.rel.unknown;
   const s = Math.max(0, Math.round((nowMs - at) / 1000));
   if (s < 60) return t.rel.now;

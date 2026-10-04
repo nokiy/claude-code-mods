@@ -1,9 +1,9 @@
 // Unit tests for the pure helpers (CI fold, cell widths, wrapping, git ticket status), all on synthetic data.
 import { describe, expect, test } from 'claude-code/testing';
 import type { PrTicket, TicketStatus } from '../types';
-import type { TicketFacts } from './parse';
-import { bodyClosingNumbers, closingNumbers, mergedByCommits, parseAcceptance, parseCi, relTime, shortTitle, sortTickets, summarize, ticketBranches, ticketStatus, truncate, width, wrapCells } from './parse';
-import { strings } from './strings';
+import type { TicketFacts } from '../hooks/parse';
+import { bodyClosingNumbers, closingNumbers, isInside, mergedByCommits, parseAcceptance, parseCi, parsePr, pickShown, relTime, sameWhere, shortTitle, sortTickets, summarize, ticketBranches, ticketStatus, truncate, width, wrapCells } from '../hooks/parse';
+import { strings } from '../hooks/strings';
 
 describe('parseCi', () => {
   test('folds CheckRun and StatusContext', () => {
@@ -144,11 +144,37 @@ describe('relTime', () => {
   const en = strings('en');
   const zh = strings('zh');
   test('English and Chinese, from seconds to days', () => {
-    expect(relTime('2026-01-10T11:59:50Z', NOW, en)).toBe('just now');
-    expect(relTime('2026-01-10T11:55:00Z', NOW, en)).toBe('5 min ago');
-    expect(relTime('2026-01-10T10:00:00Z', NOW, en)).toBe('2 h ago');
-    expect(relTime('2026-01-07T12:00:00Z', NOW, en)).toBe('3 d ago');
-    expect(relTime('2026-01-10T10:00:00Z', NOW, zh)).toBe('2 小时前');
-    expect(relTime('nope', NOW, en)).toBe('unknown');
+    const at = (iso: string) => Date.parse(iso);
+    expect(relTime(at('2026-01-10T11:59:50Z'), NOW, en)).toBe('just now');
+    expect(relTime(at('2026-01-10T11:55:00Z'), NOW, en)).toBe('5 min ago');
+    expect(relTime(at('2026-01-10T10:00:00Z'), NOW, en)).toBe('2 h ago');
+    expect(relTime(at('2026-01-07T12:00:00Z'), NOW, en)).toBe('3 d ago');
+    expect(relTime(at('2026-01-10T10:00:00Z'), NOW, zh)).toBe('2 小时前');
+    expect(relTime(NaN, NOW, en)).toBe('unknown');
   });
+});
+
+test('parsePr returns the whole PrData, tagged with where it was read', () => {
+  const where = { cwd: '/tmp/a/sub', root: '/tmp/a', branch: 'feat/1-x' };
+  const data = parsePr({ number: 10, title: 'T', state: 'OPEN', baseRefName: 'dev', headRefName: 'feat/1-x', url: 'u' }, where, []);
+  expect(data.where).toEqual(where);
+  expect(data).toMatchObject({ number: 10, title: 'T', base: 'dev', head: 'feat/1-x', tickets: [], spec: null });
+});
+
+test('a place is the repository root plus the branch; the folder inside the repo does not matter', () => {
+  const a = { cwd: '/r/sub', root: '/r', branch: 'dev' };
+  expect(sameWhere(a, { ...a, cwd: '/r/other' })).toBe(true);
+  expect(sameWhere(a, { ...a, branch: 'main' })).toBe(false);
+  expect(sameWhere(a, { ...a, root: '/q' })).toBe(false);
+  expect(sameWhere(a, null)).toBe(false);
+  expect(isInside('/r', '/r')).toBe(true);
+  expect(isInside('/r/sub/x', '/r')).toBe(true);
+  expect(isInside('/rx', '/r')).toBe(false);
+  expect(isInside('/other', '/r')).toBe(false);
+});
+
+test('the shown ticket branch is the furthest ahead, a local one before its origin/ twin', () => {
+  expect(pickShown([])).toBeNull();
+  expect(pickShown([{ b: 'origin/feat/7-x', n: 2 }, { b: 'feat/7-x', n: 2 }, { b: 'feat/7-y', n: 1 }])).toBe('feat/7-x');
+  expect(pickShown([{ b: 'feat/7-y', n: 1 }, { b: 'origin/feat/7-x', n: 3 }])).toBe('origin/feat/7-x');
 });
