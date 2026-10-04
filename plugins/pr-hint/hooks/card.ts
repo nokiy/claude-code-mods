@@ -17,18 +17,22 @@ export const STATUS_COLOR: Record<TicketStatus, string> = {
 
 const line = (parts: CardPart[]): CardLine => ({ text: parts.map(p => p.text).join(''), parts });
 
-// `● #9 merged ✓0/7 <short title>`, then the branch (dim) and, when ahead, `N commits behind`.
-const ticketLine = (t: PrTicket, s: Strings): CardLine => {
-  const p = t.progress;
-  const prog = p ? `✓${p.done}/${p.total}${p.maxRounds > 0 ? ` R${p.maxRounds}` : ''}` : s.noTable;
+// `● #9 merged <short title>`, then the branch (dim) and, when ahead, `N commits behind`.
+// The status alone says where a ticket stands (accepted turns the dot green); no per-row counts.
+// The title takes the width the rest of the line leaves inside `inner`.
+const ticketLine = (t: PrTicket, s: Strings, inner: number): CardLine => {
   const color = STATUS_COLOR[t.status];
+  const head = ` #${t.number} ${s.status[t.status]} `;
+  const branch = t.branch ? ` · ${t.branch}` : '';
+  const behind = t.ahead > 0 ? ` · ${s.behind(t.ahead)}` : '';
+  const room = Math.max(12, inner - 1 - width(head) - width(branch) - width(behind));
   return line([
     { text: '●', color },
     { text: ` #${t.number} ` },
     { text: s.status[t.status], color },
-    { text: ` ${prog} ${shortTitle(t.title, 30)}` },
-    ...(t.branch ? [{ text: ` · ${t.branch}`, dim: true }] : []),
-    ...(t.ahead > 0 ? [{ text: ` · ${s.behind(t.ahead)}`, color: 'yellow' }] : []),
+    { text: ` ${shortTitle(t.title, room)}` },
+    ...(branch ? [{ text: branch, dim: true }] : []),
+    ...(behind ? [{ text: behind, color: 'yellow' }] : []),
   ]);
 };
 
@@ -57,7 +61,7 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings):
 
   const { ci } = pr;
   const ciText =
-    ci.total === 0 ? s.noCi : `CI ✓${ci.ok}/${ci.total}${ci.fail > 0 ? ` ✗${ci.fail}` : ''}${ci.pending > 0 ? ` …${ci.pending}` : ''}`;
+    ci.total === 0 ? s.noCi : `CI ✓${ci.ok}/${ci.total}${ci.fail > 0 ? ` ✗${ci.fail}` : ''}${ci.pending > 0 ? ` ⟳${ci.pending}` : ''}`;
   const ciColor = ci.total === 0 ? undefined : ci.fail > 0 ? 'red' : ci.pending > 0 ? 'yellow' : 'green';
   const sum = summarize(pr.tickets);
   const summary = line([
@@ -73,7 +77,7 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings):
   ]);
 
   return {
-    lines: [...title, meta, summary, ...sortTickets(pr.tickets).map(t => ticketLine(t, s))],
+    lines: [...title, meta, summary, ...sortTickets(pr.tickets).map(t => ticketLine(t, s, inner))],
     footer: s.updated(relTime(pr.updatedAt, nowMs, s)),
   };
 }

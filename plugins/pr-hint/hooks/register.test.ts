@@ -104,7 +104,7 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       expect(idx(/^PR #10 Add dark mode/)).toBeGreaterThanOrEqual(0);
       expect(idx(/^PR #10 /)).toBeLessThan(idx(/^Spec #12 Dark mode · 深色模式贯穿设置页与编辑器 · integration branch dev ← spec\/12-dark-mode/));
       expect(idx(/^Spec #12/)).toBeLessThan(idx(/^CI ✓1\/1 · merged 0\/1 · accepted 0\/1/));
-      expect(idx(/^CI ✓1/)).toBeLessThan(idx(/^● #7 in progress ✓1\/2 R2 Theme toggle · feat\/7-theme-toggle · 2 commits behind/));
+      expect(idx(/^CI ✓1/)).toBeLessThan(idx(/^● #7 in progress Theme toggle · feat\/7-theme-toggle · 2 commits behind/));
       expect(idx(/^● #7/)).toBeLessThan(idx(/^Open PR · updated/));
       expect(lines.some(l => l.startsWith('● #12'))).toBe(false);
       await band.unmount();

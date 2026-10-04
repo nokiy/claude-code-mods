@@ -23,15 +23,15 @@ Hover the hint row to preview a card above the prompt; it hides when the pointer
 │ PR #15 Add dark mode — settings page and editor                          │
 │ Spec #12 Dark mode · integration branch dev ← spec/12-dark-mode          │
 │ CI ✓3/3 · merged 2/4 · accepted 1/4                                      │
-│ ● #14 in progress ✓1/3 R1 Theme toggle · feat/14-theme-toggle · 2 commits behind │
-│ ● #16 not started no acceptance table Save settings                      │
-│ ● #13 merged ✓0/2 Color names · feat/13-color-names                      │
-│ ● #11 done ✓4/4 Dark palette                                             │
+│ ● #14 in progress Theme toggle · feat/14-theme-toggle · 2 commits behind │
+│ ● #16 not started Save settings                                          │
+│ ● #13 merged Color names · feat/13-color-names                           │
+│ ● #11 accepted Dark palette                                              │
 │ Open PR · updated 5 min ago                                              │
 ╰──────────────────────────────────────────────────────────────────────────╯
 ```
 
-Top to bottom: the PR title, the Spec and the integration branch (`base ← head`), CI and the counts, one line per ticket (nothing is dropped), then the PR link and its update time. Tickets are ordered in progress, not started, merged, done.
+Top to bottom: the PR title, the Spec and the integration branch (`base ← head`), CI and the counts, one line per ticket (nothing is dropped), then the PR link and its update time. Tickets are ordered in progress, not started, merged, accepted. A `⟳N` after CI counts checks still running.
 
 With no PR, or a merged or closed one, the mod does nothing and the hint row and band stay as Claude Code draws them.
 
@@ -48,9 +48,9 @@ From the local git repository only (no `git fetch`, no model calls):
 | not started | no branch named `*/<N>-*` (or `<N>-*`) exists |
 | in progress | some branch of the ticket is ahead of the PR head |
 | merged | every branch of the ticket is merged into the PR head |
-| done | the issue is closed, or its acceptance table (a table whose header has `State` and `Rounds`) is all ✓ |
+| accepted (green dot) | the issue is closed, or its acceptance table (a table whose header has `State` and `Rounds`) is all ✓ |
 
-`✓k/n` is the acceptance table's progress and `R<n>` its highest Rounds value. `merged a/b` counts merged and done tickets; `accepted c/d` counts done ones. `N commits behind` tells how many commits the ticket's branch has that the PR head does not.
+`merged a/b` counts merged and accepted tickets; `accepted c/d` counts accepted ones. `N commits behind` tells how many commits the ticket's branch has that the PR head does not.
 
 ## Refresh
 

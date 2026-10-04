@@ -8,8 +8,7 @@ const plural = (n: number, one: string) => (n === 1 ? `1 ${one}` : `${n} ${one}s
 const EN = {
   merged: 'merged',
   accepted: 'accepted',
-  status: { todo: 'not started', doing: 'in progress', merged: 'merged', done: 'done' },
-  noTable: 'no acceptance table',
+  status: { todo: 'not started', doing: 'in progress', merged: 'merged', done: 'accepted' },
   integration: 'integration branch',
   behind: (n: number) => `${plural(n, 'commit')} behind`,
   noCi: 'no CI',
@@ -30,8 +29,7 @@ export type Strings = typeof EN;
 const ZH: Strings = {
   merged: '合入',
   accepted: '验收',
-  status: { todo: '未开始', doing: '进行中', merged: '已合入', done: '完成' },
-  noTable: '无验收表',
+  status: { todo: '未开始', doing: '进行中', merged: '已合入', done: '已验收' },
   integration: '集成分支',
   behind: n => `还差 ${n} 个提交`,
   noCi: 'CI 无',

@@ -52,21 +52,21 @@ test('the integration branch label follows the language', () => {
 test('every ticket gets a full line, none dropped: 30 tickets, 30 lines', () => {
   const out = texts({ ...base, tickets: many(30) }).filter(l => l.startsWith('●'));
   expect(out).toHaveLength(30);
-  expect(out[0]).toBe('● #1 merged no acceptance table title 1');
+  expect(out[0]).toBe('● #1 merged title 1');
 });
 
-test('ticket line: status, progress, R above 0, short title, dim branch, N commits behind', () => {
+test('ticket line: status, short title, dim branch, N commits behind (no per-row counts)', () => {
   const doing = t(16, 'doing', {
     title: '保存设置——细节', branch: 'fix/16-save-settings', ahead: 3, progress: { done: 1, total: 3, maxRounds: 2 },
   });
   const { lines } = cardLines({ ...base, tickets: [doing] }, NOW, 90, en);
   const l = lines.at(-1);
-  expect(l?.text).toBe('● #16 in progress ✓1/3 R2 保存设置 · fix/16-save-settings · 3 commits behind');
+  expect(l?.text).toBe('● #16 in progress 保存设置 · fix/16-save-settings · 3 commits behind');
   expect(l?.parts.find(p => p.text.includes('fix/16'))?.dim).toBe(true);
   expect(l?.parts.filter(p => p.color).map(p => [p.text, p.color]).slice(0, 2)).toEqual([['●', 'yellow'], ['in progress', 'yellow']]);
   // Merged with a branch but nothing ahead: branch shown, no "behind".
   const merged = cardLines({ ...base, tickets: [t(9, 'merged', { branch: 'feat/9-x' })] }, NOW, 90, en).lines.at(-1);
-  expect(merged?.text).toBe('● #9 merged no acceptance table title 9 · feat/9-x');
+  expect(merged?.text).toBe('● #9 merged title 9 · feat/9-x');
 });
 
 test('Chinese strings: the same card in Chinese', () => {
@@ -74,8 +74,8 @@ test('Chinese strings: the same card in Chinese', () => {
   const out = texts({ ...base, tickets: [doing, t(9, 'todo')] }, 90, zh);
   expect(out[1]).toMatch(/· 集成分支 main ← spec\/12-dark-mode$/);
   expect(out[2]).toBe('CI ✓1/1 · 合入 0/2 · 验收 0/2');
-  expect(out[3]).toBe('● #16 进行中 ✓1/3 title 16 · fix/16-save-settings · 还差 3 个提交');
-  expect(out[4]).toBe('● #9 未开始 无验收表 title 9');
+  expect(out[3]).toBe('● #16 进行中 title 16 · fix/16-save-settings · 还差 3 个提交');
+  expect(out[4]).toBe('● #9 未开始 title 9');
   expect(cardLines(base, NOW, 90, zh).footer).toBe(' · 更新于 1 小时前');
 });
 
