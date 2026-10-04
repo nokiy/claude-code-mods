@@ -37,8 +37,16 @@ test('colours: PR number cyan bold, Spec magenta, summary counts blue and green'
 
 test('without a Spec the second row is state and base ← head; no tickets reads as unlinked', () => {
   const out = texts({ ...base, spec: null });
-  expect(out[1]).toBe('OPEN · main ← spec/12-dark-mode');
+  expect(out[1]).toBe('integration branch main ← spec/12-dark-mode · OPEN');
   expect(out[2]).toBe('CI ✓1/1 · no linked tickets');
+});
+
+test('without a Spec a draft shows (draft) after the branches', () => {
+  expect(texts({ ...base, spec: null, isDraft: true })[1]).toBe('integration branch main ← spec/12-dark-mode · OPEN (draft)');
+});
+
+test('the integration branch label follows the language', () => {
+  expect(texts({ ...base, spec: null }, 90, zh)[1]).toBe('集成分支 main ← spec/12-dark-mode · OPEN');
 });
 
 test('every ticket gets a full line, none dropped: 30 tickets, 30 lines', () => {

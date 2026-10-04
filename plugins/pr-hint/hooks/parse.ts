@@ -76,10 +76,24 @@ export function parseJson(text: string): Json | null {
   }
 }
 
-/** Issue numbers a PR closes, from `closingIssuesReferences`. */
+// GitHub closing keywords followed by a same-repo `#N` (`owner/repo#N` has no space before `#`, so it never matches).
+const CLOSES = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?[ \t]+#(\d+)\b/gi;
+
+/** Ticket numbers from `Closes #N` / `Fixes #N` / `Resolves #N` lines of a PR body: de-duplicated, in order. */
+export function bodyClosingNumbers(body: string): number[] {
+  const seen = new Set<number>();
+  for (const m of body.matchAll(CLOSES)) seen.add(Number(m[1]));
+  return [...seen].filter(n => n > 0);
+}
+
+/**
+ * Issue numbers a PR closes: `closingIssuesReferences`, else the `Closes #N`
+ * lines of its body (a PR into a non-default branch has no references).
+ */
 export function closingNumbers(pr: Json): number[] {
   const refs = Array.isArray(pr.closingIssuesReferences) ? (pr.closingIssuesReferences as Json[]) : [];
-  return refs.map(r => num(r.number)).filter(n => n > 0);
+  const nums = refs.map(r => num(r.number)).filter(n => n > 0);
+  return nums.length > 0 ? nums : bodyClosingNumbers(str(pr.body));
 }
 
 export function parseTicket(issue: Json): PrTicket {

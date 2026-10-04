@@ -1,7 +1,7 @@
 // Unit tests for the pure helpers (CI fold, cell widths, wrapping, git ticket status), all on synthetic data.
 import { describe, expect, test } from 'claude-code/testing';
 import type { PrTicket, TicketStatus } from '../types';
-import { parseAcceptance, parseCi, relTime, shortTitle, sortTickets, summarize, ticketBranches, ticketStatus, truncate, width, wrapCells } from './parse';
+import { bodyClosingNumbers, closingNumbers, parseAcceptance, parseCi, relTime, shortTitle, sortTickets, summarize, ticketBranches, ticketStatus, truncate, width, wrapCells } from './parse';
 import { strings } from './strings';
 
 describe('parseCi', () => {
@@ -83,6 +83,24 @@ describe('ticket status from git', () => {
   test('sortTickets: in progress, not started, merged, done, stable within a status', () => {
     const sorted = sortTickets([mk(1, 'done'), mk(2, 'merged'), mk(3, 'todo'), mk(4, 'doing'), mk(5, 'doing'), mk(6, 'merged')]);
     expect(sorted.map(x => x.number)).toEqual([4, 5, 3, 2, 6, 1]);
+  });
+});
+
+describe('closing numbers', () => {
+  test('body keywords, any case, de-duplicated in order', () => {
+    const body = 'Add dark mode\n\nCloses #18\nfixes #7, resolves #18\nRESOLVED #3';
+    expect(bodyClosingNumbers(body)).toEqual([18, 7, 3]);
+  });
+
+  test('skips other-repo refs and non-closing mentions', () => {
+    expect(bodyClosingNumbers('Closes octo/other#5\nSee #9\nrelated to #4\nFixes #6')).toEqual([6]);
+    expect(bodyClosingNumbers('')).toEqual([]);
+  });
+
+  test('references win; the body is only the fallback', () => {
+    expect(closingNumbers({ closingIssuesReferences: [{ number: 12 }], body: 'Closes #18' })).toEqual([12]);
+    expect(closingNumbers({ closingIssuesReferences: [], body: 'Closes #18' })).toEqual([18]);
+    expect(closingNumbers({})).toEqual([]);
   });
 });
 

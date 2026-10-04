@@ -11,7 +11,7 @@ import type { PrData, PrTicket } from '../types';
 const pr = atom({ plugin: 'pr-hint', key: 'pr' } as const, null);
 
 const PR_FIELDS =
-  'number,title,state,isDraft,reviewDecision,statusCheckRollup,additions,deletions,changedFiles,closingIssuesReferences,mergeable,baseRefName,headRefName,url,updatedAt';
+  'number,title,state,isDraft,reviewDecision,statusCheckRollup,additions,deletions,changedFiles,closingIssuesReferences,mergeable,baseRefName,headRefName,url,updatedAt,body';
 
 // Shared hover scope: the hint row lights it, the AbovePrompt card is revealed by it.
 const SCOPE = 'pr-hint-card';

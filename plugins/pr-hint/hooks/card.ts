@@ -52,7 +52,7 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings):
     const room = Math.max(8, inner - width(head) - width(tail));
     meta = line([{ text: `${head}${shortTitle(pr.spec.title, room)}${tail}`, color: 'magenta' }]);
   } else {
-    meta = line([{ text: `${pr.isDraft ? `${pr.state} (draft)` : pr.state} · ${pr.base} ← ${pr.head}` }]);
+    meta = line([{ text: `${s.integration} ${pr.base} ← ${pr.head} · ${pr.isDraft ? `${pr.state} (draft)` : pr.state}` }]);
   }
 
   const { ci } = pr;
