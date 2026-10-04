@@ -1,7 +1,7 @@
 // Tests the AbovePrompt card text (hierarchy, ordered full ticket lines), the hint layout and the hint spans, on synthetic data.
 import { expect, test } from 'claude-code/testing';
 import type { PrData, PrTicket } from '../types';
-import { cardLines, hintLayout, hintSpans } from './card';
+import { cardLines, hintLayout, hintSpans, withoutAgents } from './card';
 import { width } from './parse';
 import { strings } from './strings';
 
@@ -125,6 +125,12 @@ test('hint row: under 8 cells for the title drops the summary first, then the ti
   expect(narrow.hasSummary).toBe(false);
   expect(width(narrow.title)).toBeGreaterThanOrEqual(7);
   expect(hintLayout({ ...base, tickets: [] }, 200, en).hasSummary).toBe(false);
+});
+
+test('withoutAgents drops the agents pill so the row keeps one length while typing', () => {
+  expect(withoutAgents('▸▸ bypass permissions on · (shift+tab to cycle) · ← 3 agents')).toBe('▸▸ bypass permissions on · (shift+tab to cycle)');
+  expect(withoutAgents('▸▸ bypass permissions on (shift+tab to cycle) · ← 1 agent')).toBe('▸▸ bypass permissions on (shift+tab to cycle)');
+  expect(withoutAgents('▸▸ bypass permissions on · (shift+tab to cycle)')).toBe('▸▸ bypass permissions on · (shift+tab to cycle)');
 });
 
 test('hintSpans colours the mode phrase and dims the rest', () => {

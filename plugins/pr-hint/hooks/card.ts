@@ -102,6 +102,14 @@ const MODES: ReadonlyArray<readonly [string, string]> = [
 ];
 
 /**
+ * The engine's hint without its `· ← N agent(s)` pill. The engine shows that pill only while the
+ * prompt is empty, so keeping it makes the row grow and shrink as you type.
+ */
+export function withoutAgents(hint: string): string {
+  return hint.replace(/\s*·\s*←\s*\d+\s+agents?\b/g, '').trimEnd();
+}
+
+/**
  * Splits the engine's hint string into runs: a leading `▸▸ ` / `⏵⏵ ` glyph and
  * a known mode phrase take the mode colour as the engine draws it; the rest is dim.
  */

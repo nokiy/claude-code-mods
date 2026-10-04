@@ -2,7 +2,7 @@
 // The engine's `$` and the PR atom stay in this file (the validator follows them nowhere else); text and parsing live in card.ts, parse.ts and strings.ts.
 import { atom, read, update } from 'claude-code';
 import type { EngineInterface, Register } from 'claude-code';
-import { cardLines, hintLayout, hintSpans } from './card';
+import { cardLines, hintLayout, hintSpans, withoutAgents } from './card';
 import { closingNumbers, isSpecIssue, parseJson, parsePr, parseTicket, summarize, ticketBranches, ticketStatus, width } from './parse';
 import { pickLang, strings } from './strings';
 import type { Strings } from './strings';
@@ -144,14 +144,15 @@ export const register: Register = (on, options) => {
     const columns = e.viewport?.columns ?? 80;
     const isPinned = (await read($, pinned)) === true;
     // Room for the PR group: the row less the hint text, the " · " separator, the glyph + space and a 2-cell margin.
-    const layout = hintLayout(data, columns - width(e.props.hint) - 3 - 2 - 2, t);
+    const hint = withoutAgents(e.props.hint);
+    const layout = hintLayout(data, columns - width(hint) - 3 - 2 - 2, t);
     const sum = summarize(data.tickets);
 
     return (
       <Box key="pr-hint" flexDirection="row" hover={{ scope: SCOPE }}>
         <Box flexShrink={0}>
           <Text key="hint">
-            {hintSpans(e.props.hint).map((p, i) => (
+            {hintSpans(hint).map((p, i) => (
               <Text key={`h${i}`} color={p.color} dimColor={p.dim}>{p.text}</Text>
             ))}
             <Text dimColor>{' · '}</Text>
