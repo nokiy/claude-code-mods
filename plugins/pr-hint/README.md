@@ -16,7 +16,7 @@ When the branch your session is on has an **open** pull request, the hint row (t
 
 The mode phrase keeps its colour, the PR title takes all remaining width, and on narrow rows the counts drop first, then the title shrinks.
 
-Hover the hint row to preview a card above the prompt; it hides when the pointer leaves. Click the `PR #N` on the row to pin it open, click it again to unpin:
+Hover the hint row to preview a card above the prompt; it hides when the pointer leaves. Click the `▸` just before `PR #N` to pin it open (it turns into `▾`), click it again to unpin:
 
 ```
 ╭──────────────────────────────────────────────────────────────────────────╮

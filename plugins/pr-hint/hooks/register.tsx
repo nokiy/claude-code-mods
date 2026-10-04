@@ -131,19 +131,20 @@ export const register: Register = (on, options) => {
     return next(e);
   });
 
-  // Hint row: the engine's hint, `PR #N` as a Markdown link (the click that pins the card), then
-  // the title and counts. Box and Text take no press and a Button has no colour at rest; a
-  // Markdown link keeps the link colour and underline, and `onLinkPress` turns its click into
-  // ours instead of opening the URL. The Box is the hover handle: the card shares its `scope`.
+  // Hint row: the engine's hint, a one-glyph pin Button (▸ / ▾, the click that pins the card),
+  // then `PR #N` (cyan, bold), the title and counts in one Text. Only a Button takes a press
+  // (Box and Text have no onPress) and a Button has no colour at rest, so the press lives on
+  // the small glyph and `PR #N` keeps its colour. The Box is the hover handle: the card shares its `scope`.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const data = await read($, pr);
     if (data === null) return next(e);
     await ensureLang($);
 
-    const { Box, Markdown, Text } = $.ui.resolve(e);
+    const { Box, Button, Text } = $.ui.resolve(e);
     const columns = e.viewport?.columns ?? 80;
-    // Room for the PR group: the row less the hint text, the " · " separator and a 2-cell margin.
-    const layout = hintLayout(data, columns - width(e.props.hint) - 3 - 2, t);
+    const isPinned = (await read($, pinned)) === true;
+    // Room for the PR group: the row less the hint text, the " · " separator, the glyph + space and a 2-cell margin.
+    const layout = hintLayout(data, columns - width(e.props.hint) - 3 - 2 - 2, t);
     const sum = summarize(data.tickets);
 
     return (
@@ -157,14 +158,17 @@ export const register: Register = (on, options) => {
           </Text>
         </Box>
         <Box flexShrink={0}>
-          <Markdown
+          <Button
             key="pin"
-            text={`**[PR #${data.number}](${data.url})**`}
-            pressableLinks={[data.url]}
-            onLinkPress={() => update($, pinned, p => !p)}
+            label={isPinned ? '▾' : '▸'}
+            plain
+            hover={{ color: 'cyan', bold: true }}
+            onPress={() => update($, pinned, p => !p)}
           />
         </Box>
         <Text key="pr-group" wrap="truncate-end">
+          <Text>{' '}</Text>
+          <Text color="cyan" bold>{`PR #${data.number}`}</Text>
           <Text>{` ${layout.title}`}</Text>
           {layout.hasSummary ? <Text dimColor>{' · '}</Text> : null}
           {layout.hasSummary ? <Text>{`${t.merged} `}</Text> : null}
