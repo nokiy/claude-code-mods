@@ -23,6 +23,8 @@ export type PrTicket = {
 export type PrData = {
   /** The session directory the PR was read in; drawn only while the session is still there. */
   cwd: string;
+  /** The local branch checked out when the PR was read (`HEAD` when detached); drawn only while it is still the checked-out one. */
+  branch: string;
   number: number;
   title: string;
   state: string;

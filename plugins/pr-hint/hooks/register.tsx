@@ -29,11 +29,13 @@ let fullWaiters: Array<() => void> = [];
 let timers: Array<{ cancel: () => void }> = [];
 // `git for-each-ref` output at the last status computation; the git tier recomputes only when it differs.
 let refSnap: string | null = null;
+// The checked-out branch as last read locally (`HEAD` when detached); the render and the 20s tier compare PR data against it.
+let curBranch: string | null = null;
 type Json = NonNullable<ReturnType<typeof parseGraphql>>;
-// The open PR as last read: the directory it was read in, its JSON, the tickets as gh gave them (`raw`)
+// The open PR as last read: the directory and branch it was read on, its JSON, the tickets as gh gave them (`raw`)
 // and with their git status (`tickets`). The git tier recomputes from this without asking gh.
 // `fetchedAt` is when gh last answered; the git recompute keeps it.
-type Cache = { cwd: string; json: Json; raw: PrTicket[]; tickets: PrTicket[]; spec: PrData['spec']; fetchedAt: number };
+type Cache = { cwd: string; branch: string; json: Json; raw: PrTicket[]; tickets: PrTicket[]; spec: PrData['spec']; fetchedAt: number };
 let cache: Cache | null = null;
 // full: PR, tickets and git, one gh request · git: local refs only.
 type Mode = 'full' | 'git';
@@ -86,6 +88,12 @@ async function applyStatuses($: EngineInterface, tickets: PrTicket[], headRef: s
   return out;
 }
 
+// Local git only: the checked-out branch (`HEAD` when detached); null when git fails.
+async function readBranch($: EngineInterface): Promise<string | null> {
+  const r = await $.process.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD']);
+  return r.exitCode === 0 ? r.stdout.trim() : null;
+}
+
 // Local git only: the heads and remotes with their commits; null when git fails.
 async function readRefs($: EngineInterface): Promise<string | null> {
   const r = await $.process.run(['git', 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads', 'refs/remotes']);
@@ -105,6 +113,8 @@ async function fetchPr($: EngineInterface): Promise<PrData | null> {
   try {
     // Runs in the session's working directory by default; the data is tagged with it, read before gh runs.
     const cwd = await $.session.cwd();
+    const branch = (await readBranch($)) ?? '';
+    curBranch = branch;
     const r = await $.process.run(['gh', ...PR_ARGS, '-f', `query=${PR_QUERY}`]);
     const json = r.exitCode === 0 ? parseGraphql(r.stdout) : null;
     // Only an OPEN PR is shown; merged or closed reads as no PR.
@@ -118,8 +128,8 @@ async function fetchPr($: EngineInterface): Promise<PrData | null> {
     }
     const refs = await readRefs($);
     const { raw, spec } = splitIssues(issues);
-    cache = { cwd, json, raw, spec, tickets: await settle($, raw, json, refs), fetchedAt: await $.clock.now() };
-    return parsePr(json, cwd, cache.tickets, spec, cache.fetchedAt);
+    cache = { cwd, branch, json, raw, spec, tickets: await settle($, raw, json, refs), fetchedAt: await $.clock.now() };
+    return parsePr(json, cwd, cache.tickets, spec, cache.fetchedAt, branch);
   } catch {
     return (cache = null);
   }
@@ -131,12 +141,18 @@ async function step($: EngineInterface, mode: Mode): Promise<PrData | null | und
   const c = cache;
   if (c === null) return undefined;
   try {
-    // Another directory's cache is no use here: drop it and clear the atom.
-    if (!await isHere($, c.cwd)) return (cache = null);
+    // Local branch read: a failed read leaves the last known one.
+    curBranch = (await readBranch($)) ?? curBranch;
+    // Another directory's or branch's cache is no use here: drop it, clear the atom and read the PR anew.
+    if (!await isCurrent($, c.cwd, c.branch)) {
+      cache = null;
+      void refresh($, 'full');
+      return null;
+    }
     const refs = await readRefs($);
     if (refs === null || refs === refSnap) return undefined;
     c.tickets = await settle($, c.raw, c.json, refs);
-    return parsePr(c.json, c.cwd, c.tickets, c.spec, c.fetchedAt);
+    return parsePr(c.json, c.cwd, c.tickets, c.spec, c.fetchedAt, c.branch);
   } catch {
     return undefined;
   }
@@ -181,21 +197,22 @@ async function manualRefresh($: EngineInterface): Promise<void> {
   }
 }
 
-// Whether data read in `cwd` belongs to where the session is now; a failed read counts as "not here".
-async function isHere($: EngineInterface, cwd: string): Promise<boolean> {
+// Whether data read in `cwd` on `branch` belongs to where the session is now (same directory and the
+// branch last read locally); a failed read counts as "not here". The single comparison point.
+async function isCurrent($: EngineInterface, cwd: string, branch: string): Promise<boolean> {
   try {
-    return cwd === await $.session.cwd();
+    return cwd === await $.session.cwd() && branch === curBranch;
   } catch {
     return false;
   }
 }
 
-// The PR to draw: null when there is none or it was read in another directory (/clear, cd and repo
-// switches all end up here), and then `isStale` says the atom is out of date. Never throws.
+// The PR to draw: null when there is none or it was read in another directory or on another branch (/clear, cd,
+// repo and branch switches all end up here), and then `isStale` says the atom is out of date. Never throws.
 async function currentPr($: EngineInterface): Promise<{ data: PrData | null; isStale: boolean }> {
   const data = await read($, pr);
   if (data === null) return { data: null, isStale: false };
-  return (await isHere($, data.cwd)) ? { data, isStale: false } : { data: null, isStale: true };
+  return (await isCurrent($, data.cwd, data.branch)) ? { data, isStale: false } : { data: null, isStale: true };
 }
 
 export const register: Register = (on, options) => {

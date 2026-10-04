@@ -58,7 +58,7 @@ Two tiers, each on its own timer, never overlapping (a tick that finds another r
 
 | Every | Reads | Recomputes ticket statuses when |
 | --- | --- | --- |
-| 20 s | `git for-each-ref` (local, no network) | the branches and their commits differ from the last look: local merges, new commits, deleted branches |
+| 20 s | `git for-each-ref` (local, no network) | the branches and their commits differ from the last look: local merges, new commits, deleted branches; it also reads the checked-out branch, so a `git checkout` in the same directory drops the old branch's PR and triggers a full refresh |
 | 5 min | one `gh api graphql` request: the PR (resolved by `gh` from the session directory's repository and current branch), its CI and commits, and every closing issue | always (a full refresh) |
 
 Only a PR into a non-default branch, which GitHub links to no issue, costs a second request: its `Closes #N` issues by number. Need fresher data sooner? Press the button, or end a turn.

@@ -1,4 +1,4 @@
-// Shared fixtures and mocks for the register.test.ts, refresh.test.ts and cwd.test.ts suites: synthetic `gh api graphql` and git answers, the session directory and a call tally.
+// Shared fixtures and mocks for the register, refresh, cwd and branch test suites: synthetic `gh api graphql` and git answers, the session directory and a call tally.
 import { mock } from 'claude-code/testing';
 
 // The PR as the card reads it; `gql` wraps it into GraphQL's nodes shape. `linked` is the closing issues GitHub links.
@@ -24,7 +24,7 @@ type On = Parameters<typeof mock.env>[0];
 
 // Mutable test state: the session's directory (a test moves it to stand for a cd or a /clear),
 // the `git for-each-ref` answer, ticket 7's issue, and whether GitHub links the closing issues (a PR into a non-default branch has none).
-export const st = { dir: '/tmp/x', cwdFails: false, refs: 'refs/heads/dev aaa\n', issue7: ISSUE as unknown, gate: null as Promise<void> | null, linked: true };
+export const st = { dir: '/tmp/x', cwdFails: false, refs: 'refs/heads/dev aaa\n', issue7: ISSUE as unknown, gate: null as Promise<void> | null, linked: true, branch: 'dev', ghBranch: null as string | null };
 // gql counts PR requests, issues the follow-up by-number requests.
 export const tally = { refs: 0, branch: 0, gql: 0, issues: 0 };
 
@@ -47,6 +47,7 @@ export const reply = (argv: readonly string[]) => {
   const ok = (stdout: string) => ({ exitCode: 0, stdout });
   if (argv[0] === 'git') {
     if (argv[1] === 'for-each-ref') return ok(st.refs);
+    if (argv[1] === 'rev-parse' && argv.includes('--abbrev-ref')) return ok(`${st.branch}\n`);
     if (argv[1] === 'rev-parse') return ok('abc\n');
     if (argv[1] === 'branch') return ok('dev\nspec/12-dark-mode\nfeat/7-theme-toggle\nworktree-7-x\n');
     if (argv[1] === 'rev-list') return ok(argv[3]?.endsWith('feat/7-theme-toggle') ? '2\n' : '0\n');
@@ -67,13 +68,15 @@ export const quiet = (on: On) => {
 };
 
 // Two tiers: 20 s local git, 5 min `gh api graphql`. `gate` holds every PR request until it resolves;
-// `ghHere` limits the gh answers to one directory (elsewhere gh finds no PR).
+// `ghHere` limits the gh answers to one directory and `st.ghBranch` to one branch (elsewhere gh finds no PR).
 export const wire = (on: On, gate?: Promise<void>, ghHere?: string) => {
   Object.assign(tally, { refs: 0, branch: 0, gql: 0, issues: 0 });
   st.refs = 'refs/heads/dev aaa\n';
   st.issue7 = ISSUE;
   st.gate = null;
   st.linked = true;
+  st.branch = 'dev';
+  st.ghBranch = null;
   quiet(on);
   on('session.start', async (_$, e) => ({ cwd: e.cwd }));
   on('process.run', async (_$, e) => {
@@ -85,7 +88,7 @@ export const wire = (on: On, gate?: Promise<void>, ghHere?: string) => {
       if (isPr && gate) await gate;
       if (isPr && st.gate) await st.gate;
     }
-    if (e.argv[0] === 'gh' && ghHere !== undefined && st.dir !== ghHere) {
+    if (e.argv[0] === 'gh' && ((ghHere !== undefined && st.dir !== ghHere) || (st.ghBranch !== null && st.branch !== st.ghBranch))) {
       return { value: { exitCode: 1, stdout: '', stderr: '', ...done } };
     }
     return { value: { ...reply(e.argv), stderr: '', ...done } };

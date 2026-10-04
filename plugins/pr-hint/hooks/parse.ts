@@ -115,9 +115,10 @@ export function parseTicket(issue: Json): PrTicket {
   };
 }
 
-export function parsePr(pr: Json, cwd: string, tickets: PrTicket[], spec: PrData['spec'] = null, fetchedAt = 0): PrData {
+export function parsePr(pr: Json, cwd: string, tickets: PrTicket[], spec: PrData['spec'] = null, fetchedAt = 0, branch = ''): PrData {
   return {
     cwd,
+    branch,
     number: num(pr.number),
     title: str(pr.title),
     state: str(pr.state),
