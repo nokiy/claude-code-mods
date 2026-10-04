@@ -66,12 +66,13 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       expect(tree0).not.toContain('"type":"engine"');
       expect(tree0).not.toContain('flexGrow');
       expect(await ui.find({ type: 'Text', text: /● #12/ })).toBeUndefined();
-      // The hint row is a plain row: no hover, no card of its own.
-      expect(tree0).not.toContain('"hover"');
+      // The hint row carries the hover scope and the pin Button; no card of its own.
+      expect(tree0).toContain('"scope":"pr-hint-card"');
+      expect(await ui.find({ type: 'Button', key: 'pin' })).toBeDefined();
       expect(tree0).not.toContain('"position":"absolute"');
       expect(tree0).not.toContain('Spec #');
 
-      // The AbovePrompt band: an always-shown card, the full hierarchy, all tickets.
+      // The AbovePrompt band: hidden with hover reveal until pinned, the full hierarchy, all tickets.
       const band = await $.ui.mount({
         plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt',
         props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100 } as never,
@@ -79,8 +80,18 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       const root = (await band.drawn()) as unknown as {
         props: { display?: string }; hover?: { scope?: string; display?: string }; children: Array<{ children?: unknown[] }>;
       };
-      expect(root.props.display).toBeUndefined();
-      expect(root.hover).toBeUndefined();
+      const hidden = (r: typeof root) => JSON.stringify(r);
+      expect(hidden(root)).toContain('"display":"none"');
+      expect(hidden(root)).toContain('"hover":{"scope":"pr-hint-card","display":"flex"}');
+      // A press on the pin shows the card without display:none; a second press hides it again.
+      await ui.press({ key: 'pin' });
+      await clock.settle();
+      const shown = (await band.drawn()) as unknown as typeof root;
+      expect(hidden(shown)).not.toContain('"display":"none"');
+      expect(hidden(shown)).not.toContain('"scope":"pr-hint-card"');
+      await ui.press({ key: 'pin' });
+      await clock.settle();
+      expect(hidden((await band.drawn()) as unknown as typeof root)).toContain('"display":"none"');
       const lines = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '');
       const idx = (re: RegExp) => lines.findIndex(l => re.test(l));
       // Order: title, Spec, CI + summary, ticket lines, link row (the Spec is not a ticket line).

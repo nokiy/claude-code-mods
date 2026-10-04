@@ -37,6 +37,10 @@ export type PrData = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'pr-hint': { pr: PrData | null };
+    'pr-hint': {
+      pr: PrData | null;
+      /** The card is pinned open by a press on the hint row's pin. */
+      pinned: boolean;
+    };
   }
 }

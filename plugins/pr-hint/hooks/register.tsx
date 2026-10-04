@@ -1,4 +1,4 @@
-// Hooks entry of pr-hint; refreshes PR data and draws the PromptHint line plus its hover card.
+// Hooks entry of pr-hint; refreshes PR data and draws the PromptHint line plus its hover-preview, click-to-pin card.
 // The engine's `$` and the PR atom stay in this file (the validator follows them nowhere else); text and parsing live in card.ts, parse.ts and strings.ts.
 import { atom, read, update } from 'claude-code';
 import type { EngineInterface, Register } from 'claude-code';
@@ -9,6 +9,11 @@ import type { Strings } from './strings';
 import type { PrData, PrTicket } from '../types';
 
 const pr = atom({ plugin: 'pr-hint', key: 'pr' } as const, null);
+// Whether the card is pinned open (a press on the hint row's pin toggles it).
+const pinned = atom({ plugin: 'pr-hint', key: 'pinned' } as const, false);
+
+// Shared hover scope: the hint row lights it, the AbovePrompt card is revealed by it.
+const SCOPE = 'pr-hint-card';
 
 const PR_FIELDS =
   'number,title,state,isDraft,reviewDecision,statusCheckRollup,additions,deletions,changedFiles,closingIssuesReferences,mergeable,baseRefName,headRefName,url,updatedAt,body';
@@ -126,20 +131,23 @@ export const register: Register = (on, options) => {
     return next(e);
   });
 
-  // Hint row: one Text of inline spans (nothing can stack).
+  // Hint row: one Text of inline spans (nothing can stack), then a plain pin Button.
+  // Only a Button takes a press (Box and Text have no onPress), so the pin is the click target.
+  // The Box is the hover handle: the AbovePrompt card shares its `scope`.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const data = await read($, pr);
     if (data === null) return next(e);
     await ensureLang($);
 
-    const { Box, Text } = $.ui.resolve(e);
+    const { Box, Button, Text } = $.ui.resolve(e);
     const columns = e.viewport?.columns ?? 80;
-    // Room for the PR group: the row less the hint text, the " · " separator and a 2-cell margin.
-    const layout = hintLayout(data, columns - width(e.props.hint) - 3 - 2, t);
+    const isPinned = (await read($, pinned)) === true;
+    // Room for the PR group: the row less the hint text, the " · " separator, the pin (space + 2 cells) and a 2-cell margin.
+    const layout = hintLayout(data, columns - width(e.props.hint) - 3 - 3 - 2, t);
     const sum = summarize(data.tickets);
 
     return (
-      <Box key="pr-hint" flexDirection="row">
+      <Box key="pr-hint" flexDirection="row" hover={{ scope: SCOPE }}>
         <Text key="pr-group" wrap="truncate-end">
           {hintSpans(e.props.hint).map((p, i) => (
             <Text key={`h${i}`} color={p.color} dimColor={p.dim}>{p.text}</Text>
@@ -154,13 +162,15 @@ export const register: Register = (on, options) => {
           {layout.hasSummary ? <Text>{`${t.accepted} `}</Text> : null}
           {layout.hasSummary ? <Text color="green" bold>{`${sum.done}/${sum.total}`}</Text> : null}
         </Text>
+        <Text>{' '}</Text>
+        <Button key="pin" label="📌" plain dimColor={!isPinned} onPress={() => update($, pinned, p => !p)} />
       </Box>
     );
   });
 
   // The detail card lives in the AbovePrompt band: an absolute Box under PromptHint is
-  // clipped by the bottom slot. It is always shown while there is an OPEN PR; the band
-  // scrolls by itself when taller than maxRows, so no ticket is dropped.
+  // clipped by the bottom slot. It is hidden until the hint row's scope is hovered, and always
+  // shown while pinned; the band scrolls by itself when taller than maxRows, so no ticket is dropped.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const data = await read($, pr);
     if (data === null || e.props.hasSurvey) return next(e);
@@ -169,6 +179,7 @@ export const register: Register = (on, options) => {
     const { Box, Text, Link } = $.ui.resolve(e);
     // Border (2) + paddingX (2) leave this many cells for text.
     const inner = Math.max(20, e.props.bodyColumns - 4);
+    const isPinned = (await read($, pinned)) === true;
     const card = cardLines(data, await $.clock.now(), inner, t);
 
     return (
@@ -176,6 +187,7 @@ export const register: Register = (on, options) => {
         flexDirection="column"
         borderStyle="round"
         paddingX={1}
+        {...(isPinned ? {} : { display: 'none' as const, hover: { scope: SCOPE, display: 'flex' as const } })}
       >
         {card.lines.map((l, i) => (
           <Text key={String(i)} wrap="truncate-end">

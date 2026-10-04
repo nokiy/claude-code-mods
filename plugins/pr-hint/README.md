@@ -1,6 +1,6 @@
 # pr-hint
 
-Show the pull request of your current branch right on the prompt hint row, with a card above the prompt showing the spec, the integration branch and how far every ticket has come.
+Show the pull request of your current branch right on the prompt hint row, with a card (hover the hint row to preview it, click to pin it open) showing the spec, the integration branch and how far every ticket has come.
 
 [中文说明](README.zh-CN.md)
 
@@ -16,7 +16,7 @@ When the branch your session is on has an **open** pull request, the hint row (t
 
 The mode phrase keeps its colour, the PR title takes all remaining width, and on narrow rows the counts drop first, then the title shrinks.
 
-While the PR is open, a card stays above the prompt (the band's `[-]` collapses it):
+Hover the hint row to preview a card above the prompt; it hides when the pointer leaves. Click the `📌` at the end of the row to pin it open, click again to unpin:
 
 ```
 ╭──────────────────────────────────────────────────────────────────────────╮
