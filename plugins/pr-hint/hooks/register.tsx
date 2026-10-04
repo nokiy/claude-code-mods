@@ -28,9 +28,9 @@ let timers: Array<{ cancel: () => void }> = [];
 // `git for-each-ref` output at the last status computation; tier 1 recomputes only when it differs.
 let refSnap: string | null = null;
 type Json = NonNullable<ReturnType<typeof parseJson>>;
-// The open PR as last read: its JSON, the closing-issue numbers, the tickets as gh gave them (`raw`)
+// The open PR as last read: the directory it was read in, its JSON, the closing-issue numbers, the tickets as gh gave them (`raw`)
 // and with their git status (`tickets`). Tiers 1 and 3 recompute from this without asking gh for the PR.
-type Cache = { key: string; json: Json; nums: number[]; raw: PrTicket[]; tickets: PrTicket[]; spec: PrData['spec'] };
+type Cache = { cwd: string; key: string; json: Json; nums: number[]; raw: PrTicket[]; tickets: PrTicket[]; spec: PrData['spec'] };
 let cache: Cache | null = null;
 // full: PR, tickets and git · pr: the PR (tickets reused) · git: local refs only · issues: the closing issues.
 type Mode = 'full' | 'pr' | 'git' | 'issues';
@@ -116,7 +116,8 @@ async function settle($: EngineInterface, raw: PrTicket[], json: Json, refs: str
 // ones are reused while the closing-issue numbers and the head commit are unchanged.
 async function fetchPr($: EngineInterface, mode: 'full' | 'pr'): Promise<PrData | null> {
   try {
-    // Runs in the session's working directory by default.
+    // Runs in the session's working directory by default; the data is tagged with it, read before gh runs.
+    const cwd = await $.session.cwd();
     const r = await $.process.run(['gh', 'pr', 'view', '--json', PR_FIELDS]);
     const json = r.exitCode === 0 ? parseJson(r.stdout) : null;
     // Only an OPEN PR is shown; merged or closed reads as no PR.
@@ -125,14 +126,14 @@ async function fetchPr($: EngineInterface, mode: 'full' | 'pr'): Promise<PrData 
     const nums = closingNumbers(json);
     // The head commit is part of the key: when the head moves, statuses are recomputed.
     const key = `${nums.join(',')}@${(typeof json.headRefOid === 'string' ? json.headRefOid : '')}`;
-    if (mode === 'full' || cache === null || cache.key !== key) {
+    if (mode === 'full' || cache === null || cache.key !== key || cache.cwd !== cwd) {
       const refs = await readRefs($);
       const { raw, spec } = await loadIssues($, nums);
-      cache = { key, json, nums, raw, spec, tickets: await settle($, raw, json, refs) };
+      cache = { cwd, key, json, nums, raw, spec, tickets: await settle($, raw, json, refs) };
     } else {
       cache.json = json;
     }
-    return parsePr(cache.json, cache.tickets, cache.spec);
+    return { ...parsePr(cache.json, cache.tickets, cache.spec), cwd };
   } catch {
     return (cache = null);
   }
@@ -144,6 +145,8 @@ async function step($: EngineInterface, mode: Mode): Promise<PrData | null | und
   const c = cache;
   if (c === null) return undefined;
   try {
+    // Another directory's cache is no use here: drop it and clear the atom.
+    if (c.cwd !== await $.session.cwd()) return (cache = null);
     const refs = await readRefs($);
     if (mode === 'git') {
       if (refs === null || refs === refSnap) return undefined;
@@ -155,7 +158,7 @@ async function step($: EngineInterface, mode: Mode): Promise<PrData | null | und
       c.spec = spec;
     }
     c.tickets = await settle($, c.raw, c.json, refs);
-    return parsePr(c.json, c.tickets, c.spec);
+    return { ...parsePr(c.json, c.tickets, c.spec), cwd: c.cwd };
   } catch {
     return undefined;
   }
@@ -180,6 +183,16 @@ async function refresh($: EngineInterface, mode: Mode): Promise<void> {
       void refresh($, 'full');
     }
   }
+}
+
+// The PR to draw, or null when there is none or it was read in another directory (/clear, cd and
+// repo switches all end up here); a stale one asks for a full refresh at once.
+async function currentPr($: EngineInterface): Promise<PrData | null> {
+  const data = await read($, pr);
+  if (data === null) return null;
+  if (data.cwd === await $.session.cwd()) return data;
+  void refresh($, 'full');
+  return null;
 }
 
 export const register: Register = (on, options) => {
@@ -209,8 +222,12 @@ export const register: Register = (on, options) => {
   // (Box and Text have no onPress) and a Button has no colour at rest, so the press lives on
   // the small glyph and `PR #N` keeps its colour. The Box is the hover handle: the card shares its `scope`.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const data = await read($, pr);
-    if (data === null) return next(e);
+    const data = await currentPr($);
+    if (data === null) {
+      // No PR: the engine's line stays live unless it carries the agents pill, which is always hidden.
+      const bare = withoutAgents(e.props.hint);
+      return bare === e.props.hint ? next(e) : next({ ...e, props: { ...e.props, hint: bare } });
+    }
     await ensureLang($);
 
     const { Box, Button, Text } = $.ui.resolve(e);
@@ -271,7 +288,7 @@ export const register: Register = (on, options) => {
   // clipped by the bottom slot. It is hidden until the hint row's scope is hovered, and always
   // shown while pinned; the band scrolls by itself when taller than maxRows, so no ticket is dropped.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const data = await read($, pr);
+    const data = await currentPr($);
     if (data === null || e.props.hasSurvey) return next(e);
     await ensureLang($);
 

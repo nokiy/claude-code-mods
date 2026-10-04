@@ -21,6 +21,8 @@ export type PrTicket = {
 };
 
 export type PrData = {
+  /** The session directory the PR was read in; drawn only while the session is still there. */
+  cwd: string;
   number: number;
   title: string;
   state: string;

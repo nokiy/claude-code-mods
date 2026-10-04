@@ -33,7 +33,7 @@ Hover the hint row to preview a card above the prompt; it hides when the pointer
 
 Top to bottom: the PR title, the Spec and the integration branch (`base ← head`), CI and the counts, one line per ticket (nothing is dropped), then the PR link and its update time. Tickets are ordered in progress, not started, merged, accepted. A `↻N` after CI counts checks still running.
 
-With no PR, or a merged or closed one, the mod does nothing and the hint row and band stay as Claude Code draws them.
+The PR shown always belongs to the current directory: after a `cd`, a `/clear` or a repo switch the old PR is gone at the next redraw and the new directory's is read. With no PR, or a merged or closed one, the band and the hint row stay as Claude Code draws them, except that the `← N agents` pill is always hidden (with a PR it is hidden to make room).
 
 ## Spec and tickets
 

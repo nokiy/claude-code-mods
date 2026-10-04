@@ -31,7 +31,11 @@ const reply = (argv: readonly string[]) => {
 };
 const PROPS = { isDraft: false, isWorking: false, hint: '▸▸ bypass permissions on' };
 // The language comes from the session's settings and LANG: none here, so English.
+// The directory the session is in; a test moves it to stand for a cd or a /clear.
+let dir = '/tmp/x';
 const quiet = (on: Parameters<typeof mock.env>[0]) => {
+  dir = '/tmp/x';
+  on('session.cwd', async () => ({ value: dir }));
   mock.env(on, {});
   on('settings.read', async () => ({ value: {} }));
 };
@@ -172,6 +176,83 @@ for (const state of ['MERGED', 'CLOSED']) {
     await ui.unmount();
   });
 }
+
+test('a PR read in directory A is not drawn once the session is in B (no PR there)', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  quiet(on);
+  dir = '/tmp/a';
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }));
+  on('process.run', async (_$, e) => {
+    // gh answers only in A, as a repo with no PR for B.
+    const r = dir === '/tmp/a' ? reply(e.argv) : { exitCode: 1, stdout: '' };
+    return { value: { ...r, stderr: '', ...done } };
+  });
+  on('ui.render', { component: 'AbovePrompt' }, async () => ({ type: 'Text', children: ['engine band'] }) as never);
+  on('ui.render', { component: 'PromptHint' }, async (_$, e) => ({ type: 'Text', children: [e.props.hint] }) as never);
+  await $.session.start({ cwd: '/tmp/a' } as never);
+  await clock.settle();
+  const props = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100 } as never;
+  const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
+  const band = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props });
+  expect(await ui.find({ type: 'Text', text: /^PR #10$/ })).toBeDefined();
+
+  // /clear or cd: no session.start, no timer yet; the next draw already drops the old PR.
+  dir = '/tmp/b';
+  await ui.unmount();
+  await band.unmount();
+  const ui2 = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
+  const band2 = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props });
+  expect(JSON.stringify(await ui2.drawn())).not.toContain('PR #');
+  expect(await ui2.find({ type: 'Text', text: /bypass permissions/ })).toBeDefined();
+  expect(await band2.find({ type: 'Text', text: /engine band/ })).toBeDefined();
+  expect(JSON.stringify(await band2.drawn())).not.toContain('pr-hint-card');
+  // The stale draw kicked a full refresh, which read no PR in B and cleared the atom.
+  await clock.settle();
+  expect(JSON.stringify(await ui2.drawn())).not.toContain('PR #');
+  await ui2.unmount();
+  await band2.unmount();
+});
+
+test('the 20s tick in another directory drops the cache instead of reusing it', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  wire(on);
+  dir = '/tmp/a';
+  on('ui.render', { component: 'PromptHint' }, async (_$, e) => ({ type: 'Text', children: [e.props.hint] }) as never);
+  await $.session.start({ cwd: '/tmp/a' } as never);
+  await clock.settle();
+  const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
+  expect(await ui.find({ type: 'Text', text: /^PR #10$/ })).toBeDefined();
+  await ui.unmount();
+  dir = '/tmp/b';
+  const issuesBefore = tally.issue;
+  refs = 'refs/heads/dev aaa\nrefs/heads/other bbb\n';
+  await clock.advance(20_000);
+  // Cleared, not recomputed from A's cache: no issue or status calls were made for B.
+  expect(tally.issue).toBe(issuesBefore);
+  const ui2 = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: { columns: 160, rows: 50 } });
+  expect(await ui2.find({ type: 'Button', key: 'pin' })).toBeUndefined();
+  await ui2.unmount();
+});
+
+test('without a PR the agents pill is still hidden; a hint without it is passed through', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  quiet(on);
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }));
+  on('process.run', async () => ({ value: { exitCode: 1, stdout: '', stderr: '', ...done } }));
+  on('ui.render', { component: 'PromptHint' }, async (_$, e) => ({ type: 'Text', children: [e.props.hint] }) as never);
+  await $.session.start({ cwd: '/tmp/x' } as never);
+  await clock.settle();
+  const mount = (hint: string) => $.ui.mount({
+    plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: { ...PROPS, hint }, viewport: { columns: 160, rows: 50 },
+  });
+  const ui = await mount('▸▸ bypass permissions on · ← 3 agents');
+  expect(JSON.stringify(await ui.drawn())).not.toContain('← 3 agents');
+  expect(await ui.find({ type: 'Text', text: /bypass permissions on/ })).toBeDefined();
+  await ui.unmount();
+  const plain = await mount('▸▸ bypass permissions on');
+  expect(await plain.find({ type: 'Text', text: /^▸▸ bypass permissions on$/ })).toBeDefined();
+  await plain.unmount();
+});
 
 test('the ticket cache is recomputed when headRefOid changes', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });

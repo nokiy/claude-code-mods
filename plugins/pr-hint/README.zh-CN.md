@@ -33,7 +33,7 @@
 
 自上而下：PR 标题、Spec 与集成分支（`base ← head`）、CI 与计数、每张 ticket 一行（一张不漏）、PR 链接与更新时间。ticket 按 进行中、未开始、已合入、已验收 排序。CI 后面的 `↻N` 是还在运行的检查数。
 
-没有 PR，或 PR 已合并 / 已关闭时，本 mod 什么都不做，提示行和面板保持 Claude Code 原样。
+显示的 PR 始终属于当前目录：`cd`、`/clear` 或切换仓库后，旧 PR 在下一次重绘即消失，并改读新目录的 PR。没有 PR，或 PR 已合并 / 已关闭时，面板和提示行保持 Claude Code 原样，只是「← N agents」始终被隐藏（有 PR 时是为腾位置而隐藏）。
 
 ## Spec 与 ticket
 

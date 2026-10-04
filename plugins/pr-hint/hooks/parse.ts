@@ -115,7 +115,7 @@ export function parseTicket(issue: Json): PrTicket {
   };
 }
 
-export function parsePr(pr: Json, tickets: PrTicket[], spec: PrData['spec'] = null): PrData {
+export function parsePr(pr: Json, tickets: PrTicket[], spec: PrData['spec'] = null): Omit<PrData, 'cwd'> {
   return {
     number: num(pr.number),
     title: str(pr.title),
