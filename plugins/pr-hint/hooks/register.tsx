@@ -131,9 +131,9 @@ export const register: Register = (on, options) => {
     return next(e);
   });
 
-  // Hint row: the engine's hint, `PR #N` (cyan, bold), the title as a plain Button, then the counts.
-  // Only a Button takes a press (Box and Text have no onPress) and a Button's label has no colour
-  // of its own, so the title (plain text anyway) is the click target that pins the card.
+  // Hint row: the engine's hint, `PR #N` as a plain Button (the click that pins the card), then
+  // the title and counts. Only a Button takes a press (Box and Text have no onPress), and a
+  // Button has no colour at rest, so `PR #N` turns cyan and bold while the row's scope is hovered.
   // The Box is the hover handle: the card shares its `scope`.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const data = await read($, pr);
@@ -154,19 +154,19 @@ export const register: Register = (on, options) => {
               <Text key={`h${i}`} color={p.color} dimColor={p.dim}>{p.text}</Text>
             ))}
             <Text dimColor>{' · '}</Text>
-            <Text color="cyan" bold>{`PR #${data.number} `}</Text>
           </Text>
         </Box>
         <Box flexShrink={0}>
           <Button
             key="pin"
-            label={layout.title}
+            label={`PR #${data.number}`}
             plain
-            hover={{ underline: true }}
+            hover={{ scope: SCOPE, color: 'cyan', bold: true }}
             onPress={() => update($, pinned, p => !p)}
           />
         </Box>
         <Text key="pr-group" wrap="truncate-end">
+          <Text>{` ${layout.title}`}</Text>
           {layout.hasSummary ? <Text dimColor>{' · '}</Text> : null}
           {layout.hasSummary ? <Text>{`${t.merged} `}</Text> : null}
           {layout.hasSummary ? <Text color="blueBright" bold>{`${sum.merged}/${sum.total}`}</Text> : null}

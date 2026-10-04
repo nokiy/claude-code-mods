@@ -57,13 +57,11 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
     if (hasPr) {
       expect(pr).toBeDefined();
       const tree0 = JSON.stringify(await ui.drawn());
-      // One row: the hint and `PR #N` (cyan, bold), the title as the pin Button, then the counts; no Spec on the row.
-      expect((await ui.find({ type: 'Text', text: /^▸▸ bypass/ }))?.text).toBe('▸▸ bypass permissions on · PR #10 ');
-      const num = await ui.find({ type: 'Text', text: /^PR #10 $/ });
-      expect(num?.props.color).toBe('cyan');
-      expect(num?.props.bold).toBe(true);
-      expect(pr?.props.label).toBe('Add dark mode');
-      expect((await ui.find({ type: 'Text', text: /merged 0\/1/ }))?.text).toBe(' · merged 0/1 · accepted 0/1');
+      // One row: the hint, `PR #N` as the pin Button (cyan + bold while the row is hovered), then title and counts.
+      expect((await ui.find({ type: 'Text', text: /^▸▸ bypass/ }))?.text).toBe('▸▸ bypass permissions on · ');
+      expect(pr?.props.label).toBe('PR #10');
+      expect(JSON.stringify(await ui.drawn())).toContain('"color":"cyan","bold":true');
+      expect((await ui.find({ type: 'Text', text: /Add dark mode/ }))?.text).toBe(' Add dark mode · merged 0/1 · accepted 0/1');
       // The mode phrase is red, as the engine draws it; the engine element is not nested; no spacer.
       const spans = await ui.findAll({ type: 'Text', text: /bypass permissions on/ });
       expect(spans.some(s => s.props.color === 'red')).toBe(true);
