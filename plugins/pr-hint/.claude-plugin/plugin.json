@@ -1,0 +1,32 @@
+{
+  "name": "pr-hint",
+  "version": "0.0.1",
+  "description": "Shows the current branch's open PR on the prompt hint row (title, merged and accepted counts); hover the hint row to preview a card of the spec, integration branch, CI and every ticket's progress, click the ▸ before the PR number to keep it open.",
+  "author": {
+    "name": "nokiy"
+  },
+  "homepage": "https://github.com/nokiy/claude-code-mods/tree/main/plugins/pr-hint",
+  "repository": "https://github.com/nokiy/claude-code-mods",
+  "license": "MIT",
+  "keywords": [
+    "pull-request",
+    "github",
+    "tickets",
+    "hint",
+    "mod"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "auto follows Claude Code's language setting, then the locale",
+      "options": [
+        "auto",
+        "en",
+        "zh"
+      ],
+      "default": "auto"
+    }
+  }
+}
