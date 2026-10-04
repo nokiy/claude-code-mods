@@ -10,7 +10,9 @@ import { pickLang, strings } from './strings';
 import type { Strings } from './strings';
 import type { PrData, PrTicket, Where } from '../types';
 
-const pr = atom({ plugin: 'pr-hint', key: 'pr' } as const, null);
+// The engine keeps what the old code stored across a reload or upgrade; the shape tag makes new code read an old-shaped PrData as absent.
+// Bump the tag whenever PrData's shape changes.
+const pr = atom({ plugin: 'pr-hint', key: 'pr' } as const, null, { shape: 'pr-v2' });
 // Whether the card is pinned open (a press on the hint row's pin toggles it).
 const pinned = atom({ plugin: 'pr-hint', key: 'pinned' } as const, false);
 // Whether a manual ↻ refresh is running (the card's button shows it and ignores presses).

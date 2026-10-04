@@ -44,7 +44,8 @@ export type PrData = {
 declare module 'claude-code' {
   interface PluginState {
     'pr-hint': {
-      pr: PrData | null;
+      /** Kept under a shape tag (see register.tsx); bump the tag when PrData changes. */
+      pr: Shaped<PrData | null>;
       /** The card is pinned open by a press on the hint row's pin. */
       pinned: boolean;
       /** A manual ↻ refresh is running. */
