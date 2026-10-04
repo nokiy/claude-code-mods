@@ -1,6 +1,6 @@
 {
   "name": "pr-hint",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Shows the current branch's open PR on the prompt hint row (title, merged and accepted counts); hover the hint row to preview a card of the spec, integration branch, CI and every ticket's progress, click the ▸ before the PR number to keep it open.",
   "author": {
     "name": "nokiy"

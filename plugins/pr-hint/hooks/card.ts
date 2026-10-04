@@ -21,12 +21,18 @@ const line = (parts: CardPart[]): CardLine => ({ text: parts.map(p => p.text).jo
 // `深色模式 ② · 编辑器配色` → base `深色模式`, ordinal `②`, rest `编辑器配色`.
 const LEAD = /^(.+?)\s*([①-⑳]|\d+[a-z]?)?\s*·\s*(.+)$/u;
 
+// A leading `[mod] ` tag on a ticket title (the tracker's scope prefix) is noise on the card.
+const TAG = /^\s*\[[^\]]*\]\s*/;
+
 /**
- * When every ticket (two or more) shares the same lead (the Spec's subject), drops it and
- * keeps the ordinal and what this ticket does: `② 编辑器配色`. Otherwise the title is unchanged.
+ * Drops a leading `[mod]` tag; then, when every ticket (two or more) shares the same lead (the
+ * Spec's subject), drops that too and keeps the ordinal and what this ticket does: `② 编辑器配色`.
  */
 export function ticketSubjects(tickets: readonly PrTicket[]): Map<number, string> {
-  const parsed = tickets.map(t => ({ n: t.number, title: t.title, m: LEAD.exec(t.title) }));
+  const parsed = tickets.map(t => {
+    const title = t.title.replace(TAG, '');
+    return { n: t.number, title, m: LEAD.exec(title) };
+  });
   const bases = new Set(parsed.map(p => p.m?.[1]?.trim() ?? null));
   const shared = tickets.length >= 2 && bases.size === 1 && !bases.has(null);
   return new Map(parsed.map(p => [p.n, shared && p.m ? `${p.m[2] ? `${p.m[2]} ` : ''}${p.m[3]}` : p.title]));
@@ -51,37 +57,69 @@ const ticketLine = (t: PrTicket, subject: string, s: Strings, inner: number): Ca
   ]);
 };
 
+const ciText = (ci: PrData['ci'], s: Strings): string =>
+  ci.total === 0 ? s.noCi : `CI ✓${ci.ok}/${ci.total}${ci.fail > 0 ? ` ✗${ci.fail}` : ''}${ci.pending > 0 ? ` ↻${ci.pending}` : ''}`;
+
+const stateText = (p: PrData): string => (p.isDraft ? `${p.state} (draft)` : p.state);
+
+/**
+ * The toast after a manual refresh: what changed between `prev` and `next` (title, state, CI,
+ * merged and accepted counts, number of tickets), "up to date" when nothing did, or that the PR is gone.
+ */
+export function refreshText(prev: PrData | null, next: PrData | null, s: Strings): string {
+  if (next === null) return s.gone;
+  if (prev === null) return s.upToDate(next.number);
+  const a = summarize(prev.tickets);
+  const b = summarize(next.tickets);
+  const parts = [
+    prev.title !== next.title ? `“${next.title}”` : '',
+    stateText(prev) !== stateText(next) ? `${stateText(prev)} → ${stateText(next)}` : '',
+    ciText(prev.ci, s) !== ciText(next.ci, s) ? ciText(next.ci, s) : '',
+    a.merged !== b.merged || a.total !== b.total ? `${s.merged} ${a.merged}/${a.total} → ${b.merged}/${b.total}` : '',
+    a.done !== b.done || a.total !== b.total ? `${s.accepted} ${a.done}/${a.total} → ${b.done}/${b.total}` : '',
+    prev.tickets.length !== next.tickets.length ? `${s.tickets} ${prev.tickets.length} → ${next.tickets.length}` : '',
+  ].filter(Boolean);
+  return parts.length === 0 ? s.upToDate(next.number) : s.changed(next.number, parts.join(' · '));
+}
+
 /**
  * The card, top to bottom, `inner` cells wide: the PR title (wrapped to at most
  * 3 rows), the Spec with its integration branch, the CI and merged/accepted summary,
  * then one line per ticket. `footer` follows the link.
  */
-export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings): { lines: CardLine[]; footer: string } {
+export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings, titleInner = inner): { lines: CardLine[]; footer: string } {
   const prefix = `PR #${pr.number}`;
-  const title = wrapCells(`${prefix} ${pr.title}`, inner, 3).map((text, i) =>
+  const title = wrapCells(`${prefix} ${pr.title}`, titleInner, 3).map((text, i) =>
     i === 0 && text.startsWith(prefix)
       ? line([{ text: prefix, color: 'cyan', bold: true }, { text: text.slice(prefix.length) }])
       : line([{ text }]),
   );
 
+  const subjects = ticketSubjects(pr.tickets);
+  const branches = `${s.integration} ${pr.base} ← ${pr.head}`;
+  // Row 2: the Spec, else the lone ticket, else (several tickets) just the branches; no tickets keeps the state.
+  const only = pr.tickets.length === 1 ? pr.tickets[0] : undefined;
+  const lead = pr.spec
+    ? { head: `Spec #${pr.spec.number} `, title: pr.spec.title }
+    : only
+      ? { head: `${s.ticket} #${only.number} · `, title: subjects.get(only.number) ?? only.title }
+      : null;
   let meta: CardLine;
-  if (pr.spec) {
-    const tail = ` · ${s.integration} ${pr.base} ← ${pr.head}`;
-    const head = `Spec #${pr.spec.number} `;
-    const room = Math.max(8, inner - width(head) - width(tail));
-    meta = line([{ text: `${head}${shortTitle(pr.spec.title, room)}${tail}`, color: 'magenta' }]);
+  if (lead) {
+    const tail = ` · ${branches}`;
+    const room = Math.max(8, inner - width(lead.head) - width(tail));
+    meta = line([{ text: `${lead.head}${shortTitle(lead.title, room)}${tail}`, color: 'magenta' }]);
+  } else if (pr.tickets.length >= 2) {
+    meta = line([{ text: branches, color: 'magenta' }]);
   } else {
-    meta = line([{ text: `${s.integration} ${pr.base} ← ${pr.head} · ${pr.isDraft ? `${pr.state} (draft)` : pr.state}` }]);
+    meta = line([{ text: `${branches} · ${stateText(pr)}` }]);
   }
 
   const { ci } = pr;
-  const ciText =
-    ci.total === 0 ? s.noCi : `CI ✓${ci.ok}/${ci.total}${ci.fail > 0 ? ` ✗${ci.fail}` : ''}${ci.pending > 0 ? ` ↻${ci.pending}` : ''}`;
   const ciColor = ci.total === 0 ? undefined : ci.fail > 0 ? 'red' : ci.pending > 0 ? 'yellow' : 'green';
   const sum = summarize(pr.tickets);
-  const subjects = ticketSubjects(pr.tickets);
   const summary = line([
-    { text: ciText, color: ciColor },
+    { text: ciText(ci, s), color: ciColor },
     ...(pr.tickets.length === 0
       ? [{ text: ` · ${s.noTickets}` }]
       : [
@@ -94,7 +132,7 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings):
 
   return {
     lines: [...title, meta, summary, ...sortTickets(pr.tickets).map(t => ticketLine(t, subjects.get(t.number) ?? t.title, s, inner))],
-    footer: s.updated(relTime(pr.updatedAt, nowMs, s)),
+    footer: s.fetched(relTime(pr.fetchedAt, nowMs, s)),
   };
 }
 
