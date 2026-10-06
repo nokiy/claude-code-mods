@@ -121,6 +121,28 @@ test('/sub: only a row with an alert ends in a red `!`', async ($, on) => {
   expect(marks.map(m => m.props.color)).toEqual([PALETTE.red])
 })
 
+test('/sub Agent mode: the running agent\'s three lines first, then the finished table', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  wire(on, fakeFs(agentFiles(PROJECT, FINISHED[0]!)))
+  on('agent.spawn', async () => ({ agentId: 'a1', model: 'claude-opus-5-5' }))
+  await $.session.start({ cwd: ROOT } as never)
+  await $.agent.spawn({ subagentType: 'worker', description: 'op.med · fix the parser', prompt: 'go' } as never)
+  st.agents = [{ id: 'a1', type: 'worker', status: 'running', description: 'op.med · fix the parser' }]
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  const ui = await mountPane($)
+  await ui.press({ key: 'mode:agent' })
+  const at = await lineFinder(ui)
+  const run = at(/^ ◐ op\.med · fix the parser$/)
+  const head = at(/^\s+#\s+desc\s+type\s+tier\s+cost\s+time\s*$/)
+  const fin = at(/^ {2}●\s+map the parser/)
+  expect(run).toBeGreaterThanOrEqual(0)
+  expect(head).toBeGreaterThan(run)
+  expect(fin).toBeGreaterThan(head)
+  expect(await rowKeys(ui)).toEqual(['row:a1', 'row:f1'])
+})
+
 test('live band: ctx%, tokens without the `tok` word, time as m:ss', async ($, on) => {
   await running($, on)
   const text = await shown(await mountBand($))
