@@ -3,15 +3,14 @@
 import { atom, read, update } from 'claude-code';
 import type { EngineInterface, Register } from 'claude-code';
 import { cardLines, hintLayout, hintSpans, refreshText, stateChip, withoutAgents } from './card';
-import { PR_ARGS, PR_QUERY, REPO_ARGS, issuesQuery, parseGraphql, parseIssues, splitIssues } from './graphql';
+import { PR_ARGS, PR_QUERY, REPO_ARGS, isCurrentPr, issuesQuery, parseGraphql, parseIssues, splitIssues } from './graphql';
 import type { PrJson } from './graphql';
 import { closingNumbers, isInside, mergedByCommits, parsePr, pickShown, prHead, sameWhere, ticketBranches, ticketStatus, width } from './parse';
 import { pickLang, strings } from './strings';
 import type { Strings } from './strings';
 import type { PrData, PrTicket, Where } from '../types';
 
-// The engine keeps what the old code stored across a reload or upgrade; the shape tag makes new code read an old-shaped PrData as absent.
-// Bump the tag whenever PrData's shape changes.
+// The engine keeps stored values across a reload or upgrade; the shape tag (bump it whenever PrData's shape changes) reads an old-shaped PrData as absent.
 const pr = atom({ plugin: 'pr-hint', key: 'pr' } as const, null, { shape: 'pr-v2' });
 // Whether the card is pinned open (a press on the hint row's pin toggles it).
 const pinned = atom({ plugin: 'pr-hint', key: 'pinned' } as const, false);
@@ -21,12 +20,10 @@ const refreshing = atom({ plugin: 'pr-hint', key: 'refreshing' } as const, false
 // Shared hover scope: the hint row lights it, the AbovePrompt card is revealed by it.
 const SCOPE = 'pr-hint-card';
 
-// Module-level on purpose: the validator wants `$` passed only to top-level
-// functions of this file. A reload drops it with the rest of the environment.
+// Module-level on purpose: the validator wants `$` passed only to top-level functions of this file; a reload drops it all.
 // full: PR, tickets and git, one gh request · git: local refs only.
 type Mode = 'full' | 'git';
-// The refresh in flight, if any, and its mode: a tick that finds one is skipped, a full request joins a running full one
-// (and waits for it) instead of queueing another.
+// The refresh in flight and its mode: a tick that finds one is skipped, a full request joins (waits for) a running full one.
 let running: { mode: Mode; done: Promise<void> } | null = null;
 // Set synchronously by the ↻ press, before any await, so two presses cannot both start.
 let isManual = false;
@@ -117,8 +114,8 @@ async function settle($: EngineInterface, raw: PrTicket[], json: PrJson, refs: s
 }
 
 // Never throws. One `gh api graphql` request brings the PR and its closing issues; only a PR into a non-default
-// branch (GitHub links no issue) costs a second one for its `Closes #N` issues. Only a usable answer without an
-// open PR of this repository clears the data. undefined = gh gave no usable answer (failed, timed out, bad JSON,
+// branch (GitHub links no issue) costs a second one for its `Closes #N` issues. Only a usable answer without a
+// current PR of this repository (open, or merged at the branch's own commit) clears the data. undefined = gh gave no usable answer (failed, timed out, bad JSON,
 // GraphQL errors): the data read at this same place stays; data from another place is dropped, it is never drawn.
 async function fetchPr($: EngineInterface): Promise<PrData | null | undefined> {
   // Runs in the session's working directory by default; the data is tagged with where it was read, before gh runs.
@@ -134,9 +131,10 @@ async function fetchPr($: EngineInterface): Promise<PrData | null | undefined> {
     const r = await $.process.run(['gh', ...PR_ARGS, '-f', `query=${PR_QUERY}`]);
     const answer = r.exitCode === 0 ? parseGraphql(r.stdout) : null;
     if (answer === null || !answer.ok) return fail();
-    // The OPEN PR, else the branch's latest MERGED one (shown as Merged until the branch changes); closed reads as no PR.
+    // The OPEN PR, else the branch's latest MERGED one while the branch still sits on its merged commit; closed reads as no PR.
     const json = answer.pr;
-    if (json === null) {
+    const refs = await readRefs($);
+    if (json === null || !isCurrentPr(json, refs, where.branch)) {
       fetchFailed = false;
       return (cache = null);
     }
@@ -148,7 +146,6 @@ async function fetchPr($: EngineInterface): Promise<PrData | null | undefined> {
       if (more.exitCode !== 0) return fail();
       issues = parseIssues(more.stdout);
     }
-    const refs = await readRefs($);
     const { raw, spec } = splitIssues(issues);
     cache = { where, json, raw, spec, tickets: await settle($, raw, json, refs), fetchedAt: await $.clock.now() };
     fetchFailed = false;
@@ -175,6 +172,9 @@ async function step($: EngineInterface, mode: Mode): Promise<PrData | null | und
     if (c === null) return undefined;
     const refs = await readRefs($);
     if (refs === null || refs === refSnap) return undefined;
+    // A branch that moved off a merged PR's commit has no PR any more (no gh call needed).
+    refSnap = refs;
+    if (!isCurrentPr(c.json, refs, c.where.branch)) return (cache = null);
     c.tickets = await settle($, c.raw, c.json, refs);
     return parsePr(c.json, c.where, c.tickets, c.spec, c.fetchedAt);
   } catch {

@@ -28,7 +28,7 @@
       "name": "pr-hint",
       "source": "./plugins/pr-hint",
       "description": "Shows the current branch's PR on the prompt hint row (title and its state: Draft, Ready or Merged); hover the hint row to preview a card of the spec, integration branch, CI and every ticket's progress, click the ▸ before the PR number to keep it open.",
-      "version": "0.0.4",
+      "version": "0.0.5",
       "author": { "name": "nokiy" },
       "homepage": "https://github.com/nokiy/claude-code-mods/tree/main/plugins/pr-hint",
       "category": "productivity",
