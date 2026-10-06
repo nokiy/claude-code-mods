@@ -44,11 +44,20 @@ test('the Spec is the issue labelled spec; the rest are tickets', () => {
   expect(raw.map(t => t.number)).toEqual([429]);
 });
 
-test('no PR: nothing, a non-OPEN PR, a PR from a fork; a null rollup reads as no CI', () => {
+test('no PR: nothing, a CLOSED PR, a PR from a fork; a null rollup reads as no CI', () => {
   expect(prOf('{"data":{"repository":{"pullRequests":{"nodes":[]}}}}')).toBeNull();
-  expect(prOf(answer({ state: 'MERGED' }))).toBeNull();
+  expect(prOf(answer({ state: 'CLOSED' }))).toBeNull();
   expect(prOf(answer({ isCrossRepository: true }))).toBeNull();
   expect(parsePr(prOf(answer({ statusCheckRollup: null }))!, W, []).ci.total).toBe(0);
+});
+
+test('the OPEN PR wins; without one, the latest MERGED PR of the branch is shown', () => {
+  const nodes = JSON.parse(answer()).data.repository.pullRequests.nodes;
+  const list = (...prs: object[]) => JSON.stringify({ data: { repository: { pullRequests: { nodes: prs } } } });
+  const merged = (number: number) => ({ ...nodes[0], number, state: 'MERGED' });
+  expect(prOf(list(merged(1), { ...nodes[0], number: 2 }))?.number).toBe(2);
+  expect(prOf(list(merged(3), merged(1)))?.number).toBe(3);
+  expect(prOf(list({ ...nodes[0], number: 4, state: 'CLOSED' }, merged(1)))?.number).toBe(1);
 });
 
 test('a fork PR of the same branch name does not hide our own PR behind it', () => {
@@ -75,7 +84,7 @@ test('a PR with no linked issue falls back to the body; issues come back by numb
 
 test('gh fills the repository and branch itself', () => {
   expect(PR_ARGS).toEqual(['api', 'graphql', '-F', 'owner={owner}', '-F', 'name={repo}', '-F', 'branch={branch}']);
-  expect(PR_QUERY).toContain('pullRequests(headRefName:$branch,states:OPEN,first:10)');
+  expect(PR_QUERY).toContain('pullRequests(headRefName:$branch,states:[OPEN,MERGED],first:10,orderBy:{field:UPDATED_AT,direction:DESC})');
   expect(PR_QUERY).toContain('isCrossRepository');
   expect(PR_QUERY).not.toContain('headRefOid');
 });
