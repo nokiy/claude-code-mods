@@ -6,7 +6,10 @@ import { plusSpent } from './cost'
 import { clip } from './logic'
 import { MAX_PROMPT } from './patches'
 
-/** One hook refusal (a line carrying `toolDenialKind`): when, which kind, the first 200 characters of its text. */
+/**
+ * One hook refusal (a line carrying `toolDenialKind`, `kind` its value) or errored tool result (an `is_error` tool_result on any other
+ * line, `kind` 'error'): when, which kind, the first 200 characters of its text.
+ */
 export type Refusal = { at?: number; kind: string; text: string }
 
 /** What a transcript adds up to; JSON, so it can be cached in `$.store` beside its read position. */
@@ -32,11 +35,18 @@ export type Rollup = {
   /** Every refusal line counted; the latest MAX_REFUSALS kept. */
   denied: number
   refusals: Refusal[]
+  /** Every errored tool result counted; the latest MAX_REFUSALS kept apart, so failing runs never push hook refusals out. */
+  failed: number
+  errors: Refusal[]
 }
 
 export const MAX_REFUSALS = 20
 
-export const emptyRollup = (): Rollup => ({ steps: 0, byModel: {}, denied: 0, refusals: [] })
+export const emptyRollup = (): Rollup => ({ steps: 0, byModel: {}, denied: 0, refusals: [], failed: 0, errors: [] })
+
+// The errored tool_result blocks of a message's content.
+const erroredResults = (content: unknown): unknown[] =>
+  Array.isArray(content) ? content.filter((b: { type?: unknown; is_error?: unknown }) => b?.type === 'tool_result' && b.is_error === true) : []
 
 type Line = {
   type?: string
@@ -92,6 +102,12 @@ function addLine(r: Rollup, l: Line): Rollup {
   if (l.toolDenialKind) {
     out.denied = r.denied + 1
     out.refusals = [...r.refusals, { at: Number.isNaN(at) ? undefined : at, kind: l.toolDenialKind, text: clip(textOf(m?.content), 200) }].slice(-MAX_REFUSALS)
+  } else if (l.type === 'user') {
+    const errored = erroredResults(m?.content)
+    if (errored.length > 0) {
+      out.failed = r.failed + errored.length
+      out.errors = [...r.errors, ...errored.map(b => ({ at: Number.isNaN(at) ? undefined : at, kind: 'error', text: clip(textOf([b]), 200) }))].slice(-MAX_REFUSALS)
+    }
   }
   if (l.type === 'assistant' && m?.id && m.model && m.model !== '<synthetic>') {
     const usage = spentOf(m.usage ?? {})

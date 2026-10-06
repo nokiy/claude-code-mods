@@ -19,6 +19,8 @@ export type FakeAgent = {
   steps?: FakeStep[]
   /** Hook refusals: tool_result text of a line carrying `toolDenialKind`. */
   denials?: string[]
+  /** Errored tool results (`is_error`, no `toolDenialKind`): their text, at 10:01:30, before the refusals (10:02). */
+  errors?: string[]
 }
 
 const ids = (a: Pick<FakeAgent, 'sessionId' | 'agentId'>) => ({ sessionId: a.sessionId, agentId: a.agentId, isSidechain: true, userType: 'external', version: '2.1.291' })
@@ -33,15 +35,23 @@ export const assistantLine = (a: Pick<FakeAgent, 'sessionId' | 'agentId'>, s: Fa
 export const denialLine = (a: Pick<FakeAgent, 'sessionId' | 'agentId'>, text: string, at = '2026-10-01T10:02:00.000Z', kind = 'permission-rule') =>
   JSON.stringify({ ...ids(a), type: 'user', timestamp: at, toolDenialKind: kind, message: { role: 'user', content: [{ type: 'tool_result', is_error: true, content: text, tool_use_id: 'toolu_x' }] } })
 
+export const errorLine = (a: Pick<FakeAgent, 'sessionId' | 'agentId'>, text: string, at = '2026-10-01T10:01:30.000Z') =>
+  JSON.stringify({ ...ids(a), type: 'user', timestamp: at, message: { role: 'user', content: [{ type: 'tool_result', is_error: true, content: text, tool_use_id: 'toolu_e' }] } })
+
 export const attachmentLine = (a: Pick<FakeAgent, 'sessionId' | 'agentId'>) =>
   JSON.stringify({ ...ids(a), type: 'attachment', timestamp: '2026-10-01T10:00:30.000Z', attachment: { type: 'hook_success' } })
 
 /** Lines joined as a jsonl file: each line ends with a newline. */
 export const jsonl = (lines: readonly string[]) => lines.map(l => `${l}\n`).join('')
 
-/** The whole transcript of one agent: its first user line, its steps, then its refusals. */
+/** The whole transcript of one agent: its first user line, its steps, its errored results, then its refusals. */
 export const agentTranscript = (a: FakeAgent) =>
-  jsonl([userLine(a), ...(a.steps ?? [{ id: 'm1', usage: { input_tokens: 10, output_tokens: 5 } }]).map(s => assistantLine(a, s, a.model)), ...(a.denials ?? []).map(d => denialLine(a, d))])
+  jsonl([
+    userLine(a),
+    ...(a.steps ?? [{ id: 'm1', usage: { input_tokens: 10, output_tokens: 5 } }]).map(s => assistantLine(a, s, a.model)),
+    ...(a.errors ?? []).map(e => errorLine(a, e)),
+    ...(a.denials ?? []).map(d => denialLine(a, d)),
+  ])
 
 export const agentMeta = (a: FakeAgent) =>
   JSON.stringify({ agentType: a.type ?? 'worker', description: a.desc ?? 'do the task', toolUseId: `toolu_${a.agentId}`, spawnDepth: 1, requestShape: 'background', requestNonInteractive: true })

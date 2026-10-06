@@ -12,7 +12,7 @@ const EN = {
   // an agent named in a sentence: type + quoted task
   quote: (s: string) => `"${s}"`,
   // alerts
-  tag: { conflict: 'conflict', stall: 'stalled', tier: 'tier', denied: 'denied', failed: 'failed' } as Record<Kind, string>,
+  tag: { conflict: 'conflict', stall: 'stalled', tier: 'tier', denied: 'denied', failed: 'error' } as Record<Kind, string>,
   and: (a: string, b: string) => `${a} and ${b}`,
   conflictLine: (pair: string, path: string) => `${pair} edited ${path} at the same time`,
   stallTool: (who: string, idle: string, tool: string) => `${who} idle for ${idle} (${tool} not returned)`,
@@ -22,7 +22,7 @@ const EN = {
   wanted: (tier: string) => `≠ wanted ${tier}`,
   // one refusal reason of the alert timeline: its count and its text
   deniedLine: (who: string, n: number, reason: string) => `${who} refused ×${n}: ${reason}`,
-  failedLine: (who: string, n: number, reason: string) => `${who} failed ×${n}: ${reason}`,
+  failedLine: (who: string, n: number, reason: string) => `${who} errored ×${n}: ${reason}`,
   // detail page
   sec: { prompt: 'Instruction', steps: 'Steps', files: 'Edited files', tools: 'Tools', skills: 'Skills', alerts: 'Alerts', result: 'Result' },
   inProgress: 'in progress',

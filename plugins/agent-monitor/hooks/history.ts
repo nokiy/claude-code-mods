@@ -33,7 +33,8 @@ export const MAX_WHOLE = 4 * 1024 * 1024
 const MAX_TAILS = 8
 const FILE = /^agent-(.+)\.jsonl$/
 
-// v2: the rollup's refusal count is `denied` (entries under the old `transcript:` key are read afresh once).
+// v2: the rollup's refusal count is `denied` (entries under the old `transcript:` key are read afresh once). An entry whose rollup has
+// no `errors` (an older build's) is read afresh too and overwritten in place.
 export const storeKey = (path: string) => `transcript.v2:${path}`
 
 /** Where Claude Code keeps a project's transcripts: the root with every character but a letter or digit turned into `-`. */
@@ -41,7 +42,7 @@ export const projectDir = (configDir: string, root: string) => `${configDir.repl
 
 const asEntry = (v: unknown): TxEntry | undefined => {
   const e = v as TxEntry | undefined
-  return e && typeof e === 'object' && typeof e.offset === 'number' && e.roll && typeof e.roll === 'object' ? e : undefined
+  return e && typeof e === 'object' && typeof e.offset === 'number' && e.roll && typeof e.roll === 'object' && Array.isArray(e.roll.errors) ? e : undefined
 }
 
 async function readMeta(io: TxIo, path: string): Promise<TxMeta | undefined> {
@@ -132,7 +133,8 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
     const r = e.roll
     const last = r.open?.usage
     const spent = sum(Object.values(r.byModel))
-    const denials = r.refusals.reduce<{ denied?: number; reasons?: AgentMonitorRec['reasons'] }>((p, x) => addDenial(p, x.text, x.at), {})
+    const refused = r.refusals.reduce<{ denied?: number; reasons?: AgentMonitorRec['reasons'] }>((p, x) => addDenial(p, x.text, x.at), {})
+    const denials = r.errors.reduce((p, x) => addDenial(p, x.text, x.at, true), refused)
     out[id] = clean({
       type: e.meta.agentType,
       desc,
@@ -151,17 +153,27 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
       durationMs: r.startedAt !== undefined && r.lastAt !== undefined ? r.lastAt - r.startedAt : undefined,
       status: 'done',
       branch: r.gitBranch,
-      ...(r.denied ? { denied: r.denied, reasons: denials.reasons, refusals: r.denied } : {}), // every transcript refusal is a hook's
+      // Set even at zero: the transcript is the timestamped record of refusals (`toolDenialKind`, a hook's) and errored results.
+      denied: r.denied + r.failed,
+      refusals: r.denied,
+      reasons: denials.reasons ?? [],
     })
   }
   return out
 }
 
-/** The hook records with the history added: by agentId, one record each; the hook record's fields win, history fills the rest. */
+/**
+ * The hook records with the history added: by agentId, one record each; the hook record's fields win, history fills the rest, save the
+ * refusals and errored results (`denied`, `refusals`, `reasons`), which the transcript holds with their times and kinds: a record kept
+ * from an older build has neither.
+ */
 export function withHistory(recs: Record<string, AgentMonitorRec>, history: Record<string, AgentMonitorRec>): Record<string, AgentMonitorRec> {
   const ids = Object.keys(history)
   if (ids.length === 0) return recs
   const out = { ...recs }
-  for (const id of ids) out[id] = recs[id] ? { ...history[id]!, ...clean(recs[id]) } : history[id]!
+  for (const id of ids) {
+    const h = history[id]!
+    out[id] = recs[id] ? { ...h, ...clean(recs[id]), denied: h.denied, refusals: h.refusals, reasons: h.reasons } : h
+  }
   return out
 }

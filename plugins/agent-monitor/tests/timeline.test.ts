@@ -87,7 +87,7 @@ test('Alerts block: a transcript agent refused twice by a hook reads ×2 with th
 
 // Acceptance of PR #49: errored tool results (`Exit code 1`) read `denied` beside hook refusals, every line `--:--:--`. A settings
 // hook's deny reaches the mod's tool.call as an errored result (no `deny`), so only the PreToolUse decision tells the two apart.
-test('a hook refusal reads denied, an errored tool result reads failed; each at its own time, in time order', async ($, on) => {
+test('a hook refusal reads denied, an errored tool result reads error; each at its own time, in time order', async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   wire(on)
@@ -104,9 +104,26 @@ test('a hook refusal reads denied, an errored tool result reads failed; each at 
   await $.command.run({ command: 'sub', args: '' } as never)
   await clock.settle()
   const all = await texts(await mountPane($))
-  const failed = all.indexOf(` ${formatClock(T0 + 10_000)} ✗ failed  worker"build it" failed ×1: Exit code 1`)
+  const failed = all.indexOf(` ${formatClock(T0 + 10_000)} ✗ error  worker"build it" errored ×1: Exit code 1`)
   const denied = all.indexOf(` ${formatClock(T0 + 20_000)} × denied  worker"build it" refused ×1: ${RULE}`)
   expect(failed).toBeGreaterThanOrEqual(0)
   expect(denied).toBeGreaterThan(failed)
   expect(all.filter(s => s.includes('Exit code 1')).every(s => !s.includes('denied'))).toBe(true)
+})
+
+// The transcript is the timestamped record of both kinds: an errored tool_result line (no `toolDenialKind`) and a hook refusal line,
+// each drawn at its line's `timestamp`. (A record kept in `$.state` from an older build gives way to it: tests/unit/history.test.ts.)
+test('a transcript\'s errored result reads error at its line time, its hook refusal denied at its own', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const hook = `PreToolUse:Bash hook error: ${RULE}`
+  wire(on, fakeFs(agentFiles(PROJECT, { sessionId: 'old', agentId: 'o1', type: 'worker', desc: 'old one', denials: [hook], errors: ['Exit code 1\nboom'] })))
+  await $.session.start({ cwd: ROOT } as never)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  const all = await texts(await mountPane($))
+  const errored = all.indexOf(` ${formatClock(Date.parse('2026-10-01T10:01:30.000Z'))} ✗ error  worker"old one" errored ×1: Exit code 1`)
+  const denied = all.indexOf(` ${formatClock(Date.parse('2026-10-01T10:02:00.000Z'))} × denied  worker"old one" refused ×1: ${hook}`)
+  expect(errored).toBeGreaterThanOrEqual(0)
+  expect(denied).toBeGreaterThan(errored)
 })

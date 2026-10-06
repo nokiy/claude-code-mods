@@ -17,7 +17,8 @@ See what your Claude Code subagents are doing: a live band above the prompt whil
   - `!` **file conflict** — two agents (or an agent and the main loop) edited the same file while both were running; the line names both and the path.
   - `~` **stall** — a running agent has had no step or tool call for the threshold (amber at the threshold, red at twice it); the line names the tool that has not returned. The toast fires once per agent.
   - `≠` **tier mismatch** — the model or effort an agent actually ran differs from its description prefix (see below); the line gives the tier asked for and the tier run.
-  - `×N` **denied calls** — tool calls refused by a hook or errored: one line per distinct reason, with its text and `×N`.
+  - `×` **denied** — tool calls a hook refused: one line per distinct reason, with its text and `×N`.
+  - `✗` **error** (amber) — tool calls that ran and returned an error (`Exit code 1`): one line per distinct reason, with its text and `×N`; never counted as a refusal. Each line's time is the call's (from the transcript line's timestamp once it is read).
 - **Placement** — `/sub` opens the panel; `/sub top` keeps it in a band above the prompt, `/sub right` docks it as a side pane (remembered across sessions); `/sub set` opens the in-panel settings page.
 
 ## Commands

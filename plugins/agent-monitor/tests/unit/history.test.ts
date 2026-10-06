@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 
-import { MAX_WHOLE, historyRecs, projectDir, refreshProject } from '../../hooks/history'
+import { MAX_WHOLE, historyRecs, projectDir, refreshProject, withHistory } from '../../hooks/history'
 import type { TxEntry, TxIo } from '../../hooks/history'
 import { agentFiles, agentPaths, assistantLine, fakeFs, jsonl } from '../transcripts'
 import type { FakeFs } from '../transcripts'
@@ -59,6 +59,47 @@ test('refresh: a file over 4 MiB is read from its byte position on; appended lin
   await refreshProject(ioOf(fs, store), PROJECT, fresh)
   expect(fs.tally.tails).toHaveLength(0)
   expect(historyRecs(fresh).big?.steps).toBe(2)
+})
+
+const HOOK = 'PreToolUse:Bash hook error: rm -rf is blocked'
+const at = (iso: string) => Date.parse(iso)
+
+test('withHistory: a transcript\'s refusals and errored results, timestamped and told apart, replace what a live record kept', async () => {
+  const fs = fakeFs(agentFiles(PROJECT, { sessionId: 's1', agentId: 'o1', denials: [HOOK], errors: ['Exit code 1\nboom'] }))
+  const cache = new Map<string, TxEntry>()
+  await refreshProject(ioOf(fs), PROJECT, cache)
+  // Kept from an older build (a hot reload keeps `$.state`): no times, the errored result counted as a refusal.
+  const old = { ...historyRecs(cache).o1!, denied: 2, refusals: 2, reasons: [{ text: 'Exit code 1', n: 1 }, { text: HOOK, n: 1 }] }
+  const merged = withHistory({ o1: old }, historyRecs(cache)).o1!
+  expect(merged.reasons).toEqual([
+    { text: HOOK, n: 1, at: at('2026-10-01T10:02:00.000Z') },
+    { text: 'Exit code 1', n: 1, at: at('2026-10-01T10:01:30.000Z'), failed: true },
+  ])
+  expect([merged.denied, merged.refusals]).toEqual([2, 1])
+})
+
+test('withHistory: a clean transcript clears the refusals a live record kept', async () => {
+  const fs = fakeFs(agentFiles(PROJECT, { sessionId: 's1', agentId: 'c1' }))
+  const cache = new Map<string, TxEntry>()
+  await refreshProject(ioOf(fs), PROJECT, cache)
+  const old = { ...historyRecs(cache).c1!, denied: 1, refusals: 1, reasons: [{ text: 'no', n: 1 }] }
+  expect(withHistory({ c1: old }, historyRecs(cache)).c1).toMatchObject({ denied: 0, refusals: 0, reasons: [] })
+})
+
+test('refresh: an entry an older build stored (no errored results rolled up) is read afresh', async () => {
+  const a = { sessionId: 's1', agentId: 'e1', errors: ['Exit code 1'] }
+  const fs = fakeFs(agentFiles(PROJECT, a))
+  const store = new Map<string, unknown>()
+  await refreshProject(ioOf(fs, store), PROJECT, new Map())
+  const key = [...store.keys()][0]!
+  const entry = store.get(key) as TxEntry
+  const { errors: _errors, failed: _failed, ...older } = entry.roll as TxEntry['roll'] & { errors?: unknown; failed?: unknown }
+  store.set(key, { ...entry, roll: older })
+  fs.reset()
+  const cache = new Map<string, TxEntry>()
+  await refreshProject(ioOf(fs, store), PROJECT, cache)
+  expect(fs.tally.reads.get(agentPaths(PROJECT, a).jsonl)).toBe(1)
+  expect(historyRecs(cache).e1?.reasons).toEqual([{ text: 'Exit code 1', n: 1, at: at('2026-10-01T10:01:30.000Z'), failed: true }])
 })
 
 test('refresh: a store that refuses the write still leaves the agent in the history', async () => {
