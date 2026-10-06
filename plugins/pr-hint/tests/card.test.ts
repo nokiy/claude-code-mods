@@ -20,30 +20,36 @@ const t = (number: number, status: PrTicket['status'], over: Partial<PrTicket> =
 const many = (n: number, status: PrTicket['status'] = 'merged') => Array.from({ length: n }, (_, i) => t(i + 1, status));
 const texts = (pr: PrData, inner = 90, s = en) => cardLines(pr, NOW, inner, s).lines.map(l => l.text);
 
-test('hierarchy: title, Spec with base ← head, CI + summary, then tickets', () => {
+test('hierarchy: title, Spec with base ← head, CI + PR state, then tickets', () => {
   const out = texts({ ...base, tickets: many(10) });
   expect(out[0]).toBe('PR #15 short title');
   expect(out[1]).toMatch(/^Spec #12 Dark mode .* · integration branch main ← spec\/12-dark-mode$/);
-  expect(out[2]).toBe('CI ✓1/1 · merged 10/10 · accepted 0/10');
+  expect(out[2]).toBe('CI ✓1/1 · Ready');
   expect(out.slice(3)).toHaveLength(10);
 });
 
-test('colours: PR number cyan bold, Spec magenta, summary counts blue and green', () => {
+test('PR state chip: Draft yellow, Ready magenta, Merged green, the same words in both languages', () => {
+  const chip = (pr: PrData, s = en) => cardLines(pr, NOW, 90, s).lines[2]?.parts.filter(p => p.bold).map(p => [p.text, p.color]);
+  expect(chip({ ...base, isDraft: true })).toEqual([['Draft', 'yellow']]);
+  expect(chip(base)).toEqual([['Ready', 'magenta']]);
+  expect(chip({ ...base, state: 'MERGED' })).toEqual([['Merged', 'green']]);
+  expect(chip({ ...base, isDraft: true }, zh)).toEqual([['Draft', 'yellow']]);
+  // Single- and multi-ticket deliveries read the same: no merged / accepted counts anywhere.
+  expect(texts({ ...base, tickets: many(1) })[2]).toBe('CI ✓1/1 · Ready');
+  expect(texts({ ...base, tickets: many(3) }, 90, zh)[2]).toBe('CI ✓1/1 · Ready');
+});
+
+test('colours: PR number cyan bold, Spec magenta', () => {
   const { lines } = cardLines({ ...base, tickets: many(2) }, NOW, 90, en);
   expect(lines[0]?.parts[0]).toEqual({ text: 'PR #15', color: 'cyan', bold: true });
   expect(lines[1]?.parts[0]?.color).toBe('magenta');
-  const counts = lines[2]?.parts.filter(p => p.bold).map(p => [p.text, p.color]);
-  expect(counts).toEqual([['2/2', 'blueBright'], ['0/2', 'green']]);
 });
 
-test('without a Spec the second row is state and base ← head; no tickets reads as unlinked', () => {
+test('without a Spec the second row is base ← head (the state lives in the chip); no tickets reads as unlinked', () => {
   const out = texts({ ...base, spec: null });
-  expect(out[1]).toBe('integration branch main ← spec/12-dark-mode · OPEN');
-  expect(out[2]).toBe('CI ✓1/1 · no linked tickets');
-});
-
-test('without a Spec and without tickets a draft shows (draft) after the branches', () => {
-  expect(texts({ ...base, spec: null, isDraft: true })[1]).toBe('integration branch main ← spec/12-dark-mode · OPEN (draft)');
+  expect(out[1]).toBe('integration branch main ← spec/12-dark-mode');
+  expect(out[2]).toBe('CI ✓1/1 · Ready · no linked tickets');
+  expect(texts({ ...base, spec: null, isDraft: true })[2]).toBe('CI ✓1/1 · Draft · no linked tickets');
 });
 
 test('without a Spec, one ticket takes the Spec row: magenta Ticket #N · title · base ← head, no state', () => {
@@ -62,7 +68,7 @@ test('without a Spec, two or more tickets show only the branches, magenta', () =
 });
 
 test('the integration branch label follows the language', () => {
-  expect(texts({ ...base, spec: null }, 90, zh)[1]).toBe('集成分支 main ← spec/12-dark-mode · OPEN');
+  expect(texts({ ...base, spec: null }, 90, zh)[1]).toBe('集成分支 main ← spec/12-dark-mode');
 });
 
 test('every ticket gets a full line, none dropped: 30 tickets, 30 lines', () => {
@@ -89,7 +95,7 @@ test('Chinese strings: the same card in Chinese', () => {
   const doing = t(16, 'doing', { branch: 'fix/16-save-settings', ahead: 3, progress: { done: 1, total: 3, maxRounds: 0 } });
   const out = texts({ ...base, tickets: [doing, t(9, 'todo')] }, 90, zh);
   expect(out[1]).toMatch(/· 集成分支 main ← spec\/12-dark-mode$/);
-  expect(out[2]).toBe('CI ✓1/1 · 合入 0/2 · 验收 0/2');
+  expect(out[2]).toBe('CI ✓1/1 · Ready');
   expect(out[3]).toBe('● #16 进行中 title 16 · fix/16-save-settings · 还差 3 个提交');
   expect(out[4]).toBe('● #9 未开始 title 9');
   expect(cardLines(base, NOW, 90, zh).footer).toBe(' · 拉取于 刚刚');
@@ -120,25 +126,27 @@ test('the title wraps within titleInner while the other rows keep inner', () => 
 });
 
 test('refreshText: lists only what changed, in both languages', () => {
-  const before = { ...base, tickets: [t(7, 'doing')] };
-  const after = { ...before, ci: { ok: 1, fail: 0, pending: 0, total: 1 }, tickets: [t(7, 'merged')] };
-  expect(refreshText(before, after, en)).toBe('PR #15 updated: merged 0/1 → 1/1');
-  expect(refreshText(before, { ...after, ci: { ok: 0, fail: 1, pending: 0, total: 1 }, title: 'new' }, en))
-    .toBe('PR #15 updated: “new” · CI ✓0/1 ✗1 · merged 0/1 → 1/1');
-  expect(refreshText(before, { ...after, tickets: [t(7, 'done'), t(8, 'todo')], isDraft: true }, zh))
-    .toBe('PR #15 已更新：OPEN → OPEN (draft) · 合入 0/1 → 1/2 · 验收 0/1 → 1/2 · Tickets 1 → 2');
+  const before = { ...base, isDraft: true, tickets: [t(7, 'doing')] };
+  const after = { ...before, isDraft: false };
+  expect(refreshText(before, after, en)).toBe('PR #15 updated: Draft → Ready');
+  expect(refreshText(after, { ...after, state: 'MERGED' }, zh)).toBe('PR #15 已更新：Ready → Merged');
+  expect(refreshText(before, { ...before, ci: { ok: 0, fail: 1, pending: 0, total: 1 }, title: 'new' }, en))
+    .toBe('PR #15 updated: “new” · CI ✓0/1 ✗1');
+  // A ticket's own status moving is not a PR change; only the ticket count is.
+  expect(refreshText(before, { ...before, tickets: [t(7, 'done'), t(8, 'todo')] }, zh)).toBe('PR #15 已更新：Tickets 1 → 2');
+  expect(refreshText(before, { ...before, tickets: [t(7, 'merged')] }, en)).toBe('PR #15 is up to date');
 });
 
 test('refreshText: unchanged (fetchedAt alone does not count) and gone', () => {
   expect(refreshText(base, { ...base, fetchedAt: NOW }, en)).toBe('PR #15 is up to date');
   expect(refreshText(base, { ...base, fetchedAt: NOW }, zh)).toBe('PR #15 已是最新');
-  expect(refreshText(base, null, en)).toBe('No open PR on this branch');
-  expect(refreshText(base, null, zh)).toBe('当前分支已没有打开的 PR');
+  expect(refreshText(base, null, en)).toBe('No PR on this branch');
+  expect(refreshText(base, null, zh)).toBe('当前分支已没有 PR');
 });
 
 const LONG = '主题 Dark深色模式贯穿设置页与编辑器，系统主题自动跟随与手动切换，添加深色模式——设置页 / 主题（吸收 #3）';
 
-test('hint row: a wide row shows the full title and the summary', () => {
+test('hint row: a wide row shows the full title and the state chip', () => {
   const title = '添加深色模式——设置页 / 主题（吸收 #3）';
   const pr = { ...base, title, tickets: many(10) };
   expect(hintLayout(pr, 200, en)).toEqual({ title, hasSummary: true });
@@ -147,24 +155,26 @@ test('hint row: a wide row shows the full title and the summary', () => {
 test('hint row: the title takes exactly the width left, cut with …', () => {
   const pr = { ...base, title: LONG, tickets: many(10) };
   const head = width('PR #15 ');
-  const summary = width(' · merged 10/10 · accepted 0/10');
+  const summary = width(' · Ready');
   const out = hintLayout(pr, head + summary + 20, en);
   expect(out.hasSummary).toBe(true);
   expect(width(out.title)).toBe(20);
   expect(out.title.endsWith('…')).toBe(true);
 });
 
-test('hint row: under 8 cells for the title drops the summary first, then the title shrinks', () => {
+test('hint row: under 8 cells for the title drops the chip first, then the title shrinks', () => {
   const pr = { ...base, title: LONG, tickets: many(10) };
   const head = width('PR #15 ');
-  const summary = width(' · merged 10/10 · accepted 0/10');
-  const tight = hintLayout(pr, head + summary + 7, en);
+  const summary = width(' · Ready');
+  // 6 cells left: the chip goes and the title takes its room (6 + 8 = 14 cells ends on a whole CJK glyph).
+  const tight = hintLayout(pr, head + summary + 6, en);
   expect(tight.hasSummary).toBe(false);
-  expect(width(tight.title)).toBe(7 + summary);
+  expect(width(tight.title)).toBe(6 + summary);
   const narrow = hintLayout(pr, 20, en);
   expect(narrow.hasSummary).toBe(false);
   expect(width(narrow.title)).toBeGreaterThanOrEqual(7);
-  expect(hintLayout({ ...base, tickets: [] }, 200, en).hasSummary).toBe(false);
+  // The chip is the PR's own state: a PR without tickets still shows it.
+  expect(hintLayout({ ...base, tickets: [] }, 200, en).hasSummary).toBe(true);
 });
 
 test('ticketSubjects drops the lead every ticket shares, keeping the ordinal and the subject', () => {

@@ -2,10 +2,10 @@
 // The engine's `$` and the PR atom stay in this file (the validator follows them nowhere else); text and parsing live in card.ts, graphql.ts, parse.ts and strings.ts; tests are in ../tests.
 import { atom, read, update } from 'claude-code';
 import type { EngineInterface, Register } from 'claude-code';
-import { cardLines, hintLayout, hintSpans, refreshText, withoutAgents } from './card';
+import { cardLines, hintLayout, hintSpans, refreshText, stateChip, withoutAgents } from './card';
 import { PR_ARGS, PR_QUERY, REPO_ARGS, issuesQuery, parseGraphql, parseIssues, splitIssues } from './graphql';
 import type { PrJson } from './graphql';
-import { closingNumbers, isInside, mergedByCommits, parsePr, pickShown, prHead, sameWhere, summarize, ticketBranches, ticketStatus, width } from './parse';
+import { closingNumbers, isInside, mergedByCommits, parsePr, pickShown, prHead, sameWhere, ticketBranches, ticketStatus, width } from './parse';
 import { pickLang, strings } from './strings';
 import type { Strings } from './strings';
 import type { PrData, PrTicket, Where } from '../types';
@@ -134,7 +134,7 @@ async function fetchPr($: EngineInterface): Promise<PrData | null | undefined> {
     const r = await $.process.run(['gh', ...PR_ARGS, '-f', `query=${PR_QUERY}`]);
     const answer = r.exitCode === 0 ? parseGraphql(r.stdout) : null;
     if (answer === null || !answer.ok) return fail();
-    // Only an OPEN PR is shown; merged or closed reads as no PR.
+    // The OPEN PR, else the branch's latest MERGED one (shown as Merged until the branch changes); closed reads as no PR.
     const json = answer.pr;
     if (json === null) {
       fetchFailed = false;
@@ -266,7 +266,7 @@ export const register: Register = (on, options) => {
   });
 
   // Hint row: the engine's hint, a pin Button (` ▸ ` / ` ▾ `, the click that pins the card),
-  // then `PR #N` (cyan, bold), the title and counts in one Text. Only a Button takes a press
+  // then `PR #N` (cyan, bold), the title and the PR state chip. Only a Button takes a press
   // (Box and Text have no onPress) and a plain Button's hit area is its label cells, so the pin
   // is padded to three cells and `PR #N` keeps its colour. The Box is the hover handle: the card shares its `scope`.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
@@ -285,7 +285,7 @@ export const register: Register = (on, options) => {
     const isPinned = (await read($, pinned)) === true;
     // Room for the PR group: the row less the hint text, the " ·" separator (2), the padded pin (3) and a 2-cell margin.
     const layout = hintLayout(data, columns - width(hint) - 3 - 2 - 2, t);
-    const sum = summarize(data.tickets);
+    const chip = stateChip(data, t);
 
     return (
       <Box key="pr-hint" flexDirection="row" hover={{ scope: SCOPE }}>
@@ -310,7 +310,7 @@ export const register: Register = (on, options) => {
           <Text key="pr-num" color="cyan" bold>{`PR #${data.number}`}</Text>
         </Box>
         {/* Only the title shrinks: the row's real width (the engine's own pills included) decides
-            where it is cut, so the counts after it always stay whole. */}
+            where it is cut, so the state chip after it always stays whole. */}
         <Box flexShrink={1}>
           <Text key="pr-title" wrap="truncate-end">{` ${layout.hasSummary ? data.title : layout.title}`}</Text>
         </Box>
@@ -318,11 +318,7 @@ export const register: Register = (on, options) => {
           <Box flexShrink={0}>
             <Text key="pr-sum">
               <Text dimColor>{' · '}</Text>
-              <Text>{`${t.merged} `}</Text>
-              <Text color="blueBright" bold>{`${sum.merged}/${sum.total}`}</Text>
-              <Text dimColor>{' · '}</Text>
-              <Text>{`${t.accepted} `}</Text>
-              <Text color="green" bold>{`${sum.done}/${sum.total}`}</Text>
+              <Text color={chip.color} bold>{chip.text}</Text>
             </Text>
           </Box>
         ) : null}

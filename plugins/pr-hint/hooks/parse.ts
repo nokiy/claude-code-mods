@@ -257,11 +257,12 @@ export function ticketStatus(state: string, progress: PrProgress | null, facts: 
   return facts.isMerged ? 'merged' : 'todo';
 }
 
-/** `merged` counts merged and done tickets; `done` counts done ones (the accepted number). */
-export function summarize(tickets: readonly PrTicket[]): { merged: number; done: number; total: number } {
-  const done = tickets.filter(t => t.status === 'done').length;
-  const merged = tickets.filter(t => t.status === 'merged').length + done;
-  return { merged, done, total: tickets.length };
+export type PrState = 'draft' | 'ready' | 'merged';
+
+/** The PR's own state, the one thing the hint row and the card summary show: Draft → Ready → Merged. */
+export function prState(pr: Pick<PrData, 'state' | 'isDraft'>): PrState {
+  if (pr.state === 'MERGED') return 'merged';
+  return pr.isDraft ? 'draft' : 'ready';
 }
 
 const ORDER: Record<TicketStatus, number> = { doing: 0, todo: 1, merged: 2, done: 3 };

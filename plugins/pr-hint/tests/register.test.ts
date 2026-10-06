@@ -29,7 +29,9 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       expect(pr?.props.label).toBe(' ▸ ');
       // PR number, title (the only part that shrinks) and counts are separate pieces of one row.
       expect((await ui.find({ type: 'Text', text: /Add dark mode/ }))?.text).toBe(' Add dark mode');
-      expect((await ui.find({ type: 'Text', text: /merged/ }))?.text).toBe(' · merged 0/1 · accepted 0/1');
+      const chip = await ui.find({ type: 'Text', text: /^Ready$/ });
+      expect(chip?.props.color).toBe('magenta');
+      expect(await ui.find({ type: 'Text', text: /merged|accepted/ })).toBeUndefined();
       const num = await ui.find({ type: 'Text', text: /^PR #10$/ });
       expect(num?.props.color).toBe('cyan');
       expect(num?.props.bold).toBe(true);
@@ -64,10 +66,10 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       expect(hidden((await band.drawn()) as unknown as typeof root)).toContain('"display":"none"');
       const lines = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '');
       const idx = (re: RegExp) => lines.findIndex(l => re.test(l));
-      // Order: title, Spec, CI + summary, ticket lines, link row (the Spec is not a ticket line).
+      // Order: title, Spec, CI + PR state, ticket lines, link row (the Spec is not a ticket line).
       expect(idx(/^PR #10 Add dark mode/)).toBeGreaterThanOrEqual(0);
       expect(idx(/^PR #10 /)).toBeLessThan(idx(/^Spec #12 Dark mode · 深色模式贯穿设置页与编辑器 · integration branch dev ← spec\/12-dark-mode/));
-      expect(idx(/^Spec #12/)).toBeLessThan(idx(/^CI ✓1\/1 · merged 0\/1 · accepted 0\/1/));
+      expect(idx(/^Spec #12/)).toBeLessThan(idx(/^CI ✓1\/1 · Ready$/));
       expect(idx(/^CI ✓1/)).toBeLessThan(idx(/^● #7 in progress Theme toggle · feat\/7-theme-toggle · 2 commits behind/));
       expect(idx(/^● #7/)).toBeLessThan(idx(/^Open PR · fetched just now$/));
       expect(lines.some(l => l.startsWith('● #12'))).toBe(false);
@@ -106,7 +108,7 @@ test('hint is drawn as spans (no nested engine element) and a minute of timers a
 });
 
 for (const state of ['MERGED', 'CLOSED']) {
-  test(`a ${state} PR reads as no PR: the engine line is untouched`, async ($, on) => {
+  test(state === 'MERGED' ? 'a MERGED PR stays on its branch as a green Merged chip' : 'a CLOSED PR reads as no PR: the engine line is untouched', async ($, on) => {
     const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
     quiet(on);
     on('session.start', async (_$, e) => ({ cwd: e.cwd }));
@@ -120,8 +122,13 @@ for (const state of ['MERGED', 'CLOSED']) {
       PR.state = 'OPEN';
     }
     const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: VIEWPORT });
-    expect(await ui.find({ type: 'Button', key: 'pin' })).toBeUndefined();
     expect(await ui.find({ type: 'Text', text: /bypass permissions/ })).toBeDefined();
+    if (state === 'MERGED') {
+      expect(await ui.find({ type: 'Button', key: 'pin' })).toBeDefined();
+      expect((await ui.find({ type: 'Text', text: /^Merged$/ }))?.props.color).toBe('green');
+    } else {
+      expect(await ui.find({ type: 'Button', key: 'pin' })).toBeUndefined();
+    }
     await ui.unmount();
   });
 }

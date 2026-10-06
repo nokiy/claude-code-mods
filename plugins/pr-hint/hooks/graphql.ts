@@ -4,13 +4,14 @@ import { isSpecIssue, parseJson, parseTicket } from './parse';
 
 type Json = Record<string, unknown>;
 
-// The one request per fetch: the open PR of the current branch with its CI, commit headlines and closing issues.
+// The one request per fetch: the current branch's PRs (open or merged, latest first) with their CI, commit headlines
+// and closing issues.
 // `gh` fills {owner}, {repo} and {branch} from the session directory's repository and checked-out branch.
 export const REPO_ARGS = ['api', 'graphql', '-F', 'owner={owner}', '-F', 'name={repo}'];
 export const PR_ARGS = [...REPO_ARGS, '-F', 'branch={branch}'];
 const ISSUE_FIELDS = 'number title state body labels(first:10){nodes{name}}';
 export const PR_QUERY =
-  'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){pullRequests(headRefName:$branch,states:OPEN,first:10){nodes{' +
+  'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){pullRequests(headRefName:$branch,states:[OPEN,MERGED],first:10,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{' +
   'number title state isDraft isCrossRepository baseRefName headRefName url body ' +
   'commits(first:100){nodes{commit{messageHeadline}}} ' +
   'statusCheckRollup{contexts(first:100){nodes{... on CheckRun{status conclusion} ... on StatusContext{state}}}} ' +
@@ -35,13 +36,15 @@ export type PrAnswer = { ok: false } | { ok: true; pr: PrJson | null };
 /**
  * Unwraps the GraphQL answer into the shape the parsers read (what `gh pr view --json` gave):
  * commits, statusCheckRollup, closingIssuesReferences and labels become plain arrays.
- * The PR is the first OPEN one whose head lives in this repository (a fork's PR of the same branch name is skipped).
+ * The PR is the first OPEN one whose head lives in this repository (a fork's PR of the same branch name is skipped),
+ * else the first (latest) MERGED one; a CLOSED PR is never shown.
  */
 export function parseGraphql(text: string): PrAnswer {
   const root = parseJson(text) as { data?: { repository?: { pullRequests?: unknown } | null }; errors?: unknown } | null;
   const repo = root?.data?.repository;
   if (!root || root.errors || !repo) return { ok: false };
-  const pr = nodes(repo.pullRequests).find(n => n.state === 'OPEN' && n.isCrossRepository !== true);
+  const ours = nodes(repo.pullRequests).filter(n => n.isCrossRepository !== true);
+  const pr = ours.find(n => n.state === 'OPEN') ?? ours.find(n => n.state === 'MERGED');
   if (!pr) return { ok: true, pr: null };
   const rollup = pr.statusCheckRollup as Json | null | undefined;
   return {
