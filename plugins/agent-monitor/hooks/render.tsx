@@ -6,7 +6,8 @@ import { alertLines, capAlerts, flagSegs, segsWidth } from './alertlines'
 import { capRows, cellWidth, collapse, fitRow, resolveTier, tierName } from './logic'
 import type { Strings } from './strings'
 import type { Board, View } from './views'
-import { computeLayout, figures, headerCells, headerSegs, isSelected, markLabel, rowParts, rowText, rule, statsText } from './layout'
+import type { Columns } from './config'
+import { computeLayout, ctxBar, figures, headerCells, headerSegs, isSelected, markLabel, rowParts, rowText, rule, runningText, statsText } from './layout'
 import type { Cell } from './layout'
 import { detailPage, footer, segText, settingsPage } from './pages'
 import type { Acts, PageCtx } from './pages'
@@ -66,6 +67,51 @@ const cell = (Text: Ui['Text'], c: Cell, i: number, header = false) => {
 }
 
 const CLOSE_W = 11 // two blanks and `[ close ]`
+const RUN_INDENT = '     ' // lines 2 and 3 start under the description of line 1
+
+const fillColor = (pct: number | undefined) => (pct === undefined || pct < 70 ? PALETTE.green : pct < 90 ? PALETTE.amber : red)
+
+// Running agents, three lines each: the select Button and the tier-prefixed description; type · model ·
+// effort, then the activity (cut, never scrolled); the context-fill bar and `ctx% · tokens · $ · m:ss`. `focus`: the row that takes the ring.
+export function runningRows(ui: Ui, views: View[], ctx: PageCtx, acts: Acts, focus: string | undefined, t: Strings) {
+  const { Box, Text, Button } = ui
+  return views.map(v => {
+    const r = runningText(v)
+    const bar = ctxBar(v)
+    const f = figures(v)
+    const sel = isSelected(ctx.ringKey, v.id)
+    const e = effortStyle(r.effortKey)
+    return (
+      <Box key={v.id} flexDirection="column" backgroundColor={sel ? selBg : undefined} hover={{ backgroundColor: selBg }}>
+        <Box flexDirection="row">
+          <Text>{' '}</Text>
+          <Button key={`row:${v.id}`} plain autoFocus={focus === v.id ? true : undefined} onPress={() => acts.open(v.id)}>{markLabel(sel)}</Button>
+          <Text wrap="truncate-end">
+            <Text color={statusColor('running')}>{' ◐ '}</Text>
+            <Text color={fg} bold>{r.desc}</Text>
+          </Text>
+        </Box>
+        <Text key="type" wrap="truncate-end">
+          <Text>{RUN_INDENT}</Text>
+          <Text color={typeStyle(v.type).color} bold>{v.type}</Text>
+          <Text color={gray}>{' · '}</Text>
+          <Text color={modelColor(r.modelKey)}>{r.model}</Text>
+          <Text color={gray}>{' · '}</Text>
+          <Text color={e.color} bold={e.bold}>{r.effort}</Text>
+          <Text color={gray} italic>{`   ${collapse(v.activity ?? t.starting)}`}</Text>
+        </Text>
+        <Text key="stats" wrap="truncate-end">
+          <Text>{RUN_INDENT}</Text>
+          <Text color={fillColor(bar.pct)}>{'█'.repeat(bar.fill)}</Text>
+          <Text color={gray}>{'░'.repeat(bar.empty)}</Text>
+          <Text color={gray}>{` ${f.ctx} · `}</Text>
+          <Text color={tokenColor(v.tokens)}>{f.tokens}</Text>
+          <Text color={gray}>{` · ${f.money} · ${f.time}`}</Text>
+        </Text>
+      </Box>
+    )
+  })
+}
 
 // The Alerts block: up to four sentences, `+N more` after them; nothing when there are none.
 function alertsBlock(ui: Ui, board: Board) {
@@ -81,6 +127,31 @@ function alertsBlock(ui: Ui, board: Board) {
         </Text>
       ))}
       {hidden > 0 && <Text color={gray}>{`   +${hidden} more`}</Text>}
+    </Box>
+  )
+}
+
+// Finished agents as one dense aligned table: its column header, then one row each led by a 1-cell select Button (`▸` while the ring is on
+// it), the row the ring is on banded with selBg, any row on hover. Nothing when there are none. `focus`: the row that takes the ring.
+export function finishedTable(ui: Ui, views: View[], cols: number, on: Columns, ctx: PageCtx, acts: Acts, focus: string | undefined) {
+  const { Box, Text, Button } = ui
+  if (views.length === 0) return null
+  const texts = views.map(rowText)
+  const layout = computeLayout(cols, texts, on)
+  return (
+    <Box flexDirection="column">
+      <Text wrap="truncate-end">{headerCells(layout).map((c, i) => cell(Text, c, i, true))}</Text>
+      {views.map((v, i) => {
+        const p = rowParts(layout, texts[i]!)
+        const sel = isSelected(ctx.ringKey, v.id)
+        return (
+          <Box key={v.id} flexDirection="row" backgroundColor={sel ? selBg : undefined} hover={{ backgroundColor: selBg }}>
+            <Text>{p.lead}</Text>
+            <Button key={`row:${v.id}`} plain autoFocus={focus === v.id ? true : undefined} onPress={() => acts.open(v.id)}>{markLabel(sel)}</Button>
+            <Text wrap="truncate-end">{p.rest.map((c, j) => cell(Text, c, j))}</Text>
+          </Box>
+        )
+      })}
     </Box>
   )
 }
@@ -107,10 +178,9 @@ export function historyTable(ui: Ui, board: Board, cols: number, ctx: PageCtx, a
     )
   }
 
-  const texts = views.map(rowText)
-  const layout = computeLayout(cols, texts, cfg.columns)
-  const held = views.findIndex(v => ctx.focusKey === `row:${v.id}`)
-  const first = Math.max(0, held)
+  const running = views.filter(v => v.status === 'running')
+  const finished = views.filter(v => v.status !== 'running')
+  const focus = (views.find(v => ctx.focusKey === `row:${v.id}`) ?? running[0] ?? finished[0])?.id
   return (
     <Box flexDirection="column">
       <Box flexDirection="row">
@@ -124,21 +194,8 @@ export function historyTable(ui: Ui, board: Board, cols: number, ctx: PageCtx, a
       </Box>
       {cfg.alertsBlock && alertsBlock(ui, board)}
       <Text color={gray}>{rule(cols)}</Text>
-      <Text wrap="truncate-end">{headerCells(layout).map((c, i) => cell(Text, c, i, true))}</Text>
-      {views.map((v, i) => {
-        const p = rowParts(layout, texts[i]!)
-        const sel = isSelected(ctx.ringKey, v.id)
-        return (
-          <Box key={v.id} flexDirection="column">
-            <Box flexDirection="row" backgroundColor={sel ? selBg : undefined} hover={{ backgroundColor: selBg }}>
-              <Text>{p.lead}</Text>
-              <Button key={`row:${v.id}`} plain autoFocus={i === first ? true : undefined} onPress={() => acts.open(v.id)}>{markLabel(sel)}</Button>
-              <Text wrap="truncate-end">{p.rest.map((c, j) => cell(Text, c, j))}</Text>
-            </Box>
-            {v.status === 'running' && <Text color={gray} italic wrap="truncate-end">{`       ↳ ${collapse(v.activity ?? t.starting)}`}</Text>}
-          </Box>
-        )
-      })}
+      {runningRows(ui, running, ctx, acts, focus, t)}
+      {finishedTable(ui, finished, cols, cfg.columns, ctx, acts, focus)}
       <Text color={gray}>{rule(cols)}</Text>
       {listFooter(ui, ctx, acts, true, t)}
     </Box>

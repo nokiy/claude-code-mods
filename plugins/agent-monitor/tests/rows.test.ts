@@ -1,7 +1,7 @@
 // Row formats through the whole mod: the live band above the prompt and the /sub panel's running rows and finished table (testkit.ts).
 import { expect, mock, test } from 'claude-code/testing'
 
-import { ROOT, mountBand, shown, st, step, wire } from './testkit'
+import { ROOT, mountBand, mountPane, rowKeys, shown, st, step, wire } from './testkit'
 import type { Dollar } from './testkit'
 
 const T0 = Date.parse('2026-10-03T09:00:00Z')
@@ -20,6 +20,28 @@ async function running($: Dollar, on: On, desc = 'op.med · fix the parser', mod
   await clock.advance(65_000)
   return clock
 }
+
+// Where in drawn order the first Text whose whole text matches `re` sits (-1: none). A line is a Text holding its parts as nested Texts.
+const lineFinder = async (ui: Awaited<ReturnType<typeof mountPane>>) => {
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  return (re: RegExp) => texts.findIndex(s => re.test(s))
+}
+
+test('/sub: a running subagent is three lines: tier-prefixed description; type · model · effort; context bar with ctx% · tokens · $ · m:ss', async ($, on) => {
+  const clock = await running($, on)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  const ui = await mountPane($)
+  const at = await lineFinder(ui)
+  const l1 = at(/^ ◐ op\.med · fix the parser$/)
+  const l2 = at(/^ {5}worker · opus · med {3}starting$/)
+  const l3 = at(/^ {5}█{4}░{6} 40% · 86\.2k · \$\d+\.\d\d · 1:05$/)
+  expect(l1).toBeGreaterThanOrEqual(0)
+  expect(l2).toBeGreaterThan(l1)
+  expect(l3).toBeGreaterThan(l2)
+  // The row is still one select Button (↑↓ and Enter detail).
+  expect(await rowKeys(ui)).toEqual(['row:a1'])
+})
 
 test('live band: ctx%, tokens without the `tok` word, time as m:ss', async ($, on) => {
   await running($, on)

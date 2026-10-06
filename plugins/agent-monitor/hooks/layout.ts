@@ -4,7 +4,7 @@ import type { Seg } from './alertlines'
 import { ALL_COLUMNS } from './config'
 import type { Columns } from './config'
 import { formatMoney, totalCost } from './cost'
-import { cellWidth, ctxPercent, effortLabel, formatDuration, formatElapsed, padEnd, padStart, resolveTier, tokensOrDash, truncate } from './logic'
+import { cellWidth, ctxPercent, effortLabel, effortName, formatDuration, formatElapsed, modelName, padEnd, padStart, parseDescription, resolveTier, tokensOrDash, truncate } from './logic'
 import { PALETTE } from './palette'
 import type { Status, View } from './views'
 
@@ -22,6 +22,26 @@ export function figures(v: View): { ctx: string; tokens: string; money: string; 
 export const costText = (v: View): string => { const f = figures(v); return `${f.ctx} · ${f.tokens} · ${f.money}` }
 // `41% · 86.2k · $0.42 · 1:05`: the stats of a running row and of the live band.
 export const statsText = (v: View): string => `${costText(v)} · ${figures(v).time}`
+
+// ---- running rows: three lines ----
+
+export const BAR_W = 10
+
+// Line 1: the description with its tier prefix (`op.med · task`), or the bare task; line 2: type, model and effort the steps ran on.
+export function runningText(v: View): { desc: string; model: string; modelKey?: string; effort: string; effortKey?: string } {
+  const p = parseDescription(v.desc)
+  const task = p.task || v.task || '—'
+  const model = modelName(v.actualModel ?? v.model)
+  const effort = effortName(v.actualEffort ?? v.effort)
+  return { desc: p.tier ? `${p.tier} · ${task}` : task, model: model ?? '—', modelKey: model, effort: effortLabel(effort) ?? '—', effortKey: effort }
+}
+
+// The context-fill bar of line 3: `fill` + `empty` cells = BAR_W, `pct` undefined when the fill is unknown (all empty).
+export function ctxBar(v: View): { fill: number; empty: number; pct?: number } {
+  const pct = ctxPercent(v.context, v.actualModel ?? v.model)
+  const fill = pct === undefined ? 0 : Math.round((pct * BAR_W) / 100)
+  return { fill, empty: BAR_W - fill, pct }
+}
 const GAP = 2
 const LEAD = 1
 const MARK_W = 1 // the select Button at the row start: `▸` on the selected row, a blank elsewhere
