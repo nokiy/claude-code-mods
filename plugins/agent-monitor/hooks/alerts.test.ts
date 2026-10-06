@@ -36,9 +36,9 @@ test('findClashes: running at the same time and the same path; sequential reuse 
   const c = { id: 'c', files: ['/x', '/y'], start: 250, end: 400 } // after a ended: no clash with a; overlaps b
   const d = { id: 'd', files: ['/z'], start: 100, end: 400 } // overlaps all, shares nothing
   const out = findClashes([a, b, c, d], [])
-  expect(out.get('a')).toEqual([{ path: '/x', other: 'b' }])
-  expect(out.get('b')).toEqual([{ path: '/x', other: 'a' }, { path: '/x', other: 'c' }])
-  expect(out.get('c')).toEqual([{ path: '/x', other: 'b' }])
+  expect(out.get('a')).toEqual([{ path: '/x', other: 'b', at: 150 }])
+  expect(out.get('b')).toEqual([{ path: '/x', other: 'a', at: 150 }, { path: '/x', other: 'c', at: 250 }])
+  expect(out.get('c')).toEqual([{ path: '/x', other: 'b', at: 250 }])
   expect(out.has('d')).toBe(false)
   // touching edges overlap; a gap does not
   expect(findClashes([{ id: 'p', files: ['/x'], start: 0, end: 10 }, { id: 'q', files: ['/x'], start: 10, end: 20 }], []).size).toBe(2)
@@ -47,7 +47,7 @@ test('findClashes: running at the same time and the same path; sequential reuse 
 
 test('findClashes: the main loop is a participant only for an edit made while the agent ran', () => {
   const a = { id: 'a', files: ['/x'], start: 100, end: 200 }
-  expect(findClashes([a], [{ path: '/x', at: 150 }]).get('a')).toEqual([{ path: '/x', other: 'main' }])
+  expect(findClashes([a], [{ path: '/x', at: 150 }]).get('a')).toEqual([{ path: '/x', other: 'main', at: 150 }])
   expect(findClashes([a], [{ path: '/x', at: 150 }, { path: '/x', at: 160 }]).get('a')).toHaveLength(1) // deduped
   expect(findClashes([a], [{ path: '/x', at: 99 }]).size).toBe(0)
   expect(findClashes([a], [{ path: '/x', at: 201 }]).size).toBe(0)
@@ -57,7 +57,7 @@ test('findClashes: the main loop is a participant only for an edit made while th
 test('findClashes: agents with no start or no paths (backfilled) take part in nothing', () => {
   const backfilled = { id: 'b', files: [] as string[], start: undefined, end: undefined }
   const noStart = { id: 'n', files: ['/x'], start: undefined, end: undefined }
-  expect(findClashes([backfilled, noStart, { id: 'a', files: ['/x'], start: 1, end: 9 }], [{ path: '/x', at: 5 }]).get('a')).toEqual([{ path: '/x', other: 'main' }])
+  expect(findClashes([backfilled, noStart, { id: 'a', files: ['/x'], start: 1, end: 9 }], [{ path: '/x', at: 5 }]).get('a')).toEqual([{ path: '/x', other: 'main', at: 5 }])
 })
 
 test('stallOf: running agents only, amber at the threshold, red at twice it', () => {
@@ -118,4 +118,15 @@ test('reasonOf: a deny, an errored result, or nothing', () => {
   expect(reasonOf({ isError: true })).toBe('')
   expect(reasonOf({ isError: false, text: 'fine' })).toBeUndefined()
   expect(reasonOf(undefined)).toBeUndefined()
+})
+
+test('timeline times: a denial keeps the time its reason was first seen; a clash the time the overlap began', () => {
+  let p = addDenial({}, 'blocked', 100)
+  p = addDenial(p, 'other', 150)
+  p = addDenial(p, 'blocked', 200)
+  expect(p.reasons).toEqual([{ text: 'blocked', n: 2, at: 100 }, { text: 'other', n: 1, at: 150 }])
+  expect(addDenial({}, 'x').reasons).toEqual([{ text: 'x', n: 1 }]) // no time known: none recorded
+  const out = findClashes([{ id: 'a', files: ['/x'], start: 10, end: 90 }, { id: 'b', files: ['/x'], start: 40, end: 60 }], [{ path: '/x', at: 70 }])
+  expect(out.get('a')).toEqual([{ path: '/x', other: 'main', at: 70 }, { path: '/x', other: 'b', at: 40 }])
+  expect(out.get('b')).toEqual([{ path: '/x', other: 'a', at: 40 }])
 })

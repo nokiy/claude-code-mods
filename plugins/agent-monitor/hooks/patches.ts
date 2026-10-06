@@ -143,7 +143,7 @@ export function onToolEnd(p: Rec, tool: string, refusal: string | undefined, now
     lastEventAt: now,
     pendingTool: open,
     pendingCalls: open ? out : undefined,
-    ...(refusal === undefined ? {} : addDenial(p, refusal)),
+    ...(refusal === undefined ? {} : addDenial(p, refusal, now)),
     ...(edit && (old || room) ? { lines: { ...p.lines, [edit.path]: { add: (old?.add ?? 0) + edit.add, del: (old?.del ?? 0) + edit.del } } } : {}),
   }
 }

@@ -112,7 +112,7 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
     const desc = e.meta.description ?? ''
     const r = e.roll
     const last = r.open?.usage
-    const denials = r.refusals.reduce<{ denied?: number; reasons?: AgentMonitorRec['reasons'] }>((p, x) => addDenial(p, x.text), {})
+    const denials = r.refusals.reduce<{ denied?: number; reasons?: AgentMonitorRec['reasons'] }>((p, x) => addDenial(p, x.text, x.at), {})
     out[id] = clean({
       type: e.meta.agentType,
       desc,
