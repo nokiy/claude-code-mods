@@ -9,7 +9,7 @@ import { DEFAULTS, readConfig, type Config } from './config'
 import { groupByPr, prStats } from './groups'
 import { historyRecs, projectDir, refreshProject, withHistory, type TxEntry } from './history'
 import { inScope } from './logic'
-import { CLOSED, pageStr, parsePage, ringKeyOf, siteFlags, subEffects, type NavPatch, type Placement } from './nav'
+import { CLOSED, pageStr, parseElementKey, parsePage, ringKeyOf, siteFlags, subEffects, type NavPatch, type Placement } from './nav'
 import { agentLaunched, blank, clean, editDelta, onAgentResult, onComplete, onSpawn, onStep, onStepEnd, onToolEnd, onToolStart } from './patches'
 import { bandTree, panel } from './render'
 import { configKey, draftFromConfig, saveEffects, toggleDraft, type SettingKey } from './settings'
@@ -249,7 +249,8 @@ export const register: Register = (on, options) => {
   for (const command of ['sub', 'subs']) on('command.run', { command }, async ($, e, next) => ((await active($)) ? runSub($, e.args) : next(e)))
   // The ring moved onto a row's or group's Button: remembered (focusKey), so a page change can put it back. Every move in our pane or band, onto any element or off all of them, is written to ringKey, which drives the selected-row highlight.
   on('ui.focus', async ($, e, next) => {
-    if (/^(row|group):/.test(e.element ?? '') &&(await read($, focusKey)) !== e.element) await update($, focusKey, () => e.element ?? null)
+    const kind = parseElementKey(e.element)?.kind
+    if ((kind === 'row' || kind === 'group') && (await read($, focusKey)) !== e.element) await update($, focusKey, () => e.element ?? null)
     if (e.requestId === PANE || e.component === 'AbovePrompt') {
       const key = ringKeyOf(e)
       if ((await read($, ringKey)) !== key) {

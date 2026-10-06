@@ -5,6 +5,7 @@ import { ALL_COLUMNS } from './config'
 import type { Columns } from './config'
 import { formatMoney, totalCost } from './cost'
 import { cellWidth, ctxPercent, effortLabel, effortName, formatDuration, formatElapsed, modelName, padEnd, padStart, parseDescription, resolveTier, tokensOrDash, truncate } from './logic'
+import { elementKey } from './nav'
 import { PALETTE } from './palette'
 import type { Status, View } from './views'
 
@@ -139,7 +140,7 @@ export function rowParts(l: Layout, r: RowText): { lead: string; rest: Cell[] } 
 }
 
 // The select Button's label; the row is selected iff the focus ring (`ringKey`) sits on its `row:<id>` element.
-export const isSelected = (ringKey: string | null, id: string): boolean => ringKey === `row:${id}`
+export const isSelected = (ringKey: string | null, id: string): boolean => ringKey === elementKey('row', id)
 export const markLabel = (selected: boolean): string => (selected ? MARK : NO_MARK)
 
 // The column-header row (drawn gray), same widths as the rows; the names stay English in both languages.

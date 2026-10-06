@@ -65,7 +65,15 @@ export type NavPatch = { page?: string; focusKey?: string | null; ringKey?: stri
 export const CLOSED: NavPatch = { band: false, pane: false, page: 'list', draft: null, focusKey: null, ringKey: null }
 
 // Where the ring is now, from a `ui.focus` event: the element's key when it is ours (or the site's own stop, `close`), null when it left every element.
-export const ringKeyOf = (e: { element?: string; plugin?: string }): string | null => (e.element !== undefined && (e.plugin === undefined || e.plugin === 'agent-monitor') ? e.element : null)
+/** The panel's element keys: `row:<agentId>` (an agent's select Button), `group:<groupKey>` (a PR group's toggle), `mode:<pr|agent>`. */
+export type ElementKind = 'row' | 'group' | 'mode'
+export const elementKey = (kind: ElementKind, id: string): string => `${kind}:${id}`
+/** An element key split into its kind and id; undefined for any other key. */
+export function parseElementKey(key: string | null | undefined): { kind: ElementKind; id: string } | undefined {
+  const m = /^(row|group|mode):(.+)$/.exec(key ?? '')
+  return m ? { kind: m[1] as ElementKind, id: m[2]! } : undefined
+}
+export const ringKeyOf =(e: { element?: string; plugin?: string }): string | null => (e.element !== undefined && (e.plugin === undefined || e.plugin === 'agent-monitor') ? e.element : null)
 
 // Which site flag is set while the panel is at `where` (none: down, the table next time, no draft, no ring).
 export const siteFlags = (where: Placement | null): NavPatch => (where ? { band: where === 'top', pane: where === 'right' } : CLOSED)

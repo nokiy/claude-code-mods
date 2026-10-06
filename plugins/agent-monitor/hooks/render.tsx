@@ -13,10 +13,22 @@ import { detailPage, footer, segText, settingsPage } from './pages'
 import type { Acts, PageCtx } from './pages'
 import { PALETTE, effortStyle, modelColor, statusColor, tokenColor, typeStyle } from './palette'
 import { SWITCH_W, modeSwitch, prRows } from './prtable'
+import { attribute } from './attribution'
+import { elementKey } from './nav'
 
 type Ui = ReturnType<EngineInterface['ui']['resolve']>
 
 const { fg, gray, red, selBg } = PALETTE
+
+// `ctx% · tokens · $ · m:ss` after `lead`, the tokens colored by size: the stats of a live band row and of a running row's line 3.
+function statSegs(Text: Ui['Text'], v: View, lead: string) {
+  const f = figures(v)
+  return [
+    <Text key="ctx" color={gray}>{`${lead}${f.ctx} · `}</Text>,
+    <Text key="tok" color={tokenColor(v.tokens)}>{f.tokens}</Text>,
+    <Text key="rest" color={gray}>{` · ${f.money} · ${f.time}`}</Text>,
+  ]
+}
 
 // One band row per running agent, `+N more` when they do not all fit. `alerts`: end each row with its alert glyphs.
 export function bandRows(ui: Ui, running: View[], cols: number, maxRows: number, alerts: boolean, t: Strings) {
@@ -24,7 +36,6 @@ export function bandRows(ui: Ui, running: View[], cols: number, maxRows: number,
   const { shown, hidden } = capRows(running.length, maxRows)
   const rows = running.slice(0, shown).map(v => {
     const tier = tierName(v.model, v.effort, v.desc)
-    const f = figures(v)
     const flags = alerts ? alertMark(v) : []
     const stats = statsText(v)
     const fixed = cellWidth(`◐ ${v.type} · ${tier} · `) + cellWidth(stats) + (flags.length > 0 ? 3 + segsWidth(flags) : 0)
@@ -40,10 +51,7 @@ export function bandRows(ui: Ui, running: View[], cols: number, maxRows: number,
         <Text color={fg}>{fit.task}</Text>
         <Text>{'   '}</Text>
         <Text color={gray} italic>{fit.activity}</Text>
-        <Text>{'   '}</Text>
-        <Text color={gray}>{`${f.ctx} · `}</Text>
-        <Text color={tokenColor(v.tokens)}>{f.tokens}</Text>
-        <Text color={gray}>{` · ${f.money} · ${f.time}`}</Text>
+        {statSegs(Text, v, '   ')}
         {flags.length > 0 && <Text>{'   '}</Text>}
         {segText(Text, flags)}
       </Text>
@@ -79,14 +87,13 @@ export function runningRow(ui: Ui, v: View, ctx: PageCtx, acts: Acts, auto: bool
   const { Box, Text, Button } = ui
   const r = runningText(v)
   const bar = ctxBar(v)
-  const f = figures(v)
   const sel = isSelected(ctx.ringKey, v.id)
   const e = effortStyle(r.effortKey)
   return (
     <Box key={v.id} flexDirection="column" backgroundColor={sel ? selBg : undefined} hover={{ backgroundColor: selBg }}>
       <Box flexDirection="row">
         <Text>{' '}</Text>
-        <Button key={`row:${v.id}`} plain autoFocus={auto ? true : undefined} onPress={() => acts.open(v.id)}>{markLabel(sel)}</Button>
+        <Button key={elementKey('row', v.id)} plain autoFocus={auto ? true : undefined} onPress={() => acts.open(v.id)}>{markLabel(sel)}</Button>
         <Text wrap="truncate-end">
           <Text color={statusColor('running')}>{' ◐ '}</Text>
           <Text color={fg} bold>{r.desc}</Text>
@@ -107,9 +114,7 @@ export function runningRow(ui: Ui, v: View, ctx: PageCtx, acts: Acts, auto: bool
         <Text>{RUN_INDENT}</Text>
         <Text color={fillColor(bar.pct)}>{'█'.repeat(bar.fill)}</Text>
         <Text color={gray}>{'░'.repeat(bar.empty)}</Text>
-        <Text color={gray}>{` ${f.ctx} · `}</Text>
-        <Text color={tokenColor(v.tokens)}>{f.tokens}</Text>
-        <Text color={gray}>{` · ${f.money} · ${f.time}`}</Text>
+        {statSegs(Text, v, ' ')}
       </Text>
     </Box>
   )
@@ -152,7 +157,7 @@ export function rowDrawer(ui: Ui, views: View[], cols: number, on: Columns, ctx:
     return (
       <Box key={v.id} flexDirection="row" backgroundColor={sel ? selBg : undefined} hover={{ backgroundColor: selBg }}>
         <Text>{p.lead}</Text>
-        <Button key={`row:${v.id}`} plain autoFocus={auto ? true : undefined} onPress={() => acts.open(v.id)}>{markLabel(sel)}</Button>
+        <Button key={elementKey('row', v.id)} plain autoFocus={auto ? true : undefined} onPress={() => acts.open(v.id)}>{markLabel(sel)}</Button>
         <Text wrap="truncate-end">{p.rest.map((c, j) => cell(Text, c, j))}</Text>
       </Box>
     )
@@ -173,7 +178,9 @@ function listFooter(ui: Ui, ctx: PageCtx, acts: Acts, rows: boolean, t: Strings)
 export function historyTable(ui: Ui, board: Board, cols: number, ctx: PageCtx, acts: Acts) {
   const { Box, Text, Button } = ui
   const { views, cfg, t } = board
-  if (views.length === 0) {
+  const mode = ctx.mode ?? 'pr'
+  // No agents: only the hint, unless PR mode has the current branch's PR to show (its group, empty for now).
+  if (views.length === 0 && (mode === 'agent' || attribute({ branch: board.prs?.branch }, board.prs?.prs ?? []) === null)) {
     return (
       <Box flexDirection="column">
         <Text color={gray}>{t.noAgents}</Text>
@@ -182,12 +189,11 @@ export function historyTable(ui: Ui, board: Board, cols: number, ctx: PageCtx, a
     )
   }
 
-  const mode = ctx.mode ?? 'pr'
   const { header, row } = rowDrawer(ui, views, cols, cfg.columns, ctx, acts, t)
   // Agent mode: the running agents first, then the finished table; the row that held the focus, else the first, takes the ring.
   const running = views.filter(v => v.status === 'running')
   const finished = views.filter(v => v.status !== 'running')
-  const focus = (views.find(v => ctx.focusKey === `row:${v.id}`) ?? running[0] ?? finished[0])?.id
+  const focus = (views.find(v => ctx.focusKey === elementKey('row', v.id)) ?? running[0] ?? finished[0])?.id
   const agentBody = [...running.map(v => row(v, v.id === focus)), header, ...finished.map(v => row(v, v.id === focus))]
   return (
     <Box flexDirection="column">
@@ -197,7 +203,7 @@ export function historyTable(ui: Ui, board: Board, cols: number, ctx: PageCtx, a
             <Text key={String(i)} bold={s.bold} color={s.color}>{s.text}</Text>
           ))}
         </Text>
-        {modeSwitch(ui, mode, acts)}
+        {modeSwitch(ui, mode, acts, t)}
         <Text>{'  '}</Text>
         <Button key="close" hotkey="x" onPress={acts.close}>{t.close}</Button>
       </Box>

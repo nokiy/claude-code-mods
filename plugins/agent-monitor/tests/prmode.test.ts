@@ -2,7 +2,7 @@
 // fake transcripts, testkit.ts), the Other group, expand / collapse, the [PR] [Agent] switch, and a failed gh keeping the last index.
 import { expect, mock, test } from 'claude-code/testing'
 
-import { PROJECT, ROOT, ghPr, listKeys, mountPane, st, wire } from './testkit'
+import { PROJECT, ROOT, ghPr, listKeys, mountPane, shown, st, wire } from './testkit'
 import { agentFiles, fakeFs } from './transcripts'
 
 const NOW = Date.parse('2026-10-03T09:00:00Z')
@@ -82,6 +82,28 @@ test('[PR] [Agent]: a gives the flat list, p the groups again; the active one is
   await ui.press({ key: 'mode:pr' })
   expect(await listKeys(ui)).toEqual(['group:pr:49', 'row:a1', 'row:a2', 'group:pr:38', 'group:other'])
   expect((await seg('pr')).variant).toBe('primary')
+})
+
+test('PR mode heads its groups with a Title column; Agent mode has none', async ($, on) => {
+  const { ui } = await openSub($, on)
+  const header = await rowOf(ui, 'Title')
+  expect(header).toMatch(/^\s*Title\s/)
+  await ui.press({ key: 'mode:agent' })
+  expect(await rowOf(ui, 'Title')).toBe('')
+})
+
+test('the current PR with no agents yet and no other subagents still shows its group', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on)
+  wire(on, fakeFs())
+  st.branch = 'feature/44-row-layout'
+  st.gh = JSON.stringify(PRS)
+  await $.session.start({ cwd: ROOT } as never)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  const ui = await mountPane($)
+  expect(await listKeys(ui)).toEqual(['group:pr:49'])
+  expect(await shown(ui)).not.toContain('No subagents yet')
 })
 
 test('the PR index is fetched again only when due, and a failed fetch keeps the last one', async ($, on) => {

@@ -73,7 +73,7 @@ export function alertLines(views: readonly View[], cwd: string, t: Strings): Ale
   for (const v of views) {
     if (v.denied === 0) continue
     const live = v.status === 'running'
-    if (v.reasons.length === 0) line('denied', undefined, t.deniedLine(who(v), v.denied, '(no reason)'), [v.id], live)
+    if (v.reasons.length === 0) line('denied', undefined, t.deniedLine(who(v), v.denied, t.noReason), [v.id], live)
     for (const r of v.reasons) line('denied', r.at, t.deniedLine(who(v), r.n, r.text), [v.id], live)
   }
   const when = (l: AlertLine) => l.at ?? Infinity

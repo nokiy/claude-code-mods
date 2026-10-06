@@ -58,7 +58,17 @@ const EN = {
   otherGroup: 'Other',
   agentsN: (n: number) => (n === 1 ? '1 agent' : `${n} agents`),
   modeHint: ' · p/a PR/Agent',
+  // PR mode, English in both languages: the mode switch, the group header's columns, a group's tokens, the PR state words
+  modes: { pr: 'PR', agent: 'Agent' },
+  prColumns: { title: 'Title', agents: 'agents', tokens: 'tokens', cost: 'cost', time: 'time', state: 'state' },
+  tok: (n: string) => `${n} tok`,
+  prState: { OPEN: 'Open', MERGED: 'Merged' } as Record<string, string>,
+  // an alert timeline refusal with no reason text
+  noReason: '(no reason)',
 }
+
+// The PR mode's words are the same in both languages.
+const PR_WORDS = { modes: EN.modes, prColumns: EN.prColumns, tok: EN.tok, prState: EN.prState }
 
 export type Strings = typeof EN
 
@@ -104,6 +114,8 @@ const ZH: Strings = {
   otherGroup: '其他',
   agentsN: n => `${n} 个子代理`,
   modeHint: ' · p/a 切换 PR/Agent',
+  ...PR_WORDS,
+  noReason: '（无原因）',
 }
 
 export const strings = (lang: Lang): Strings => (lang === 'zh' ? ZH : EN)

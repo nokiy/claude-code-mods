@@ -66,7 +66,7 @@ test('alertLines: an alert of unknown time reads --:--:-- and goes last; a silen
   expect(lines.map(lineText)).toEqual([
     '14:00:05 ! 冲突  worker「task」 与 main 同时修改 a.ts',
     '--:--:-- ~ 卡住  worker「task」 已 7m 无动作（最后：运行 bun test）',
-    '--:--:-- × 拦截  worker「task」 被拒 ×2：(no reason)',
+    '--:--:-- × 拦截  worker「task」 被拒 ×2：（无原因）',
   ])
   expect(lines[1]!.color).toBe(PALETTE.red)
   expect(lines[0]!.ids).toEqual(['p'])
