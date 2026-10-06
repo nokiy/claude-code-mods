@@ -2,6 +2,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { OTHER, PROJECT, ROOT, mountPane, rowKeys, shown, st, wire } from './testkit'
+import type { Dollar } from './testkit'
 import { agentFiles, agentMeta, agentPaths, agentTranscript, assistantLine, fakeFs, jsonl, userLine } from './transcripts'
 
 const OLD1 = { sessionId: 'old1', agentId: 'a1', type: 'Explore', desc: 'map the parser', model: 'claude-sonnet-4-5', at: '2026-10-01T09:00:00.000Z' }
@@ -82,7 +83,7 @@ test('the 1 s tick reads only this session\'s folder, and no unchanged file agai
 // A transcript past 4 MiB is read through `tail`, whose output the engine cuts (isStdoutTruncated): the fake caps it at `tailCap`.
 const BIG = 4 * 1024 * 1024 + 1
 const many = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `m${i}`, model: 'claude-opus-5-5', usage: { input_tokens: 1_000, output_tokens: 100 }, at: '2026-10-01T10:01:00.000Z' }))
-async function bigSetup($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1], text: string) {
+async function bigSetup($: Dollar, on: Parameters<typeof wire>[0], text: string) {
   const clock = mock.clock(on, { now: Date.parse('2026-10-03T09:00:00Z') })
   mock.store(on)
   const fs = wire(on, fakeFs({ [agentPaths(PROJECT, BIG_AGENT).meta]: agentMeta(BIG_AGENT) }))
@@ -93,7 +94,7 @@ async function bigSetup($: Parameters<Parameters<typeof test>[1]>[0], on: Parame
   return { fs, sub }
 }
 const BIG_AGENT = { sessionId: 'old1', agentId: 'b1', type: 'worker', desc: 'long haul', at: '2026-10-01T10:00:00.000Z', steps: many(20) }
-const bigRow = async ($: Parameters<Parameters<typeof test>[1]>[0]) => (await (await mountPane($)).findAll({ type: 'Text' })).map(t => t.text).filter(t => t.includes('long haul')).sort((a, b) => b.length - a.length)[0] ?? ''
+const bigRow = async ($: Dollar) => (await (await mountPane($)).findAll({ type: 'Text' })).map(t => t.text).filter(t => t.includes('long haul')).sort((a, b) => b.length - a.length)[0] ?? ''
 
 test('a transcript past 4 MiB is read in cut chunks across refreshes, and its totals come out whole', async ($, on) => {
   const { fs, sub } = await bigSetup($, on, agentTranscript(BIG_AGENT))

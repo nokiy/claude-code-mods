@@ -3,6 +3,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { PROJECT, ROOT, ghPr, mountPane, st, wire } from './testkit'
+import type { Dollar } from './testkit'
 import { agentFiles, assistantLine, fakeFs, jsonl, userLine } from './transcripts'
 
 const NOW = Date.parse('2026-10-03T09:00:00Z')
@@ -17,7 +18,7 @@ const PRS = [ghPr(49, 'PR card and agents', 'spec/36-pr-agent-views', [43, 44]),
 // The main session's own transcript, beside the session folder, with usage that must not count.
 const MAIN = { [`${PROJECT}/s1.jsonl`]: jsonl([userLine({ sessionId: 's1', agentId: '', branch: 'spec/36-pr-agent-views' }), assistantLine({ sessionId: 's1', agentId: '' }, opus('mm', '2026-10-01T10:00:30.000Z', 900_000, 90_000))]) }
 
-type Run = Parameters<Parameters<typeof test>[1]>
+type Run = [Dollar, Parameters<typeof wire>[0]]
 type Stats = Record<string, { tokens: number; cost?: number; ms: number; refusals: number }>
 // A test's `$` holds no state to read back: the published value is what agent-monitor's latest write of `prStats` carried.
 async function start($: Run[0], on: Run[1], files: Record<string, string>) {

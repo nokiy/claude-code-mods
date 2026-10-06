@@ -30,13 +30,13 @@ export type Rollup = {
   /** The latest message: its id and the usage already counted, replaced if the next line continues it. */
   open?: { id: string; model: string; usage: AgentSpent }
   /** Every refusal line counted; the latest MAX_REFUSALS kept. */
-  refused: number
+  denied: number
   refusals: Refusal[]
 }
 
 export const MAX_REFUSALS = 20
 
-export const emptyRollup = (): Rollup => ({ steps: 0, byModel: {}, refused: 0, refusals: [] })
+export const emptyRollup = (): Rollup => ({ steps: 0, byModel: {}, denied: 0, refusals: [] })
 
 type Line = {
   type?: string
@@ -90,7 +90,7 @@ function addLine(r: Rollup, l: Line): Rollup {
     if (text) out.prompt = clip(text, MAX_PROMPT)
   }
   if (l.toolDenialKind) {
-    out.refused = r.refused + 1
+    out.denied = r.denied + 1
     out.refusals = [...r.refusals, { at: Number.isNaN(at) ? undefined : at, kind: l.toolDenialKind, text: clip(textOf(m?.content), 200) }].slice(-MAX_REFUSALS)
   }
   if (l.type === 'assistant' && m?.id && m.model && m.model !== '<synthetic>') {

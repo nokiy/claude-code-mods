@@ -94,10 +94,10 @@ export type Cell = { text: string; kind: 'index' | 'status' | 'task' | 'type' | 
 const maxW = (min: number, items: string[]) => items.reduce((m, s) => Math.max(m, cellWidth(s)), min)
 
 // Column widths for `cols` cells. The desc column takes what the others leave (width 0: no column at all); when the rest alone does not
-// fit, type shrinks. Tier, cost and time are never cut for width; only the settings hide them (`tokens` hides the cost column).
+// fit, type shrinks. Tier, cost and time are never cut for width; only the settings hide them.
 export function computeLayout(cols: number, rows: RowText[], on: Columns = ALL_COLUMNS): Layout {
   const tier = on.tier ? maxW(4, rows.map(r => r.model + r.effort)) : 0
-  const cost = on.tokens ? maxW(4, rows.map(r => r.ctx + DOT + r.tokens + DOT + r.money)) : 0
+  const cost = on.cost ? maxW(4, rows.map(r => r.ctx + DOT + r.tokens + DOT + r.money)) : 0
   const time = on.time ? maxW(4, rows.map(r => r.time)) : 0
   let type = Math.min(TYPE_CAP, maxW(4, rows.map(r => r.type)))
   // Everything but desc: the select mark, status and type are always there; a gap sits between neighbours and none after the last.

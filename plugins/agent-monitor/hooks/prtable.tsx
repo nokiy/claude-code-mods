@@ -1,7 +1,7 @@
 // [POS] Drawing of the /sub PR mode: the `[PR] [Agent]` switch (hotkeys p / a), the groups' `Title` column header and the grouped table
 // body (one row per PR group, a toggle Button that opens or closes it, its agents under it drawn by the table's own row). Grouping is
 // groups.ts's; colors come from palette.ts, words from strings.ts.
-import type { EngineInterface } from 'claude-code'
+import type { EngineInterface, RenderChildren } from 'claude-code'
 
 import { formatMoney } from './cost'
 import { groupByPr, isOpen } from './groups'
@@ -42,7 +42,7 @@ const joinCols = (cells: readonly string[], widths: readonly number[]) => cells.
  * flips it) and, when open, its agents through `agentRow(view, autoFocus)`. The ring starts on the element that last held it when
  * drawn, else on the first group's toggle.
  */
-export function prRows(ui: Ui, board: Board, cols: number, ctx: PageCtx, acts: Acts, agentRow: (v: View, auto: boolean) => unknown) {
+export function prRows(ui: Ui, board: Board, cols: number, ctx: PageCtx, acts: Acts, agentRow: (v: View, auto: boolean) => RenderChildren) {
   const { Box, Text, Button } = ui
   const t = board.t
   const groups = groupByPr(board.views, board.prs?.prs ?? [], board.prs?.branch)

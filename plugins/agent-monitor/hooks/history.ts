@@ -33,7 +33,8 @@ export const MAX_WHOLE = 4 * 1024 * 1024
 const MAX_TAILS = 8
 const FILE = /^agent-(.+)\.jsonl$/
 
-export const storeKey = (path: string) => `transcript:${path}`
+// v2: the rollup's refusal count is `denied` (entries under the old `transcript:` key are read afresh once).
+export const storeKey = (path: string) => `transcript.v2:${path}`
 
 /** Where Claude Code keeps a project's transcripts: the root with every character but a letter or digit turned into `-`. */
 export const projectDir = (configDir: string, root: string) => `${configDir.replace(/\/+$/, '')}/projects/${root.replace(/[^a-zA-Z0-9]/g, '-')}`
@@ -150,7 +151,7 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
       durationMs: r.startedAt !== undefined && r.lastAt !== undefined ? r.lastAt - r.startedAt : undefined,
       status: 'done',
       branch: r.gitBranch,
-      ...(r.refused ? { denied: r.refused, reasons: denials.reasons, refused: r.refused } : {}),
+      ...(r.denied ? { denied: r.denied, reasons: denials.reasons } : {}),
     })
   }
   return out

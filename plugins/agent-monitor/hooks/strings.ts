@@ -45,7 +45,7 @@ const EN = {
   save: 'Save',
   settingsHint: ' ↑↓ select · Enter change · w save (b goes back without saving)',
   gloss: {
-    tier: 'model.effort column', tokens: 'ctx% · tokens · $ column', time: 'elapsed time column',
+    tier: 'model.effort column', cost: 'ctx% · tokens · $ column', time: 'elapsed time column',
     alerts: 'red ! on alerted rows (also on live rows)', alertsBlock: 'alert sentences block', autoBand: 'show live rows while agents run', toasts: 'pop-up notices',
     placement: 'default place: last = as before / right / top', stallMinutes: 'stall threshold (minutes)',
   } as Record<string, string>,
@@ -104,7 +104,7 @@ const ZH: Strings = {
   save: '保存',
   settingsHint: ' ↑↓ 选择 · Enter 切换 · w 保存（b 返回不保存）',
   gloss: {
-    tier: '模型.档位列', tokens: 'ctx% · 令牌 · $ 列', time: '用时列', alerts: '告警行末红色 !（含运行条）',
+    tier: '模型.档位列', cost: 'ctx% · 令牌 · $ 列', time: '用时列', alerts: '告警行末红色 !（含运行条）',
     alertsBlock: '告警说明区', autoBand: '运行时自动显示', toasts: '弹出提示', placement: '默认位置：last 沿用上次 / right / top', stallMinutes: '卡住阈值（分钟）',
   },
   commandDescription: '子代理历史',

@@ -3,6 +3,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { PROJECT, ROOT, ghPr, listKeys, mountPane, shown, st, wire } from './testkit'
+import type { Dollar } from './testkit'
 import { agentFiles, fakeFs } from './transcripts'
 
 const NOW = Date.parse('2026-10-03T09:00:00Z')
@@ -15,7 +16,7 @@ const A3 = { sessionId: 's2', agentId: 'a3', type: 'Explore', desc: 'map the car
 const A4 = { sessionId: 's2', agentId: 'a4', type: 'Explore', desc: 'look around', branch: 'dev', at: '2026-10-01T07:00:00.000Z' }
 const PRS = [ghPr(49, 'PR card and agents', 'spec/36-pr-agent-views', [43, 44]), ghPr(38, 'Pass next', 'feature/38-pass-next', [38], 'MERGED'), ghPr(50, 'Retro', 'adhoc/retro', [], 'MERGED'), ghPr(30, 'Closed one', 'feature/30-x', [30], 'CLOSED')]
 
-type Run = Parameters<Parameters<typeof test>[1]>
+type Run = [Dollar, Parameters<typeof wire>[0]]
 async function openSub($: Run[0], on: Run[1], branch = 'feature/44-row-layout') {
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
@@ -71,7 +72,7 @@ test('Enter on a group shows its agents, Enter again hides them', async ($, on) 
 
 test('[PR] [Agent]: a gives the flat list, p the groups again; the active one is highlighted', async ($, on) => {
   const { ui } = await openSub($, on)
-  const seg = async (m: string) => (await ui.find({ type: 'Button', key: `mode:${m}` })).props
+  const seg = async (m: string) => (await ui.find({ type: 'Button', key: `mode:${m}` }))?.props ?? {}
   expect([(await seg('pr')).hotkey, (await seg('agent')).hotkey]).toEqual(['p', 'a'])
   expect((await seg('pr')).variant).toBe('primary')
   expect((await seg('agent')).variant).toBeUndefined()

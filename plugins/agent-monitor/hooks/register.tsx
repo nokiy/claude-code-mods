@@ -6,14 +6,15 @@ import type { AgentMonitorDraft, AgentMonitorRec, MainEdit, PrStat } from '../ty
 import { alertLines, dueToasts } from './alertlines'
 import { MAX_MAIN, editedPath, normPath, reasonOf } from './alerts'
 import { DEFAULTS, readConfig, type Config } from './config'
-import { groupByPr, prStats } from './groups'
+import { groupByPr, statsByPr } from './groups'
 import { historyRecs, projectDir, refreshProject, withHistory, type TxEntry } from './history'
 import { inScope } from './logic'
 import { CLOSED, pageStr, parseElementKey, parsePage, ringKeyOf, siteFlags, subEffects, type NavPatch, type Placement } from './nav'
 import { agentLaunched, blank, clean, editDelta, onAgentResult, onComplete, onSpawn, onStep, onStepEnd, onToolEnd, onToolStart } from './patches'
+import type { Mode } from './pages'
 import { bandTree, panel } from './render'
 import { configKey, draftFromConfig, saveEffects, toggleDraft, type SettingKey } from './settings'
-import { refreshIndex, type PrCache, type PrView } from './prindex'
+import { refreshIndex, type PrCache, type PrIndex, type PrView } from './prindex'
 import { pickLang, strings, type Strings } from './strings'
 import { parseSubArg } from './subarg'
 import { mergeBackfill, recsFromMessages } from './backfill'
@@ -31,9 +32,9 @@ const focusKey = atom({ plugin: 'agent-monitor', key: 'focusKey' } as const, nul
 const ringKey = atom({ plugin: 'agent-monitor', key: 'ringKey' } as const, null as string | null)
 const draft = atom({ plugin: 'agent-monitor', key: 'draft' } as const, null as AgentMonitorDraft | null)
 const sessionPlacement = atom({ plugin: 'agent-monitor', key: 'sessionPlacement' } as const, null as Placement | null)
-const mode = atom({ plugin: 'agent-monitor', key: 'mode' } as const, 'pr' as 'pr' | 'agent')
+const mode = atom({ plugin: 'agent-monitor', key: 'mode' } as const, 'pr' as Mode)
 const expanded = atom({ plugin: 'agent-monitor', key: 'expanded' } as const, {} as Record<string, boolean>)
-const published = atom({ plugin: 'agent-monitor', key: 'prStats' } as const, {} as Record<string, PrStat>)
+const prStats = atom({ plugin: 'agent-monitor', key: 'prStats' } as const, {} as Record<string, PrStat>)
 
 type Recs = Record<string, AgentMonitorRec>
 let cfg: Config = DEFAULTS // the settings (plugin.json userConfig); a change in /config or on the settings page reloads the module, so register() sets it afresh
@@ -79,6 +80,7 @@ async function noteMainEdit($: EngineInterface, path: string, now: number) {
   if (!Object.values(await read($, agents)).some(r => r.status === 'running')) return
   await update($, mainEdits, (m: MainEdit[]) => [...m, { path, at: now }].slice(-MAX_MAIN))
 }
+
 // Persist the end of records the engine no longer runs (a stale `running` would keep the timer alive); drop undescribed leftovers.
 async function settleStale($: EngineInterface) {
   const recs = await read($, agents)
@@ -101,11 +103,22 @@ async function readHistory($: EngineInterface, current = false) {
     $.ui.invalidate('ui.render')
   } catch { /* no transcript readable now: the live records still stand */ }
 }
+
 const prCache: PrCache = {} // the PR index (prindex.ts: `gh pr list` on an interval, last good kept in the store) and the session's branch, for the PR mode
 let prView: PrView = { prs: [] }
-const refreshPrs = async ($: EngineInterface) => { prView = await refreshIndex({ run: a => $.process.run(a), load: k => $.store.get(k), save: (k, v) => $.store.set(k, v) }, prCache, await $.clock.now()); await publish($); $.ui.invalidate('ui.render') }
+async function refreshPrs($: EngineInterface) {
+  const io = { run: (a: string[]) => $.process.run(a), load: (k: string) => $.store.get(k), save: (k: string, v: PrIndex) => $.store.set(k, v) }
+  prView = await refreshIndex(io, prCache, await $.clock.now())
+  await publish($)
+  $.ui.invalidate('ui.render')
+}
+
 // The per-PR subagent totals other mods read (docs/adr/0001-cross-mod-state.md), written only when they change: each write redraws the readers.
-const publish = async ($: EngineInterface, views?: Board['views']) => { const next = prStats(groupByPr(views ?? (await loadBoard($)).views, prView.prs)); if (JSON.stringify(next) !== JSON.stringify(await read($, published))) await update($, published, () => next) }
+async function publish($: EngineInterface, views?: Board['views']) {
+  const next = statsByPr(groupByPr(views ?? (await loadBoard($)).views, prView.prs))
+  if (JSON.stringify(next) !== JSON.stringify(await read($, prStats))) await update($, prStats, () => next)
+}
+
 // Agents the mod never saw spawn come back from the main conversation (its Agent tool uses and task notifications), earlier ones from the transcripts.
 async function backfill($: EngineInterface) {
   await Promise.all([readHistory($), refreshPrs($)])
@@ -116,6 +129,7 @@ async function backfill($: EngineInterface) {
   } catch { /* the conversation is not readable now: the live records still stand */ }
   await publish($)
 }
+
 // One tick a second while an agent runs; one toast per agent per conflict / stall (`warned:<agentId>:<kind>` in the store, `told` its memory in this load).
 const told = new Set<string>()
 async function warn($: EngineInterface, board: Board) {
@@ -126,8 +140,15 @@ async function warn($: EngineInterface, board: Board) {
     if (!seen) $.ui.toast(d.text, { timeoutMs: 8000 })
   }
 }
-let timer: { cancel: () => void } | undefined
-const stopTimer = () => { try { timer?.cancel() } catch { /* already gone */ } timer = undefined }
+
+let timer:{ cancel: () => void } | undefined
+function stopTimer() {
+  try {
+    timer?.cancel()
+  } catch { /* already gone */ }
+  timer = undefined
+}
+
 function ensureTimer($: EngineInterface) {
   timer ??= $.clock.every(1000, async () => {
     try {
@@ -139,6 +160,7 @@ function ensureTimer($: EngineInterface) {
     } catch { stopTimer() } // a later event starts a fresh timer
   })
 }
+
 // The /sub command (`/subs` if the host refuses the first) and the panel's buttons; the decisions are nav.ts's and settings.ts's.
 let commandName: string | undefined
 async function ensureCommand($: EngineInterface) {
@@ -150,14 +172,17 @@ async function ensureCommand($: EngineInterface) {
     } catch { /* name refused: try the next */ }
   }
 }
-const paneUp = async ($: EngineInterface) => (await $.ui.panes()).some(p => p.id === PANE)
+
+const paneUp =async ($: EngineInterface) => (await $.ui.panes()).some(p => p.id === PANE)
 const openPane = ($: EngineInterface) => $.ui.open({ id: PANE, title: t.paneTitle, focus: true, closeOnEscape: true })
+
 // Put the panel at `where` (`right`: the pane, `top`: the band above the prompt; null: down), taking it from the other place.
 async function setSite($: EngineInterface, where: Placement | null) {
   await writeNav($, siteFlags(where))
   if (where === 'right') await openPane($)
   else if (await paneUp($)) await $.ui.close({ id: PANE })
 }
+
 // `/sub` shows the panel (or steps back to the table, or closes it), `/sub top|right` places it, `/sub set` opens the settings page.
 async function runSub($: EngineInterface, args: string): Promise<{ text?: string }> {
   const nav = await readNav($)
@@ -172,6 +197,7 @@ async function runSub($: EngineInterface, args: string): Promise<{ text?: string
   }
   return {}
 }
+
 // Write the draft's changed rows to the settings in one go (the module reloads with them), the state first: the reload may cut what follows.
 async function saveSettings($: EngineInterface) {
   const fx = saveEffects((await readNav($)).draft, cfg)
@@ -182,6 +208,7 @@ async function saveSettings($: EngineInterface) {
   const denied = done.find(r => r.deny !== undefined)
   if (denied?.deny) $.ui.toast(t.notSaved(denied.deny), { timeoutMs: 8000 })
 }
+
 function actsOf($: EngineInterface) {
   return {
     open: (id: string) => void writeNav($, { page: pageStr({ kind: 'detail', id }) }),
@@ -190,22 +217,25 @@ function actsOf($: EngineInterface) {
     close: () => void setSite($, null),
     toggle: (key: SettingKey) => void update($, draft, (d: AgentMonitorDraft | null) => (d ? toggleDraft(d, key) : d)),
     save: () => void saveSettings($),
-    mode: (m: 'pr' | 'agent') => void update($, mode, () => m),
+    mode: (m: Mode) => void update($, mode, () => m),
     fold: (key: string, open: boolean) => void update($, expanded, (x: Record<string, boolean>) => ({ ...x, [key]: open })),
   }
 }
+
 // What a site draws from; a running agent keeps the timer going.
 async function screen($: EngineInterface) {
   const [nav, board] = await Promise.all([readNav($), loadBoard($)])
   if (board.views.some(v => v.status === 'running')) ensureTimer($)
   return { nav, board }
 }
+
 // The mod acts everywhere, or only when the session cwd is inside the `scope` setting (session.start says, else the first hook asks). Every hook goes through `active`, so the language is read before anything is drawn.
 let scoped: boolean | undefined
 const active = async ($: EngineInterface) => {
   await ensureLang($)
   return (scoped ??= inScope(await $.session.cwd(), cfg.scope))
 }
+
 let backfilled = false
 let priceToasted = false
 export const register: Register = (on, options) => {
@@ -307,13 +337,17 @@ export const register: Register = (on, options) => {
       }
     }
     const launched = agentLaunched(e, r as { result?: unknown; isError?: boolean })
-    if (launched) { const at = await $.clock.now(); await track($, launched.res.agentId, p => onAgentResult(p, launched.call, launched.res, at), true); $.ui.invalidate('ui.render') }
+    if (launched) {
+      const at = await $.clock.now()
+      await track($, launched.res.agentId, p => onAgentResult(p, launched.call, launched.res, at), true)
+      $.ui.invalidate('ui.render')
+    }
     return r
   })
   on('turn.complete', async ($, e, next) => {
-    if (!(await active($))) return next(e)
+    if (!(await active($)) || !e.agentId) return next(e) // the main loop's turn ends no subagent
     const now = await $.clock.now()
-    if (e.agentId && (await track($, e.agentId, p => onComplete(p, e.reason, now)))) $.ui.invalidate('ui.render')
+    if (await track($, e.agentId, p => onComplete(p, e.reason, now))) $.ui.invalidate('ui.render')
     return next(e)
   })
   // The band above the prompt: the panel while `/sub top` is open, else the running agents, one row each.

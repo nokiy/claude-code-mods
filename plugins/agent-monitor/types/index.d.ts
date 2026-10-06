@@ -11,7 +11,7 @@ export type MainEdit = { path: string; at: number }
 /** The settings page's unsaved copy of the options: a column per flag, the other switches, the placement mode, the stall threshold in minutes. */
 export type AgentMonitorDraft = {
   tier: boolean
-  tokens: boolean
+  cost: boolean
   time: boolean
   alerts: boolean
   alertsBlock: boolean
@@ -85,19 +85,17 @@ export type AgentMonitorRec = {
   pendingCalls?: Record<string, number>
   /** Tool calls per tool name; a backfilled agent gets Read / Search / Bash / Edit / Other from toolStats. */
   toolCounts?: Record<string, number>
-  /** Denied or errored tool results. */
+  /** Refused (a hook's deny) or errored tool results: from the hook events, else the transcript's `toolDenialKind` lines. The one refusal count: the alert's ×N and the PR's `refusals`. */
   denied?: number
   /** Their reasons, deduped by first line (at most 10 distinct). */
   reasons?: Denial[]
   /** The branch on the agent's transcript's first line: what the attribution rule (hooks/attribution.ts) reads. */
   branch?: string
-  /** Hook refusals counted from the transcript (lines carrying `toolDenialKind`); set by the history alone, so it survives the merge. */
-  refused?: number
 }
 
 /**
  * One PR's subagent totals, published for other mods (docs/adr/0001-cross-mod-state.md): tokens, estimated cost in USD (absent when
- * no agent's model has a price), wall time in ms (the union of the agents' spans), hook refusals from the transcripts. Canonical;
+ * no agent's model has a price), wall time in ms (the union of the agents' spans), refused or errored tool calls. Canonical;
  * pr-hint mirrors it in plugins/pr-hint/types/index.d.ts.
  */
 export type PrStat = { tokens: number; cost?: number; ms: number; refusals: number }
@@ -123,7 +121,7 @@ declare module 'claude-code' {
       sessionPlacement: 'top' | 'right' | null
       /** The main loop's recent file edits, for conflicts with a running subagent. */
       mainEdits: MainEdit[]
-      /** Published (pr-hint reads it): subagent totals per PR, keyed by the PR number as a string; only PRs with subagents (hooks/groups.ts `prStats`). */
+      /** Published (pr-hint reads it): subagent totals per PR, keyed by the PR number as a string; only PRs with subagents (hooks/groups.ts `statsByPr`). */
       prStats: Record<string, PrStat>
       /** The table's mode: `pr` (grouped by PR, the default) or `agent` (one flat list). */
       mode: 'pr' | 'agent'

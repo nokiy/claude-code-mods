@@ -19,7 +19,7 @@ test('a draft copied from the config is clean; each toggle makes exactly its own
   expect(diffDraft(toggleDraft(d, 'alertsBlock'), DEFAULTS)).toEqual([{ field: 'alertsBlock', value: false }])
   expect(diffDraft(toggleDraft(d, 'autoBand'), DEFAULTS)).toEqual([{ field: 'autoBand', value: false }])
   expect(diffDraft(toggleDraft(d, 'toasts'), DEFAULTS)).toEqual([{ field: 'toasts', value: false }])
-  for (const k of ['tier', 'tokens', 'time', 'alerts'] as const) expect(diffDraft(toggleDraft(d, k), DEFAULTS)).toEqual([{ field: FIELD[k], value: false }])
+  for (const k of ['tier', 'cost', 'time', 'alerts'] as const) expect(diffDraft(toggleDraft(d, k), DEFAULTS)).toEqual([{ field: FIELD[k], value: false }])
 })
 
 test('toggling twice is no change; several changed rows are written together, in row order', () => {
