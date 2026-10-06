@@ -4,11 +4,24 @@ import type { Seg } from './alertlines'
 import { ALL_COLUMNS } from './config'
 import type { Columns } from './config'
 import { formatMoney, totalCost } from './cost'
-import { cellWidth, effortLabel, formatDuration, padEnd, padStart, resolveTier, tokensOrDash, truncate } from './logic'
+import { cellWidth, ctxPercent, effortLabel, formatDuration, formatElapsed, padEnd, padStart, resolveTier, tokensOrDash, truncate } from './logic'
 import { PALETTE } from './palette'
 import type { Status, View } from './views'
 
 export const GLYPH: Record<Status, string> = { running: '◐', done: '●', failed: '✗', unknown: '?' }
+
+// ---- the figures every row shows, one formatting for band, running rows and the finished table ----
+
+// The parts of `ctx% · tokens · $` and the time, an em dash for each one unknown.
+export function figures(v: View): { ctx: string; tokens: string; money: string; time: string } {
+  const pct = ctxPercent(v.context, v.actualModel ?? v.model)
+  return { ctx: pct === undefined ? '—' : `${pct}%`, tokens: tokensOrDash(v.tokens), money: formatMoney(v.cost), time: v.elapsedMs === undefined ? '—' : formatElapsed(v.elapsedMs) }
+}
+
+// `41% · 86.2k · $0.42`: the cost cell of the finished table.
+export const costText = (v: View): string => { const f = figures(v); return `${f.ctx} · ${f.tokens} · ${f.money}` }
+// `41% · 86.2k · $0.42 · 1:05`: the stats of a running row and of the live band.
+export const statsText = (v: View): string => `${costText(v)} · ${figures(v).time}`
 const GAP = 2
 const LEAD = 1
 const MARK_W = 1 // the select Button at the row start: `▸` on the selected row, a blank elsewhere

@@ -156,6 +156,22 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`
 }
 
+// Elapsed time as `m:ss` (`1:05`), `h:mm:ss` from an hour on: the time of the rows and the live band.
+export function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const ss = String(s % 60).padStart(2, '0')
+  const m = Math.floor(s / 60)
+  return m < 60 ? `${m}:${ss}` : `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}:${ss}`
+}
+
+// The context window of a model id: 1M when the id names it (`[1m]`), else 200k.
+export const contextWindow = (model: string | undefined): number => (/\[1m\]/i.test(model ?? '') ? 1_000_000 : 200_000)
+
+// How full the context is, in whole percent (at most 100); undefined when nothing is known.
+export function ctxPercent(context: number | undefined, model: string | undefined): number | undefined {
+  return context && context > 0 ? Math.min(100, Math.round((context * 100) / contextWindow(model))) : undefined
+}
+
 // Local wall-clock time as HH:MM:SS.
 export function formatClock(ms: number): string {
   const d = new Date(ms)

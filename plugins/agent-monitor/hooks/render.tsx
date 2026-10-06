@@ -3,10 +3,10 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import { alertLines, capAlerts, flagSegs, segsWidth } from './alertlines'
-import { capRows, cellWidth, collapse, fitRow, formatDuration, resolveTier, tierName, tokensOrDash } from './logic'
+import { capRows, cellWidth, collapse, fitRow, resolveTier, tierName } from './logic'
 import type { Strings } from './strings'
 import type { Board, View } from './views'
-import { computeLayout, headerCells, headerSegs, isSelected, markLabel, rowParts, rowText, rule } from './layout'
+import { computeLayout, figures, headerCells, headerSegs, isSelected, markLabel, rowParts, rowText, rule, statsText } from './layout'
 import type { Cell } from './layout'
 import { detailPage, footer, segText, settingsPage } from './pages'
 import type { Acts, PageCtx } from './pages'
@@ -22,9 +22,9 @@ export function bandRows(ui: Ui, running: View[], cols: number, maxRows: number,
   const { shown, hidden } = capRows(running.length, maxRows)
   const rows = running.slice(0, shown).map(v => {
     const tier = tierName(v.model, v.effort, v.desc)
-    const time = v.elapsedMs === undefined ? '—' : formatDuration(v.elapsedMs)
+    const f = figures(v)
     const flags = alerts ? flagSegs(v) : []
-    const stats = `${tokensOrDash(v.tokens)} tok · ${time}`
+    const stats = statsText(v)
     const fixed = cellWidth(`◐ ${v.type} · ${tier} · `) + cellWidth(stats) + (flags.length > 0 ? 3 + segsWidth(flags) : 0)
     const fit = fitRow(cols, fixed, v.task, collapse(v.activity ?? t.starting))
     const ts = typeStyle(v.type)
@@ -39,8 +39,9 @@ export function bandRows(ui: Ui, running: View[], cols: number, maxRows: number,
         <Text>{'   '}</Text>
         <Text color={gray} italic>{fit.activity}</Text>
         <Text>{'   '}</Text>
-        <Text color={tokenColor(v.tokens)}>{tokensOrDash(v.tokens)}</Text>
-        <Text color={gray}>{` tok · ${time}`}</Text>
+        <Text color={gray}>{`${f.ctx} · `}</Text>
+        <Text color={tokenColor(v.tokens)}>{f.tokens}</Text>
+        <Text color={gray}>{` · ${f.money} · ${f.time}`}</Text>
         {flags.length > 0 && <Text>{'   '}</Text>}
         {segText(Text, flags)}
       </Text>
