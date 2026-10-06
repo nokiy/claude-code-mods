@@ -3,6 +3,8 @@
 plugins/*/.claude-plugin/types/
 .DS_Store
 CLAUDE.md
+# Acceptance screenshots stay local
+screenshots/
 
 # Local agent workflow conventions (loki-pm setup)
 docs/agents/
