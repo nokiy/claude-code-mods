@@ -58,5 +58,9 @@ export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
 export const mountPane = ($: Dollar, bodyColumns = 120) =>
   $.ui.mount({ plugin: 'agent-monitor', surface: 'terminal', component: 'Pane', requestId: 'sub', props: { title: 'Subagents', isFocused: true, bodyColumns, placement: 'dock' } as never, viewport: { columns: 160, rows: 50 } })
 
+/** The table's rows, one Button each keyed `row:<agentId>`, in drawn order. */
+export const rowKeys = async (ui: { findAll: (q: { type: string }) => Promise<{ key: string | undefined }[]> }) =>
+  (await ui.findAll({ type: 'Button' })).map(b => b.key ?? '').filter(k => k.startsWith('row:'))
+
 /** The text of every Text element drawn, joined: what a person reads off the pane. */
 export const shown = async (ui: { findAll: (q: { type: string }) => Promise<{ text: string }[]> }) => (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
