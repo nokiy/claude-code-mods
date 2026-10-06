@@ -1,5 +1,6 @@
 // The /sub PR mode through the whole mod: subagents grouped by the PR their first-line branch belongs to (a fake `gh pr list` and
-// fake transcripts, testkit.ts), the Other group, expand / collapse, the `p: PR  a: Agent` switch, and a failed gh keeping the last index.
+// fake transcripts, testkit.ts), the Other group, expand / collapse, the `p: PR  a: Agent` switch, the PR state in pr-hint's words and
+// colors (also from an index stored before the draft flag), and a failed gh keeping the last index.
 import { expect, mock, test } from 'claude-code/testing'
 
 import { PROJECT, ROOT, ghPr, listKeys, mountPane, shown, st, wire } from './testkit'
@@ -49,12 +50,40 @@ test('another repository\'s fresh PR index in the store does not stand in for th
 
 test('a group row shows its agent count, tokens, cost, time and PR state', async ($, on) => {
   const { ui } = await openSub($, on)
-  // #49: 42.0k + 11.0k tokens, $0.20 + $0.06, a minute each; open. #38: one agent of 15 tokens; merged. Other: no PR state.
-  expect(await rowOf(ui, '#49 PR card and agents')).toMatch(/2 agents\s+53\.0k tok\s+≈ \$0\.26\s+2m00s\s+Open/)
+  // #49: 42.0k + 11.0k tokens, $0.20 + $0.06, a minute each; open, not a draft. #38: one agent of 15 tokens; merged. Other: no PR state.
+  expect(await rowOf(ui, '#49 PR card and agents')).toMatch(/2 agents\s+53\.0k tok\s+≈ \$0\.26\s+2m00s\s+Ready/)
   expect(await rowOf(ui, '#38 Pass next')).toMatch(/1 agent\s+15 tok\s+≈ <\$0\.01\s+1m00s\s+Merged/)
   const other = await rowOf(ui, 'Other')
   expect(other).toMatch(/1 agent\s+15 tok/)
-  expect(other).not.toMatch(/Open|Merged/)
+  expect(other).not.toMatch(/Draft|Ready|Merged/)
+})
+
+// pr-hint's words and colors for the same PR (plugins/pr-hint: parse.ts prState, strings.ts PR_STATE, card.ts STATE_COLOR).
+test('a group row\'s PR state reads Draft (yellow), Ready (magenta) or Merged (green), as pr-hint says it', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on)
+  const D = { ...A1, agentId: 'd1', branch: 'feature/60-draft' }
+  const R = { ...A1, agentId: 'r1', branch: 'feature/61-ready' }
+  const M = { ...A1, agentId: 'm1', branch: 'feature/62-merged' }
+  wire(on, fakeFs({ ...agentFiles(PROJECT, D), ...agentFiles(PROJECT, R), ...agentFiles(PROJECT, M) }))
+  st.branch = 'dev'
+  st.gh = JSON.stringify([ghPr(60, 'Drafted', 'feature/60-draft', [], 'OPEN', true), ghPr(61, 'Readied', 'feature/61-ready'), ghPr(62, 'Landed', 'feature/62-merged', [], 'MERGED')])
+  await $.session.start({ cwd: ROOT } as never)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  const ui = await mountPane($)
+  const texts = await ui.findAll({ type: 'Text' })
+  for (const [title, word, color] of [['#60 Drafted', 'Draft', 'yellow'], ['#61 Readied', 'Ready', 'magenta'], ['#62 Landed', 'Merged', 'green']]) {
+    expect(await rowOf(ui, title)).toMatch(new RegExp(`\\s${word}\\s*$`))
+    expect(texts.find(t => t.text.trim() === word)?.props.color).toBe(color)
+  }
+})
+
+test('an index stored before the draft flag reads its open PR as Ready until it is fetched again', async ($, on) => {
+  const old = { at: NOW - 60_000, prs: [{ number: 49, title: 'PR card and agents', state: 'OPEN', head: 'spec/36-pr-agent-views', closes: [43, 44] }] }
+  const { ui } = await openSub($, on, 'feature/44-row-layout', { [`prIndex:${ROOT}`]: old })
+  expect(st.ghCalls).toBe(0)
+  expect(await rowOf(ui, '#49 PR card and agents')).toMatch(/\sReady\s*$/)
 })
 
 test('the agent on dev lands in Other, whose row is drawn unlike a PR group\'s', async ($, on) => {
@@ -133,5 +162,5 @@ test('the PR index is fetched again only when due, and a failed fetch keeps the 
   await clock.settle()
   expect(st.ghCalls).toBe(2)
   expect(await listKeys(ui)).toEqual(before)
-  expect(await rowOf(ui, '#49 PR card and agents')).toContain('Open')
+  expect(await rowOf(ui, '#49 PR card and agents')).toContain('Ready')
 })

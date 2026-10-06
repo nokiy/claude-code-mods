@@ -24,9 +24,18 @@ export type ListAgent = { id: string; type: string; status: string; description:
  */
 export const st = { session: 'cur', agents: [] as ListAgent[], branch: 'dev', gh: '[]' as string | null, ghCalls: 0, usage: {} as Record<string, number> }
 
-/** One row of `gh pr list --json number,title,state,headRefName,closingIssuesReferences,body`; `closes` go into the body as `Closes #N` lines. */
-export const ghPr = (number: number, title: string, headRefName: string, closes: number[] = [], state = 'OPEN') =>
-  ({ number, title, state, headRefName, closingIssuesReferences: [], body: `Summary\n\n${closes.map(n => `Closes #${n}`).join('\n')}` })
+/** One row of `gh pr list --json …` with every field the mod may ask for; `closes` go into the body as `Closes #N` lines. */
+export const ghPr = (number: number, title: string, headRefName: string, closes: number[] = [], state = 'OPEN', isDraft = false) =>
+  ({ number, title, state, isDraft, headRefName, closingIssuesReferences: [], body: `Summary\n\n${closes.map(n => `Closes #${n}`).join('\n')}` })
+
+// As gh does: each row keeps only the fields named after `--json` (a field the mod does not ask for never reaches it).
+function ghAnswer(argv: readonly string[], text: string): string {
+  const i = argv.indexOf('--json')
+  if (i < 0) return text
+  const fields = new Set(String(argv[i + 1] ?? '').split(','))
+  const rows = JSON.parse(text) as Record<string, unknown>[]
+  return JSON.stringify(rows.map(r => Object.fromEntries(Object.entries(r).filter(([k]) => fields.has(k)))))
+}
 
 /**
  * Answer every engine call agent-monitor makes, from memory: English UI, HOME, the session at ROOT, an empty conversation, `st`'s
@@ -62,7 +71,7 @@ export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
     if (cmd === 'git' && e.argv.join(' ') === 'git rev-parse --abbrev-ref HEAD') return { value: { exitCode: 0, stdout: `${st.branch}\n`, stderr: '', ...done } }
     if (cmd === 'gh') {
       st.ghCalls++
-      return { value: st.gh === null ? { exitCode: 1, stdout: '', stderr: 'HTTP 502', ...done } : { exitCode: 0, stdout: st.gh, stderr: '', ...done } }
+      return { value: st.gh === null ? { exitCode: 1, stdout: '', stderr: 'HTTP 502', ...done } : { exitCode: 0, stdout: ghAnswer(e.argv, st.gh), stderr: '', ...done } }
     }
     if (cmd !== 'tail' || !path || !from) return { value: { exitCode: 1, stdout: '', stderr: 'unexpected command', ...done } }
     const out = fs.tail(path, Number(from.slice(1)) - 1)
