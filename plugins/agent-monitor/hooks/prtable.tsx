@@ -59,7 +59,7 @@ export function prRows(ui: Ui, board: Board, cols: number, ctx: PageCtx, acts: A
           <Text>{' '}</Text>
           <Button key={key} plain autoFocus={auto === key ? true : undefined} onPress={() => acts.fold(g.key, !open(g))}>{open(g) ? '▾' : '▸'}</Button>
           <Text wrap="truncate-end">
-            <Text key={`title:${g.key}`} color={other ? gray : fg} bold={other ? undefined : true} italic={other ? true : undefined}>{` ${padEnd(title, Math.max(0, cols - 3 - GAP.length - statsW))}`}</Text>
+            <Text color={other ? gray : fg} bold={other ? undefined : true} italic={other ? true : undefined}>{` ${padEnd(title, Math.max(0, cols - 3 - GAP.length - statsW))}`}</Text>
             <Text color={gray}>{`${GAP}${stats}${GAP}`}</Text>
             <Text color={state?.color ?? gray}>{padEnd(state?.text ?? '', stateW)}</Text>
           </Text>
