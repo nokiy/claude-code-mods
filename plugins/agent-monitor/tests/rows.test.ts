@@ -43,6 +43,24 @@ test('/sub: a running subagent is three lines: tier-prefixed description; type �
   expect(await rowKeys(ui)).toEqual(['row:a1'])
 })
 
+// The prefix asks for op.med, the steps ran on sonnet: line 2 says what was asked (a match says nothing: the test above).
+const mismatchLine = async ($: Dollar, on: On) => {
+  const clock = await running($, on, 'op.med · fix the parser', 'claude-sonnet-5-5')
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  return lineFinder(await mountPane($))
+}
+
+test('/sub: tier mismatch, Chinese: line 2 ends `≠ 要求 op.med`', { options: { language: 'zh' } }, async ($, on) => {
+  const at = await mismatchLine($, on)
+  expect(at(/^ {5}worker · sonnet · med ≠ 要求 op\.med {3}启动中$/)).toBeGreaterThanOrEqual(0)
+})
+
+test('/sub: tier mismatch, English: line 2 ends `≠ wanted op.med`', async ($, on) => {
+  const at = await mismatchLine($, on)
+  expect(at(/^ {5}worker · sonnet · med ≠ wanted op\.med {3}starting$/)).toBeGreaterThanOrEqual(0)
+})
+
 test('live band: ctx%, tokens without the `tok` word, time as m:ss', async ($, on) => {
   await running($, on)
   const text = await shown(await mountBand($))

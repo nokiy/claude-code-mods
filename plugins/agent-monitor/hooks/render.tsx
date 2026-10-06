@@ -98,6 +98,7 @@ export function runningRows(ui: Ui, views: View[], ctx: PageCtx, acts: Acts, foc
           <Text color={modelColor(r.modelKey)}>{r.model}</Text>
           <Text color={gray}>{' · '}</Text>
           <Text color={e.color} bold={e.bold}>{r.effort}</Text>
+          {v.tier && <Text color={red} bold>{` ${t.wanted(v.tier.want)}`}</Text>}
           <Text color={gray} italic>{`   ${collapse(v.activity ?? t.starting)}`}</Text>
         </Text>
         <Text key="stats" wrap="truncate-end">

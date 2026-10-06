@@ -21,6 +21,8 @@ const EN = {
   stallShort: (idle: string, tool: string | undefined) => (tool ? `~${idle} (${tool} not returned)` : `~${idle} no activity`),
   tierLine: (who: string, want: string, got: string) => `${who} described ${want} · ran ${got}`,
   tierShort: (want: string, got: string) => `≠ described ${want} · ran ${got}`,
+  // a running row's line 2 when the steps did not run the tier the description asked for
+  wanted: (tier: string) => `≠ wanted ${tier}`,
   deniedLine: (who: string, n: number, reason: string, kinds: number) => `${who} refused ${times(n)}: ${reason}${kinds > 1 ? ` (${kinds} kinds)` : ''}`,
   deniedShort: (n: number) => `× refused ${times(n)}`,
   // detail page
@@ -71,6 +73,7 @@ const ZH: Strings = {
   stallShort: (idle, tool) => (tool ? `~${idle}（${tool} 未返回）` : `~${idle} 无动作`),
   tierLine: (who, want, got) => `${who} 描述 ${want} · 实际 ${got}`,
   tierShort: (want, got) => `≠ 描述 ${want} · 实际 ${got}`,
+  wanted: tier => `≠ 要求 ${tier}`,
   deniedLine: (who, n, reason, kinds) => `${who} 被拒 ${n} 次：${reason}${kinds > 1 ? ` 等 ${kinds} 种` : ''}`,
   deniedShort: n => `× 拦截 ${n} 次`,
   sec: { prompt: '指令', timeline: '时间线', files: '改过的文件', tools: '工具', skills: '技能', recent: '最近动作', alerts: '告警', result: '结果' },
