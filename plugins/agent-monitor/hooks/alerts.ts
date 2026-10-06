@@ -111,14 +111,14 @@ export function denialReason(text: string | undefined): string {
   return truncate(collapse(line), 80) || '(no reason)'
 }
 
-// One more denied result at `at`: counted, its reason deduped by first line (keeping the time it was first seen); a new reason past
-// MAX_REASONS counts but is not listed.
-export function addDenial(p: { denied?: number; reasons?: readonly Denial[] }, text: string | undefined, at?: number): { denied: number; reasons: Denial[] } {
+// One more denied (or, `failed`, errored) result at `at`: counted, its reason deduped by first line and kind (keeping the time it was
+// first seen); a new reason past MAX_REASONS counts but is not listed.
+export function addDenial(p: { denied?: number; reasons?: readonly Denial[] }, text: string | undefined, at?: number, failed = false): { denied: number; reasons: Denial[] } {
   const reason = denialReason(text)
   const reasons = (p.reasons ?? []).map(r => ({ ...r }))
-  const hit = reasons.find(r => r.text === reason)
+  const hit = reasons.find(r => r.text === reason && !r.failed === !failed)
   if (hit) hit.n++
-  else if (reasons.length < MAX_REASONS) reasons.push({ text: reason, n: 1, ...(at === undefined ? {} : { at }) })
+  else if (reasons.length < MAX_REASONS) reasons.push({ text: reason, n: 1, ...(at === undefined ? {} : { at }), ...(failed ? { failed: true as const } : {}) })
   return { denied: (p.denied ?? 0) + 1, reasons }
 }
 

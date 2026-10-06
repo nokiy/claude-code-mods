@@ -2,8 +2,11 @@
 // placement override, the main loop's recent edits and the per-PR totals published to other mods (`prStats`), kept in `$.state` so a
 // hot reload keeps them.
 
-/** One distinct denied / errored tool result, deduped by its first line; `at`: when that reason was first seen (absent when unknown). */
-export type Denial = { text: string; n: number; at?: number }
+/**
+ * One distinct denied / errored tool result, deduped by its first line and kind; `at`: when that reason was first seen (absent when
+ * unknown); `failed`: the tool ran and its result is an error (absent: a hook refused the call).
+ */
+export type Denial = { text: string; n: number; at?: number; failed?: true }
 
 /** A file the main loop (no agentId) edited; kept only while some subagent was running. */
 export type MainEdit = { path: string; at: number }

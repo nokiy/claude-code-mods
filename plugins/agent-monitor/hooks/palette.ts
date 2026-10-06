@@ -35,10 +35,11 @@ export function effortStyle(effort: string | undefined): Style {
   return { color: PALETTE.gray }
 }
 
-export type AlertKind = 'conflict' | 'stall' | 'tier' | 'denied'
+/** `denied`: a hook refused the call; `failed`: the tool ran and its result is an error. */
+export type AlertKind = 'conflict' | 'stall' | 'tier' | 'denied' | 'failed'
 
-// Alerts are red; a stall is amber at its threshold and red at twice it.
-export const alertColor = (kind: AlertKind, level?: 1 | 2): string => (kind === 'stall' && level !== 2 ? PALETTE.amber : PALETTE.red)
+// Alerts are red; an errored tool result is amber, a stall amber at its threshold and red at twice it.
+export const alertColor = (kind: AlertKind, level?: 1 | 2): string => (kind === 'failed' || (kind === 'stall' && level !== 2) ? PALETTE.amber : PALETTE.red)
 
 // Tokens by size: under 50k or unknown gray, 50k fg, 100k amber, 300k red.
 export function tokenColor(n: number | undefined): string {

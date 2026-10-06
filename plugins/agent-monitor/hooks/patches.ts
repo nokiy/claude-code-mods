@@ -130,7 +130,7 @@ export function agentLaunched(e: { tool: unknown }, r: { result?: unknown; isErr
 }
 
 // A `tool` call's result is back; `refusal` is why it was denied or errored (undefined when it went through), `hookDenied` whether a
-// hook's deny refused it; `edit` the lines an edit changed in `path`. Whatever call is still out stays pending, named by the oldest.
+// hook's deny refused it (otherwise the refusal is an errored result, a `failed` reason); `edit` the lines an edit changed in `path`. Whatever call is still out stays pending, named by the oldest.
 export function onToolEnd(p: Rec, tool: string, refusal: string | undefined, now: number, edit?: { path: string; add: number; del: number }, hookDenied = false): Rec {
   const out = { ...p.pendingCalls }
   if ((out[tool] ?? 0) > 1) out[tool]!--
@@ -143,7 +143,7 @@ export function onToolEnd(p: Rec, tool: string, refusal: string | undefined, now
     lastEventAt: now,
     pendingTool: open,
     pendingCalls: open ? out : undefined,
-    ...(refusal === undefined ? {} : addDenial(p, refusal, now)),
+    ...(refusal === undefined ? {} : addDenial(p, refusal, now, !hookDenied)),
     ...(hookDenied ? { refusals: (p.refusals ?? 0) + 1 } : {}),
     ...(edit && (old || room) ? { lines: { ...p.lines, [edit.path]: { add: (old?.add ?? 0) + edit.add, del: (old?.del ?? 0) + edit.del } } } : {}),
   }

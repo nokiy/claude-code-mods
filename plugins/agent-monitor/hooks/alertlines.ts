@@ -9,7 +9,7 @@ import type { View } from './views'
 
 export type Seg = { text: string; color: string; bold?: boolean; italic?: boolean }
 
-const ORDER: AlertKind[] = ['conflict', 'stall', 'tier', 'denied']
+const ORDER: AlertKind[] = ['conflict', 'stall', 'tier', 'denied', 'failed']
 
 // `!` conflict, `~` stalled, `≠` tier mismatch, `×N` denied/errored: single-cell glyphs only, separated by one blank.
 export function flagSegs(v: View): Seg[] {
@@ -39,7 +39,7 @@ export const alertClock = (l: AlertLine): string => (l.at === undefined ? '--:--
 
 export const lineText = (l: AlertLine): string => `${alertClock(l)} ${l.tag} ${l.label}  ${l.body}`
 
-const GLYPH: Record<AlertKind, string> = { conflict: '!', stall: '~', tier: '≠', denied: '×' }
+const GLYPH: Record<AlertKind, string> = { conflict: '!', stall: '~', tier: '≠', denied: '×', failed: '✗' }
 
 // The alert timeline, one line per alert: conflicts (a pair and path once), stalls, tier mismatches, and one line per distinct refusal
 // reason with its count; oldest first, those of unknown time last, ties in the kind order. An agent is named `type"task"` (agentRef);
@@ -74,7 +74,7 @@ export function alertLines(views: readonly View[], cwd: string, t: Strings): Ale
     if (v.denied === 0) continue
     const live = v.status === 'running'
     if (v.reasons.length === 0) line('denied', undefined, t.deniedLine(who(v), v.denied, t.noReason), [v.id], live)
-    for (const r of v.reasons) line('denied', r.at, t.deniedLine(who(v), r.n, r.text), [v.id], live)
+    for (const r of v.reasons) line(r.failed ? 'failed' : 'denied', r.at, (r.failed ? t.failedLine : t.deniedLine)(who(v), r.n, r.text), [v.id], live)
   }
   const when = (l: AlertLine) => l.at ?? Infinity
   return out

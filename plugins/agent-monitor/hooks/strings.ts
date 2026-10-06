@@ -3,7 +3,7 @@
 
 export type Lang = 'en' | 'zh'
 
-type Kind = 'conflict' | 'stall' | 'tier' | 'denied'
+type Kind = 'conflict' | 'stall' | 'tier' | 'denied' | 'failed'
 
 const EN = {
   // tool activity: verb + short target (`Read logic.ts`)
@@ -12,7 +12,7 @@ const EN = {
   // an agent named in a sentence: type + quoted task
   quote: (s: string) => `"${s}"`,
   // alerts
-  tag: { conflict: 'conflict', stall: 'stalled', tier: 'tier', denied: 'denied' } as Record<Kind, string>,
+  tag: { conflict: 'conflict', stall: 'stalled', tier: 'tier', denied: 'denied', failed: 'failed' } as Record<Kind, string>,
   and: (a: string, b: string) => `${a} and ${b}`,
   conflictLine: (pair: string, path: string) => `${pair} edited ${path} at the same time`,
   stallTool: (who: string, idle: string, tool: string) => `${who} idle for ${idle} (${tool} not returned)`,
@@ -22,6 +22,7 @@ const EN = {
   wanted: (tier: string) => `≠ wanted ${tier}`,
   // one refusal reason of the alert timeline: its count and its text
   deniedLine: (who: string, n: number, reason: string) => `${who} refused ×${n}: ${reason}`,
+  failedLine: (who: string, n: number, reason: string) => `${who} failed ×${n}: ${reason}`,
   // detail page
   sec: { prompt: 'Instruction', steps: 'Steps', files: 'Edited files', tools: 'Tools', skills: 'Skills', alerts: 'Alerts', result: 'Result' },
   inProgress: 'in progress',
@@ -76,7 +77,7 @@ const ZH: Strings = {
   verb: { Read: '读取', Edit: '修改', Write: '写入', Grep: '搜索', Glob: '查找', Bash: '运行', WebFetch: '抓取', WebSearch: '搜索网页', Skill: '技能', Agent: '派发', LSP: '代码导航' },
   starting: '启动中',
   quote: s => `「${s}」`,
-  tag: { conflict: '冲突', stall: '卡住', tier: '档位', denied: '拦截' },
+  tag: { conflict: '冲突', stall: '卡住', tier: '档位', denied: '拦截', failed: '出错' },
   and: (a, b) => `${a} 与 ${b}`,
   conflictLine: (pair, path) => `${pair} 同时修改 ${path}`,
   stallTool: (who, idle, tool) => `${who} 已 ${idle}（${tool} 未返回）`,
@@ -84,6 +85,7 @@ const ZH: Strings = {
   tierLine: (who, want, got) => `${who} 描述 ${want} · 实际 ${got}`,
   wanted: tier => `≠ 要求 ${tier}`,
   deniedLine: (who, n, reason) => `${who} 被拒 ×${n}：${reason}`,
+  failedLine: (who, n, reason) => `${who} 出错 ×${n}：${reason}`,
   sec: { prompt: '指令', steps: '步骤', files: '改过的文件', tools: '工具', skills: '技能', alerts: '告警', result: '结果' },
   inProgress: '进行中',
   took: d => `用时 ${d}`,

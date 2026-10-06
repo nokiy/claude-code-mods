@@ -104,6 +104,7 @@ async function readHistory($: EngineInterface, current = false) {
   } catch { /* no transcript readable now: the live records still stand */ }
 }
 
+const hookDenials = new Set<string>() // tool_use_ids a PreToolUse hook denied, until their tool.call returns
 const prCache: PrCache = {} // the PR index (prindex.ts: `gh pr list` on an interval, last good kept in the store) and the session's branch, for the PR mode
 let prView: PrView = { prs: [] }
 async function refreshPrs($: EngineInterface) {
@@ -316,6 +317,12 @@ export const register: Register = (on, options) => {
     }
     return result
   })
+  // A settings hook's deny reaches tool.call below as an errored result; its PreToolUse decision, seen here, makes it a refusal.
+  on('classic.PreToolUse', async (_$, e, next) => {
+    const r = await next(e)
+    if (r?.deny !== undefined) hookDenials.add(e.tool_use_id)
+    return r
+  })
   on('tool.call', async ($, e, next) => {
     if (!(await active($))) return next(e)
     const id = e.agentId
@@ -331,9 +338,9 @@ export const register: Register = (on, options) => {
     try {
       r = await next(e)
     } finally {
+      const hookDenied = (r as { deny?: string } | undefined)?.deny !== undefined || hookDenials.delete(e.tool_use_id)
       if (id && tracked) {
         const done = await $.clock.now()
-        const hookDenied = (r as { deny?: string } | undefined)?.deny !== undefined
         await track($, id, p => onToolEnd(p, tool, reasonOf(r), done, editDelta(file, r), hookDenied))
       }
     }

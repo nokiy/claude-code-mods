@@ -73,6 +73,12 @@ test('alertLines: an alert of unknown time reads --:--:-- and goes last; a silen
   expect(alertLines([view()], '/cwd', ZH)).toEqual([])
 })
 
+test('alertLines: an errored tool result reads 出错 in amber, a hook refusal 拦截, each at its time', () => {
+  const lines = alertLines([view({ id: 'f', denied: 2, reasons: [{ text: 'blocked', n: 1, at: at(20) }, { text: 'Exit code 1', n: 1, at: at(10), failed: true }] })], '/cwd', ZH)
+  expect(lines.map(lineText)).toEqual(['14:00:10 ✗ 出错  worker「task」 出错 ×1：Exit code 1', '14:00:20 × 拦截  worker「task」 被拒 ×1：blocked'])
+  expect(lines.map(l => l.color)).toEqual([PALETTE.amber, PALETTE.red])
+})
+
 test('capAlerts: the newest four lines and a +N count of the earlier ones', () => {
   const lines = Array.from({ length: 7 }, (_, i) => alertLines([view({ id: `v${i}`, denied: 1, reasons: [{ text: `r${i}`, n: 1, at: at(i) }] })], '', ZH)[0]!)
   expect(capAlerts(lines)).toMatchObject({ hidden: 3 })

@@ -84,3 +84,29 @@ test('Alerts block: a transcript agent refused twice by a hook reads ×2 with th
   const all = await texts(await mountPane($))
   expect(all).toContain(` ${formatClock(Date.parse('2026-10-01T10:02:00.000Z'))} × denied  Explore"map the…" refused ×2: PreToolUse:Bash hook error: ${RULE}`)
 })
+
+// Acceptance of PR #49: errored tool results (`Exit code 1`) read `denied` beside hook refusals, every line `--:--:--`. A settings
+// hook's deny reaches the mod's tool.call as an errored result (no `deny`), so only the PreToolUse decision tells the two apart.
+test('a hook refusal reads denied, an errored tool result reads failed; each at its own time, in time order', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  wire(on)
+  on('agent.spawn', async () => ({ agentId: 'a1', model: 'claude-sonnet-5-5' }) as never)
+  on('classic.PreToolUse', async (_$, e) => ((e as { command?: string }).command === 'rm -rf build' ? { deny: RULE } : {}) as never)
+  on('tool.call', async () => ({ result: 'Exit code 1', isError: true, text: 'Exit code 1\nmake: *** [all] Error 2' }) as never)
+  await $.session.start({ cwd: ROOT } as never)
+  await $.agent.spawn({ subagentType: 'worker', description: 'build it', prompt: 'Build the project' } as never)
+  st.agents = [{ id: 'a1', type: 'worker', status: 'running', description: 'build it' }]
+  await clock.advance(10_000)
+  await $.tool.call({ tool: 'Bash', command: 'make', agentId: 'a1' } as never)
+  await clock.advance(10_000)
+  await $.tool.call({ tool: 'Bash', command: 'rm -rf build', agentId: 'a1' } as never)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  const all = await texts(await mountPane($))
+  const failed = all.indexOf(` ${formatClock(T0 + 10_000)} ✗ failed  worker"build it" failed ×1: Exit code 1`)
+  const denied = all.indexOf(` ${formatClock(T0 + 20_000)} × denied  worker"build it" refused ×1: ${RULE}`)
+  expect(failed).toBeGreaterThanOrEqual(0)
+  expect(denied).toBeGreaterThan(failed)
+  expect(all.filter(s => s.includes('Exit code 1')).every(s => !s.includes('denied'))).toBe(true)
+})
