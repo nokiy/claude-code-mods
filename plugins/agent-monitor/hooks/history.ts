@@ -1,6 +1,7 @@
 // [POS] Subagent history for agent-monitor: the current project's transcript directory scanned into one cache entry per subagent file
-// (size, time, read position, rollup, meta), each turned into a record that fills in what the hook records lack. The file access is
-// handed in (TxIo, built from `$` in register.tsx), so this stays pure; tested in tests/unit/history.test.ts and through the whole mod.
+// (size, time, read position, rollup, meta), each turned into a record that fills in what the hook records lack, and the compact
+// per-project index of those entries kept in the store across loads. The file access is handed in (TxIo, built from `$` in
+// register.tsx), so this stays pure; tested in tests/unit/history.test.ts and through the whole mod.
 import type { AgentMonitorRec, AgentSpent } from '../types'
 import { addDenial } from './alerts'
 import { plusSpent, spentTotal } from './cost'
@@ -82,6 +83,64 @@ async function refreshFile(io: TxIo, path: string, f: Listing, cache: Map<string
   const next: TxEntry = { size: caught ? f.size : -1, mtimeMs: f.mtimeMs, offset, roll, meta: e?.meta ?? (await readMeta(io, path)), ...(skip ? { skip } : {}) }
   cache.set(path, next)
   return true
+}
+
+/**
+ * The store is one JSON file shared by every repository and session (4 MiB cap), rewritten on each set. A project keeps one index in it
+ * under indexKey(project), written once per full refresh: its newest entries up to MAX_INDEX_BYTES, at most MAX_PROJECTS projects kept,
+ * so the indexes stay under 1.5 MiB in all. A file left out (older than the newest that fit) is read again in a new load.
+ */
+export type TxIndex = { at: number; files: Record<string, TxEntry> }
+export const indexKey = (project: string) => `txIndex:${project}`
+export const MAX_INDEX_BYTES = 256 * 1024
+export const MAX_PROJECTS = 6
+/** Per stored entry: the latest few refusals and errored results, their texts cut short (the counts stay whole). */
+const KEPT = 5
+const KEPT_TEXT = 120
+
+const short = (xs: Rollup['refusals']) => xs.slice(-KEPT).map(x => ({ ...x, text: x.text.slice(0, KEPT_TEXT) }))
+const desc = (m: TxMeta | undefined) => (m ? { agentType: m.agentType, description: m.description?.slice(0, KEPT_TEXT) } : undefined)
+const stored = (e: TxEntry): TxEntry => ({ ...e, meta: desc(e.meta), roll: { ...e.roll, refusals: short(e.roll.refusals), errors: short(e.roll.errors) } })
+
+/** The project's cached entries as its stored index: newest first (by mtime), as many as fit in MAX_INDEX_BYTES. */
+export function toIndex(cache: ReadonlyMap<string, TxEntry>, project: string, now: number): TxIndex {
+  const pre = `${project}/`
+  const files: Record<string, TxEntry> = {}
+  let bytes = 32
+  const mine = [...cache].filter(([p]) => p.startsWith(pre)).sort((a, b) => b[1].mtimeMs - a[1].mtimeMs)
+  for (const [path, e] of mine) {
+    const name = path.slice(pre.length)
+    const s = stored(e)
+    const n = JSON.stringify(name).length + JSON.stringify(s).length + 2
+    if (bytes + n > MAX_INDEX_BYTES) break
+    bytes += n
+    files[name] = s
+  }
+  return { at: now, files }
+}
+
+const isEntry = (e: unknown): e is TxEntry => {
+  const x = e as TxEntry | undefined
+  return !!x && typeof x === 'object' && typeof x.offset === 'number' && typeof x.size === 'number' && !!x.roll && Array.isArray(x.roll.refusals) && Array.isArray(x.roll.errors)
+}
+
+/** Fill the cache from a stored index (paths it already holds stay); whether anything was added. Anything else stored adds nothing. */
+export function seedCache(cache: Map<string, TxEntry>, project: string, value: unknown): boolean {
+  const files = (value as TxIndex | undefined)?.files
+  if (!files || typeof files !== 'object') return false
+  let added = false
+  for (const [name, e] of Object.entries(files)) {
+    const path = `${project}/${name}`
+    if (cache.has(path) || !isEntry(e)) continue
+    cache.set(path, e)
+    added = true
+  }
+  return added
+}
+
+/** The index keys to delete so at most MAX_PROJECTS remain: the least recently written, oldest first. */
+export function staleIndexes(indexes: readonly { key: string; at: number }[]): string[] {
+  return [...indexes].sort((a, b) => b.at - a.at).slice(MAX_PROJECTS).reverse().map(i => i.key)
 }
 
 async function listOr(io: TxIo, dir: string): Promise<readonly Listing[]> {

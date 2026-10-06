@@ -1,5 +1,5 @@
 // The register-level harness of agent-monitor: the engine beneath the plugin answered from memory (session, settings, agent list,
-// conversation, and the file system and `tail` process through the fake fs of transcripts.ts), plus mount helpers. The test kit has
+// conversation, and the file system and `tail` process through the fake fs of transcripts.ts), a store that counts its calls, plus mount helpers. The test kit has
 // no fs or process mock, so `wire` hooks those events on the test's `on`, as pr-hint's testkit does for `process.run`.
 import { mock, test } from 'claude-code/testing'
 
@@ -69,6 +69,30 @@ export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
     return { value: { exitCode: 0, stdout: out.text, stderr: '', ...done, isStdoutTruncated: out.truncated } }
   })
   return fs
+}
+
+/** A store tally: calls by kind, the keys set, and the JSON bytes they carried. */
+export type StoreTally = { gets: number; sets: string[]; deletes: string[]; keys: number; bytesSet: number }
+
+/**
+ * `$.store` answered from `entries` (a Map the test may inspect), as `mock.store` does, with every call counted in the returned tally
+ * (`reset()` zeroes it). Use in place of `mock.store`.
+ */
+export function countStore(on: On, seed: Readonly<Record<string, unknown>> = {}) {
+  const entries = new Map(Object.entries(seed).map(([k, v]) => [k, JSON.parse(JSON.stringify(v)) as unknown]))
+  const tally: StoreTally = { gets: 0, sets: [], deletes: [], keys: 0, bytesSet: 0 }
+  on('store.get', async (_$, e) => { tally.gets++; return { value: entries.get(e.key) } })
+  on('store.set', async (_$, e) => {
+    const text = JSON.stringify(e.value)
+    tally.sets.push(e.key)
+    tally.bytesSet += text.length
+    entries.set(e.key, JSON.parse(text) as unknown)
+    return { value: undefined }
+  })
+  on('store.delete', async (_$, e) => { tally.deletes.push(e.key); entries.delete(e.key); return { value: undefined } })
+  on('store.keys', async () => { tally.keys++; return { value: [...entries.keys()] } })
+  const reset = () => Object.assign(tally, { gets: 0, sets: [], deletes: [], keys: 0, bytesSet: 0 })
+  return { entries, tally, reset }
 }
 
 /** The /sub pane as the terminal docks it. */

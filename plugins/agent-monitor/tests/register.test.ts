@@ -1,7 +1,7 @@
 // The whole mod through its hooks: subagent history read from the project's transcripts, on synthetic files (testkit.ts).
 import { expect, mock, test } from 'claude-code/testing'
 
-import { OTHER, PROJECT, ROOT, mountPane, rowKeys, shown, st, wire } from './testkit'
+import { OTHER, PROJECT, ROOT, countStore, mountPane, rowKeys, shown, st, wire } from './testkit'
 import type { Dollar } from './testkit'
 import { agentFiles, agentMeta, agentPaths, agentTranscript, assistantLine, fakeFs, jsonl, userLine } from './transcripts'
 
@@ -117,4 +117,73 @@ test('a single line longer than one read is skipped once, not read again on ever
   expect(fs.tally.tails.length).toBe(settled) // the file did not change: no read
   // The lines after the long one still count: 4 steps of 1,100.
   expect(await bigRow($)).toContain('4.4k')
+})
+
+// The store is one JSON file shared by every repository and session (4 MiB cap): /sub must not touch it when nothing changed.
+const FILES = [OLD1, OLD2, { sessionId: 'old3', agentId: 'a4', type: 'worker', desc: 'third', at: '2026-10-02T10:00:00.000Z' }]
+const txKeys = (keys: readonly string[]) => keys.filter(k => k.startsWith('transcript') || k.startsWith('txIndex:'))
+const projectFiles = (agents: readonly (typeof OLD1 | { sessionId: string; agentId: string })[]) => Object.assign({}, ...agents.map(a => agentFiles(PROJECT, a))) as Record<string, string>
+
+test('a second /sub on unchanged transcripts reads no file and writes nothing to the store', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-03T09:00:00Z') })
+  const store = countStore(on)
+  const fs = wire(on, fakeFs(projectFiles(FILES)))
+  await $.session.start({ cwd: ROOT } as never)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  await $.command.run({ command: 'sub', args: '' } as never) // closes the panel
+  await clock.settle()
+  fs.reset()
+  store.reset()
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  expect(fs.tally.reads.size).toBe(0)
+  expect(fs.tally.tails).toHaveLength(0)
+  expect(store.tally.sets).toEqual([])
+})
+
+test('a refresh of several changed transcripts writes the store once; the 1 s tick never writes it', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-03T09:00:00Z') })
+  const store = countStore(on)
+  const live = { sessionId: 'cur', agentId: 'a9', type: 'worker', desc: 'fix the parser' }
+  const fs = wire(on, fakeFs(projectFiles([...FILES, live])))
+  on('agent.spawn', async () => ({ agentId: 'a9', model: 'claude-opus-4-5' }))
+  await $.session.start({ cwd: ROOT } as never)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  expect(txKeys(store.tally.sets)).toHaveLength(1)
+  // Every file grows: the next /sub reads each once and writes the store once.
+  for (const a of [...FILES, live]) fs.append(agentPaths(PROJECT, a).jsonl, jsonl([assistantLine(a, { id: 'm9', usage: { input_tokens: 5, output_tokens: 1 } })]))
+  store.reset()
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  expect(txKeys(store.tally.sets)).toHaveLength(1)
+  // A running agent's transcript grows under the 1 s tick: read, never stored.
+  await $.agent.spawn({ subagentType: 'worker', description: 'fix the parser', prompt: 'go' } as never)
+  st.agents = [{ id: 'a9', type: 'worker', status: 'running', description: 'fix the parser' }]
+  store.reset()
+  fs.reset()
+  fs.append(agentPaths(PROJECT, live).jsonl, jsonl([assistantLine(live, { id: 'm10', usage: { input_tokens: 5, output_tokens: 1 } })]))
+  await clock.advance(1000)
+  expect([...fs.tally.reads.keys()]).toEqual([agentPaths(PROJECT, live).jsonl])
+  expect(txKeys(store.tally.sets)).toEqual([])
+})
+
+test('session.start deletes the old per-file transcript keys once and keeps every other key', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-03T09:00:00Z') })
+  const store = countStore(on, {
+    [`transcript:${PROJECT}/old1/subagents/agent-a1.jsonl`]: { size: 1, mtimeMs: 1, offset: 1, roll: {} },
+    [`transcript.v2:${OTHER}/s/subagents/agent-b1.jsonl`]: { size: 1, mtimeMs: 1, offset: 1, roll: {} },
+    'prIndex:/work/repo': { at: 1, prs: [] },
+    'warned:a1:stall': true,
+    lastPlacement: 'right',
+  })
+  wire(on, fakeFs())
+  await $.session.start({ cwd: ROOT } as never)
+  await clock.settle()
+  expect([...store.entries.keys()].sort()).toEqual(['lastPlacement', 'prIndex:/work/repo', 'warned:a1:stall'])
+  store.reset()
+  await $.session.start({ cwd: ROOT } as never)
+  await clock.settle()
+  expect(store.tally.deletes).toEqual([])
 })

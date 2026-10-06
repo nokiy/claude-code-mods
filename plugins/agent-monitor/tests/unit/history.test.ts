@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 
-import { MAX_WHOLE, historyRecs, projectDir, refreshProject, withHistory } from '../../hooks/history'
+import { MAX_INDEX_BYTES, MAX_PROJECTS, MAX_WHOLE, historyRecs, projectDir, refreshProject, seedCache, staleIndexes, toIndex, withHistory } from '../../hooks/history'
 import type { TxEntry, TxIo } from '../../hooks/history'
 import { agentFiles, agentPaths, assistantLine, fakeFs, jsonl } from '../transcripts'
 import type { FakeFs } from '../transcripts'
@@ -75,6 +75,49 @@ test('withHistory: a clean transcript clears the refusals a live record kept', a
   await refreshProject(ioOf(fs), PROJECT, cache)
   const old = { ...historyRecs(cache).c1!, denied: 1, refusals: 1, reasons: [{ text: 'no', n: 1 }] }
   expect(withHistory({ c1: old }, historyRecs(cache)).c1).toMatchObject({ denied: 0, refusals: 0, reasons: [] })
+})
+
+test('index: a new load seeded from the stored index reads nothing, and draws the same rows', async () => {
+  const a = { sessionId: 's1', agentId: 'a1', type: 'Explore', desc: 'map the code', denials: [HOOK], errors: ['Exit code 1'] }
+  const fs = fakeFs(agentFiles(PROJECT, a))
+  const cache = new Map<string, TxEntry>()
+  await refreshProject(ioOf(fs), PROJECT, cache)
+  const stored = JSON.parse(JSON.stringify(toIndex(cache, PROJECT, 5))) as unknown
+  const fresh = new Map<string, TxEntry>()
+  expect(seedCache(fresh, PROJECT, stored)).toBe(true)
+  fs.reset()
+  expect(await refreshProject(ioOf(fs), PROJECT, fresh)).toBe(false)
+  expect(fs.tally.reads.size).toBe(0)
+  expect(historyRecs(fresh)).toEqual(historyRecs(cache))
+  // Not an index (an older build's value, or nothing): no entry.
+  expect(seedCache(new Map(), PROJECT, { files: 3 })).toBe(false)
+  expect(seedCache(new Map(), PROJECT, undefined)).toBe(false)
+})
+
+test('index: newest files first, cut at MAX_INDEX_BYTES; refusal and error texts kept short and few', () => {
+  const cache = new Map<string, TxEntry>()
+  const long = 'x'.repeat(400)
+  const many = Array.from({ length: 20 }, (_, i) => ({ at: i, kind: 'error', text: long }))
+  for (let i = 0; i < 2000; i++) {
+    const roll = { steps: 1, byModel: {}, denied: 20, refusals: many, failed: 20, errors: many, prompt: long }
+    cache.set(`${PROJECT}/s/subagents/agent-${i}.jsonl`, { size: 1, mtimeMs: i, offset: 1, roll, meta: { agentType: 'worker', description: long } })
+  }
+  const index = toIndex(cache, PROJECT, 7)
+  const names = Object.keys(index.files)
+  expect(JSON.stringify(index).length).toBeLessThanOrEqual(MAX_INDEX_BYTES)
+  expect(names[0]).toBe('s/subagents/agent-1999.jsonl')
+  expect(names.length).toBeGreaterThan(50)
+  const e = index.files[names[0]!]!
+  expect(e.roll.errors.length).toBeLessThanOrEqual(5)
+  expect(e.roll.refusals.every(r => r.text.length <= 120)).toBe(true)
+  expect([e.roll.denied, e.roll.failed]).toEqual([20, 20]) // the counts stay whole
+  expect(index.at).toBe(7)
+})
+
+test('index: past MAX_PROJECTS the least recently written projects are dropped', () => {
+  const keys = Array.from({ length: MAX_PROJECTS + 2 }, (_, i) => ({ key: `txIndex:/p${i}`, at: 100 - i }))
+  expect(staleIndexes(keys)).toEqual([`txIndex:/p${MAX_PROJECTS + 1}`, `txIndex:/p${MAX_PROJECTS}`])
+  expect(staleIndexes(keys.slice(0, MAX_PROJECTS))).toEqual([])
 })
 
 test('refresh: with a session id only that session\'s subagents are listed', async () => {

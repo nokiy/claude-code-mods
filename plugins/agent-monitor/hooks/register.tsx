@@ -7,7 +7,7 @@ import { alertLines, dueToasts } from './alertlines'
 import { MAX_MAIN, editedPath, normPath, reasonOf } from './alerts'
 import { DEFAULTS, readConfig, type Config } from './config'
 import { groupByPr, statsByPr } from './groups'
-import { historyRecs, projectDir, refreshProject, withHistory, type TxEntry } from './history'
+import { MAX_PROJECTS, historyRecs, indexKey, projectDir, refreshProject, seedCache, staleIndexes, toIndex, withHistory, type TxEntry } from './history'
 import { inScope } from './logic'
 import { CLOSED, pageStr, parseElementKey, parsePage, ringKeyOf, siteFlags, subEffects, type NavPatch, type Placement } from './nav'
 import { agentLaunched, blank, clean, editDelta, onAgentResult, onComplete, onSpawn, onStep, onStepEnd, onToolEnd, onToolStart } from './patches'
@@ -90,18 +90,49 @@ async function settleStale($: EngineInterface) {
   await update($, agents, (all: Recs) => settled(all, new Map(stale), now))
 }
 
-// Subagents of every session of this project come from their transcripts (history.ts): the entries live in this load. `current`: only this session's folder (the 1 s tick), else the whole project directory.
+// Subagents of every session of this project come from their transcripts (history.ts): the entries live in this load, seeded once per load from the project's index in the store. `current`: only this session's folder (the 1 s tick), else the whole project directory. Only a full refresh writes the index, once, and only when an entry changed since the last write.
 const txCache = new Map<string, TxEntry>()
+const txSeeded = new Set<string>() // projects whose stored index this load has read
+let txDirty = false
 let history: Recs = {}
 async function readHistory($: EngineInterface, current = false) {
   try {
     const project = projectDir((await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`, await $.session.root())
+    const seeded = !txSeeded.has(project) && (txSeeded.add(project), seedCache(txCache, project, await $.store.get(indexKey(project))))
     const tail = async (path: string, from: number) => ((r) => ({ text: r.stdout, truncated: r.isStdoutTruncated }))(await $.process.run(['tail', '-c', `+${from + 1}`, path]))
     const io = { list: (p: string) => $.fs.list(p), read: (p: string) => $.fs.read(p), tail }
-    if (!(await refreshProject(io, project, txCache, current ? await $.session.id() : undefined))) return
+    const changed = await refreshProject(io, project, txCache, current ? await $.session.id() : undefined)
+    txDirty ||= changed
+    if (!current && txDirty) {
+      txDirty = false
+      await saveIndex($, project)
+    }
+    if (!changed && !seeded) return
     history = historyRecs(txCache)
     $.ui.invalidate('ui.render')
   } catch { /* no transcript readable now: the live records still stand */ }
+}
+
+// One set for this project's index; past MAX_PROJECTS indexes the least recently written go. Best effort: a refused write costs a re-read in the next load.
+async function saveIndex($: EngineInterface, project: string) {
+  const key = indexKey(project)
+  try {
+    await $.store.set(key, toIndex(txCache, project, await $.clock.now()))
+    const others = (await $.store.keys()).filter(k => k.startsWith('txIndex:') && k !== key)
+    if (others.length < MAX_PROJECTS) return
+    const ats = await Promise.all(others.map(async k => ({ key: k, at: Number((await $.store.get(k) as { at?: unknown } | undefined)?.at) || 0 })))
+    for (const k of staleIndexes([{ key, at: Infinity }, ...ats])) await $.store.delete(k)
+  } catch { /* store full or refused */ }
+}
+
+// The per-file transcript keys of older builds (`transcript:<path>`, `transcript.v2:<path>`), deleted once per load; no other key is touched.
+let migrated = false
+async function dropPerFileKeys($: EngineInterface) {
+  if (migrated) return
+  migrated = true
+  try {
+    for (const k of await $.store.keys()) if (k.startsWith('transcript:') || k.startsWith('transcript.v2:')) await $.store.delete(k)
+  } catch { /* tried again in the next load */ }
 }
 
 const hookDenials = new Set<string>() // tool_use_ids a PreToolUse hook denied, until their tool.call returns
@@ -247,6 +278,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await ensureLang($)
     scoped = inScope(e.cwd, cfg.scope)
+    void dropPerFileKeys($) // a one-off clean-up of up to a few thousand keys: the session does not wait for it
     if (scoped) {
       await ensureCommand($)
       if ((await $.store.get('placement')) != null) await $.store.delete('placement') // the old remembered placement: `lastPlacement` replaces it
