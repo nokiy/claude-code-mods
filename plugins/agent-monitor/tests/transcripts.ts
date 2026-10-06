@@ -1,6 +1,7 @@
 // Fake subagent transcripts as Claude Code writes them under ~/.claude/projects/<slug>/<sessionId>/subagents/: one jsonl
 // (`agent-<agentId>.jsonl`, first line a user line carrying sessionId / agentId / gitBranch) plus its meta file. Pure; shared by
 // the transcript unit tests and the register-level suite (testkit.ts).
+import { utf8Bytes } from '../hooks/transcript'
 
 export type FakeUsage = { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
 /** One assistant message: `id` repeats across lines of a streamed message, the last line holding the final usage. */
@@ -56,3 +57,57 @@ export const agentFiles = (projectDir: string, a: FakeAgent): Record<string, str
   const p = agentPaths(projectDir, a)
   return { [p.jsonl]: agentTranscript(a), [p.meta]: agentMeta(a) }
 }
+
+/**
+ * A file system in memory: absolute path -> text, with an optional `size` that stands for a file too large to build (keep such a
+ * file ASCII: `tail` slices by character). `mtime` bumps on every write. `tally` counts whole reads, `tail` calls and listings per path.
+ */
+export function fakeFs(initial: Record<string, string> = {}) {
+  const files = new Map<string, { text: string; size?: number; mtimeMs: number }>()
+  let clock = 1_000
+  const tally = { reads: new Map<string, number>(), tails: [] as { path: string; from: number }[], lists: [] as string[] }
+  const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1)
+  const byteSize = (f: { text: string; size?: number }) => f.size ?? utf8Bytes(f.text)
+  const fs = {
+    files,
+    tally,
+    write(path: string, text: string, size?: number) { files.set(path, { text, size, mtimeMs: ++clock }) },
+    append(path: string, text: string, grow?: number) {
+      const f = files.get(path)
+      files.set(path, { text: (f?.text ?? '') + text, size: f?.size === undefined ? undefined : f.size + (grow ?? text.length), mtimeMs: ++clock })
+    },
+    add(entries: Record<string, string>) { for (const [p, t] of Object.entries(entries)) fs.write(p, t) },
+    reset() { tally.reads.clear(); tally.tails.length = 0; tally.lists.length = 0 },
+    /** Entries directly under `dir` (files and the directories that lead to deeper files); rejects when nothing is there. */
+    list(dir: string) {
+      tally.lists.push(dir)
+      const pre = `${dir.replace(/\/$/, '')}/`
+      const out = new Map<string, { name: string; kind: 'file' | 'dir'; size: number; mtimeMs: number; isLink: boolean }>()
+      for (const [p, f] of files) {
+        if (!p.startsWith(pre)) continue
+        const [name, ...deeper] = p.slice(pre.length).split('/')
+        if (!name) continue
+        out.set(name, deeper.length ? { name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false } : { name, kind: 'file', size: byteSize(f), mtimeMs: f.mtimeMs, isLink: false })
+      }
+      if (out.size === 0) throw new Error(`ENOENT: ${dir}`)
+      return [...out.values()]
+    },
+    read(path: string) {
+      bump(tally.reads, path)
+      const f = files.get(path)
+      if (!f) throw new Error(`ENOENT: ${path}`)
+      if (byteSize(f) > 4 * 1024 * 1024) throw new Error(`too large: ${path}`)
+      return f.text
+    },
+    /** `tail -c +<from+1>`: the bytes from `from` on (characters: ASCII files only). */
+    tail(path: string, from: number) {
+      tally.tails.push({ path, from })
+      const f = files.get(path)
+      if (!f) throw new Error(`ENOENT: ${path}`)
+      return f.text.slice(from)
+    },
+  }
+  fs.add(initial)
+  return fs
+}
+export type FakeFs = ReturnType<typeof fakeFs>

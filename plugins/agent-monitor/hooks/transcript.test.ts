@@ -30,6 +30,28 @@ test('rollup: first-line fields, model from the assistant lines, one usage per m
   })
 })
 
+test('feed: resumes from the byte position; a half-written line waits, a continued message replaces its usage', () => {
+  const head = jsonl([userLine({ ...A, prompt: '审查这个改动' }), assistantLine(A, { id: 'm1', usage: { input_tokens: 100, output_tokens: 3 } })])
+  const cont = assistantLine(A, { id: 'm1', usage: { input_tokens: 100, output_tokens: 169 } })
+  const next = assistantLine(A, { id: 'm2', usage: { input_tokens: 40, output_tokens: 2 } })
+  const file = head + `${cont}\n${next}\n`
+  // First read stops in the middle of the continuation line.
+  const cut = head.length + 20
+  const first = feed(emptyRollup(), file.slice(0, cut))
+  expect(first.roll.steps).toBe(1)
+  expect(first.roll.byModel['claude-opus-4-5']?.output).toBe(3)
+  // The position counts UTF-8 bytes (the prompt holds six 3-byte characters), up to the last complete line.
+  expect(first.bytes).toBe(head.length + 12)
+  // The next read starts at that byte position: the continuation replaces m1's usage, m2 adds.
+  const rest = file.slice(head.length)
+  const second = feed(first.roll, rest)
+  expect(second.roll.steps).toBe(2)
+  expect(second.roll.byModel).toEqual({ 'claude-opus-4-5': { input: 140, output: 171, cacheRead: 0, cacheWrite: 0 } })
+  expect(second.roll).toEqual(feed(emptyRollup(), file).roll)
+  // Nothing new: the rollup and the position stay.
+  expect(feed(second.roll, '').bytes).toBe(0)
+})
+
 test('rollup: a broken line is skipped, the rest still counts', () => {
   const text = jsonl([userLine(A), '{"type":"assistant", broken', assistantLine(A, { id: 'm1', usage: { input_tokens: 10, output_tokens: 5 } })])
   const { roll } = feed(emptyRollup(), text)
