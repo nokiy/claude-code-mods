@@ -1,5 +1,5 @@
 // Drawing for agent-monitor: the live rows in the band above the prompt, the history table (a select Button per row, the ringed row banded) and the alerts block;
-// `panel` picks the page (table, detail, settings) for a site (band or pane). Colors come from palette.ts.
+// `panel` picks the page (table, detail, settings) for a site (band or pane). In PR mode (the default) the table's body is grouped by prtable.tsx. Colors come from palette.ts.
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import { alertLines, capAlerts, flagSegs, segsWidth } from './alertlines'
