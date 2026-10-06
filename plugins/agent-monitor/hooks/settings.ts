@@ -9,24 +9,22 @@ export type Draft = AgentMonitorDraft
 export type SettingKey = keyof Draft
 export type Write = { field: string; value: boolean | number | string }
 
-export const COLUMNS: (keyof Columns)[] = ['tier', 'edits', 'rounds', 'tokens', 'time', 'alerts']
+export const COLUMNS: (keyof Columns)[] = ['tier', 'tokens', 'time', 'alerts']
 export const STALL_STEPS = [1, 2, 3, 5, 10]
 export const PLACEMENTS: PlacementMode[] = ['last', 'right', 'top']
 
 // The userConfig field (plugin.json) behind each row.
 export const FIELD: Record<SettingKey, string> = {
-  tier: 'colTier', edits: 'colEdits', rounds: 'colRounds', tokens: 'colTokens', time: 'colTime', alerts: 'colAlerts',
+  tier: 'colTier', tokens: 'colTokens', time: 'colTime', alerts: 'colAlerts',
   alertsBlock: 'alertsBlock', autoBand: 'autoBand', toasts: 'toasts', placement: 'defaultPlacement', stallMinutes: 'stallMinutes',
 }
 
 type Row = { key: SettingKey; name: string }
 
-// Row order as the page draws it: the six columns, then the switches, then the two pickers.
+// Row order as the page draws it: the four column options, then the switches, then the two pickers.
 export const ROWS: Row[] = [
   { key: 'tier', name: 'Tier' },
-  { key: 'edits', name: 'Edits' },
-  { key: 'rounds', name: 'Rounds' },
-  { key: 'tokens', name: 'Tokens' },
+  { key: 'tokens', name: 'Cost' },
   { key: 'time', name: 'Time' },
   { key: 'alerts', name: 'Alerts' },
   { key: 'alertsBlock', name: 'Alerts block' },

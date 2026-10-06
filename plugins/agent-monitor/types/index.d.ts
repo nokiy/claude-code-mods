@@ -11,8 +11,6 @@ export type MainEdit = { path: string; at: number }
 /** The settings page's unsaved copy of the options: a column per flag, the other switches, the placement mode, the stall threshold in minutes. */
 export type AgentMonitorDraft = {
   tier: boolean
-  edits: boolean
-  rounds: boolean
   tokens: boolean
   time: boolean
   alerts: boolean
