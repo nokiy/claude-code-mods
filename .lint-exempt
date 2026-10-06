@@ -1,0 +1,5 @@
+# Hooks modules: `validate --strict` follows `$` and atom refs only within one file, so every
+# function that takes `$` or reads an atom lives beside `register`; only `$`-free helpers split out.
+plugins/agent-monitor/hooks/register.tsx
+plugins/paste-peek/hooks/register.tsx
+plugins/pr-hint/hooks/register.tsx
