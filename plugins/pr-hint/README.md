@@ -1,6 +1,6 @@
 # pr-hint
 
-Show the pull request of your current branch right on the prompt hint row, with a card (hover the hint row to preview it, click to pin it open) showing the spec, the integration branch and how far every ticket has come.
+Show the pull request of your current branch right on the prompt hint row, with a card (hover the hint row to preview it, click to pin it open) showing how far the delivery has come (a progress bar, `Tickets d/n`, the Spec) and where every ticket stands.
 
 [中文说明](README.zh-CN.md)
 
@@ -20,24 +20,23 @@ Hover the hint row to preview a card above the prompt; it hides when the pointer
 
 ```
 ╭──────────────────────────────────────────────────────────────────────────╮
-│ PR #15 Add dark mode — settings page and editor                ↻ refresh │
-│ Spec #12 Dark mode · integration branch dev ← spec/12-dark-mode          │
-│ CI ✓3/3 · Ready                                                          │
-│ ● #14 in progress Theme toggle · feat/14-theme-toggle · 2 commits behind │
+│ PR #15 Add dark mode ████████░░░░░░░░ Tickets 2/4 · Spec #12  ↻ refresh  │
+│ ◐ 1 running                                                              │
+│ ● #14 running Theme toggle · feat/14-theme-toggle · 2 commits behind     │
 │ ● #16 not started Save settings                                          │
-│ ● #13 merged Color names · feat/13-color-names                           │
+│ ● #13 Merged Color names · feat/13-color-names                           │
 │ ● #11 accepted Dark palette                                              │
 │ Open PR · fetched 2 min ago                                              │
 ╰──────────────────────────────────────────────────────────────────────────╯
 ```
 
-Top to bottom: the PR title, the Spec and the integration branch (`base ← head`; with no Spec, a single ticket takes the Spec's place as `Ticket #N · title`, several tickets show the branches alone), CI and the PR state, one line per ticket (nothing is dropped), then the PR link and when pr-hint last fetched from GitHub (`fetched`, the only time shown). The `↻ refresh` button at the card's top right refreshes by hand (see Refresh). Tickets are ordered in progress, not started, merged, accepted. A leading `[mod]` scope tag on a ticket title (as in `[pr-hint] Edit form`) is left off the card. A `↻N` after CI counts checks still running.
+Top to bottom: a two-line header, one line per ticket (nothing is dropped), then the PR link and when pr-hint last fetched from GitHub (`fetched`, the only time shown). The header's first line is `PR #N`, the PR title as written (cut with `…` when it does not fit), a progress bar that takes the rest of the width, `Tickets d/n` (`d` counts the tickets that are Merged or accepted) and `Spec #N` when the PR has one; no PR state word and no percentage. The second line counts the tickets in flight: `◐ N running`. The `↻ refresh` button at the card's top right refreshes by hand (see Refresh). Ticket status words are English in both languages: `not started`, `running`, `Merged`, `accepted`. Tickets are ordered running, not started, Merged, accepted. A leading `[mod]` scope tag on a ticket title (as in `[pr-hint] Edit form`) is left off the card.
 
 The PR shown always belongs to where the session is: the **repository root plus the branch**. A `cd` into a subfolder of the same repository changes nothing; a `cd` to another repository, a `git checkout` of another branch, or a `/clear` elsewhere hides the old PR at once and reads the new place's (see Refresh). Only a PR whose head branch lives in this repository counts; a fork's PR of the same branch name is ignored. With no PR, or only a closed one, the band and the hint row stay as Claude Code draws them, except when the `← N agents` pill is present: then the pill is removed and that frame's line is redrawn from the text (with a PR the pill is hidden to make room).
 
 ## Spec and tickets
 
-The issues the PR closes (the ones GitHub links to it, else the `Closes #N` lines of its body) are read. The one labelled `spec` is the **Spec**; it is shown on its own line, not as a ticket. The rest are **tickets**.
+The issues the PR closes (the ones GitHub links to it, else the `Closes #N` lines of its body) are read. The one labelled `spec` is the **Spec**; its number ends the card's first line, and it is not a ticket. The rest are **tickets**.
 
 ## How a ticket's status is derived
 
@@ -46,8 +45,8 @@ From the local git branches plus the PR's commit headlines (no `git fetch`, no m
 | Status | Rule |
 | --- | --- |
 | accepted (green dot) | the issue is closed, or its acceptance table (a table whose header has `State` and `Rounds`) is all ✓ |
-| in progress | a ticket branch (`*/<N>-*` or `<N>-*`) is the PR head, or is ahead of it |
-| merged | a PR commit headline names the ticket: `<type>(#N): …`, `<type>（<scope>）：… #N` (the number ends the headline), or a `Merge …` headline naming a `/N-` branch. A branch that is merged alone does not count, and neither does a passing mention such as `chore: absorb #N` |
+| running | a ticket branch (`*/<N>-*` or `<N>-*`) is the PR head, or is ahead of it |
+| Merged | a PR commit headline names the ticket: `<type>(#N): …`, `<type>（<scope>）：… #N` (the number ends the headline), or a `Merge …` headline naming a `/N-` branch. A branch that is merged alone does not count, and neither does a passing mention such as `chore: absorb #N` |
 | not started | none of the above |
 
 A ticket's status colours its own line on the card only; nothing is counted on the hint row. `N commits behind` tells how many commits the ticket's branch has that the PR head does not.
