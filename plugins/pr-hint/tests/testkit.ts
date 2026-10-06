@@ -87,6 +87,18 @@ export const engineLines = (on: On, bandText: string | null = 'engine band') => 
   on('ui.render', { component: 'PromptHint' }, async (_$, e) => ({ type: 'Text', children: [e.props.hint] }) as never);
 };
 
+// agent-monitor's published `prStats` as pr-hint reads it (no agent-monitor in a test; a non-owner cannot set it):
+// `value` undefined leaves the engine's own read (never written: undefined), anything else answers it. `reads` counts the reads.
+export const injectPrStats = (on: On) => {
+  const box = { value: undefined as unknown, reads: 0 };
+  on('state.get', async (_$, e, next) => {
+    if (e.plugin !== 'agent-monitor' || e.key !== 'prStats') return next(e);
+    box.reads++;
+    return box.value === undefined ? next(e) : { value: { value: box.value, version: 1 } } as never;
+  });
+  return box;
+};
+
 // Two tiers: 20 s local git, 5 min `gh api graphql`. Set `st.gate` after wire() to hold every PR request until it resolves;
 // `ghHere` limits the gh answers to one directory and `st.ghBranch` to one branch (elsewhere gh finds no PR).
 export const wire = (on: On, ghHere?: string) => {

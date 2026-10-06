@@ -1,5 +1,5 @@
 // Pure text for the AbovePrompt detail card (full hierarchy, no row cap) and the hint row's spans and layout.
-import type { PrData, PrTicket, TicketStatus } from '../types';
+import type { PrData, PrStat, PrTicket, TicketStatus } from '../types';
 import { prState, relTime, shortTitle, sortTickets, truncate, width, wrapCells } from './parse';
 import type { PrState } from './parse';
 import type { Strings } from './strings';
@@ -95,9 +95,13 @@ export function refreshText(prev: PrData | null, next: PrData | null, s: Strings
 /**
  * The card, top to bottom, `inner` cells wide: the PR title (wrapped to at most
  * 3 rows), the Spec with its integration branch, the CI and the PR state chip,
- * then one line per ticket. `footer` follows the link.
+ * then one line per ticket. `footer` follows the link. `extra.stats` is this PR's
+ * subagent totals read from agent-monitor (undefined when absent); not drawn.
  */
-export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings, titleInner = inner): { lines: CardLine[]; footer: string } {
+export function cardLines(
+  pr: PrData, nowMs: number, inner: number, s: Strings, titleInner = inner, extra: { stats?: PrStat } = {},
+): { lines: CardLine[]; footer: string } {
+  void extra;
   const prefix = `PR #${pr.number}`;
   const title = wrapCells(`${prefix} ${pr.title}`, titleInner, 3).map((text, i) =>
     i === 0 && text.startsWith(prefix)
