@@ -151,15 +151,23 @@ async function publish($: EngineInterface, views?: Board['views']) {
   if (JSON.stringify(next) !== JSON.stringify(await read($, prStats))) await update($, prStats, () => next)
 }
 
-// Agents the mod never saw spawn come back from the main conversation (its Agent tool uses and task notifications), earlier ones from the transcripts.
+// Agents the mod never saw spawn come back from the main conversation (its Agent tool uses and task notifications), earlier ones from the transcripts. Only the transcripts are awaited (an unchanged project is a listing); the PR index (git and gh, seconds on a slow network) and the conversation land in the background and redraw.
 async function backfill($: EngineInterface) {
-  await Promise.all([readHistory($), refreshPrs($)])
+  void refreshPrs($).catch(() => {})
+  void fromConversation($)
+  await readHistory($)
+  await publish($)
+}
+
+async function fromConversation($: EngineInterface) {
   try {
     const found = recsFromMessages(await $.session.messages())
     const recs = await read($, agents)
-    if (mergeBackfill(recs, found) !== recs) await update($, agents, (all: Record<string, AgentMonitorRec>) => mergeBackfill(all, found))
+    if (mergeBackfill(recs, found) === recs) return
+    await update($, agents, (all: Record<string, AgentMonitorRec>) => mergeBackfill(all, found))
+    await publish($)
+    $.ui.invalidate('ui.render')
   } catch { /* the conversation is not readable now: the live records still stand */ }
-  await publish($)
 }
 
 // One tick a second while an agent runs; one toast per agent per conflict / stall (`warned:<agentId>:<kind>` in the store, `told` its memory in this load).

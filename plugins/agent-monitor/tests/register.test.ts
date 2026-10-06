@@ -1,7 +1,7 @@
 // The whole mod through its hooks: subagent history read from the project's transcripts, on synthetic files (testkit.ts).
 import { expect, mock, test } from 'claude-code/testing'
 
-import { OTHER, PROJECT, ROOT, countStore, mountPane, rowKeys, shown, st, wire } from './testkit'
+import { OTHER, PROJECT, ROOT, countStore, ghPr, listKeys, mountPane, rowKeys, shown, st, wire } from './testkit'
 import type { Dollar } from './testkit'
 import { agentFiles, agentMeta, agentPaths, agentTranscript, assistantLine, fakeFs, jsonl, userLine } from './transcripts'
 
@@ -167,6 +167,28 @@ test('a refresh of several changed transcripts writes the store once; the 1 s ti
   await clock.advance(1000)
   expect([...fs.tally.reads.keys()]).toEqual([agentPaths(PROJECT, live).jsonl])
   expect(txKeys(store.tally.sets)).toEqual([])
+})
+
+test('/sub opens at once while gh is slow; the PR groups come in when it answers', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-03T09:00:00Z') })
+  mock.store(on)
+  wire(on, fakeFs(projectFiles([...FILES, { sessionId: 'old4', agentId: 'a5', type: 'worker', desc: 'fix #7 the lexer' }])))
+  let answer = () => {}
+  st.ghGate = new Promise<void>(r => { answer = r })
+  st.gh = JSON.stringify([ghPr(7, 'Lexer', 'feature/7-lexer')])
+  await $.session.start({ cwd: ROOT } as never)
+  const opened = await Promise.race([$.command.run({ command: 'sub', args: '' } as never).then(() => true), new Promise<boolean>(r => setTimeout(() => r(false), 300))])
+  expect(opened).toBe(true)
+  await clock.settle()
+  const ui = await mountPane($)
+  const before = await listKeys(ui)
+  expect(before).toContain('group:other')
+  expect(before).not.toContain('group:pr:7')
+  answer()
+  await new Promise(r => setTimeout(r, 50)) // the gh answer lands outside the mock clock
+  await clock.settle()
+  expect(st.ghCalls).toBe(1)
+  expect(await listKeys(ui)).toContain('group:pr:7') // redrawn when the index lands
 })
 
 test('session.start deletes the old per-file transcript keys once and keeps every other key', async ($, on) => {

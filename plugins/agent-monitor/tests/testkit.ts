@@ -20,9 +20,10 @@ export type ListAgent = { id: string; type: string; status: string; description:
 
 /**
  * Mutable answers: the session id `$.session.id()` gives, what `$.agent.list()` lists, the branch `git rev-parse --abbrev-ref HEAD`
- * prints, what `gh pr list` prints (null: gh fails, exit 1), the usage a model step answers with. `ghCalls` counts gh runs. Reset by wire().
+ * prints, what `gh pr list` prints (null: gh fails, exit 1), the usage a model step answers with. `ghCalls` counts gh runs; `ghGate`, when
+ * set, holds every gh answer until it resolves (a slow network). Reset by wire().
  */
-export const st = { session: 'cur', agents: [] as ListAgent[], branch: 'dev', gh: '[]' as string | null, ghCalls: 0, usage: {} as Record<string, number> }
+export const st = { session: 'cur', agents: [] as ListAgent[], branch: 'dev', gh: '[]' as string | null, ghCalls: 0, ghGate: null as Promise<unknown> | null, usage: {} as Record<string, number> }
 
 /** One row of `gh pr list --json …` with every field the mod may ask for; `closes` go into the body as `Closes #N` lines. */
 export const ghPr = (number: number, title: string, headRefName: string, closes: number[] = [], state = 'OPEN', isDraft = false) =>
@@ -43,7 +44,7 @@ function ghAnswer(argv: readonly string[], text: string): string {
  * Returns the fake fs, whose `tally` counts reads, tails and listings.
  */
 export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
-  Object.assign(st, { session: 'cur', agents: [], branch: 'dev', gh: '[]', ghCalls: 0, usage: {} })
+  Object.assign(st, { session: 'cur', agents: [], branch: 'dev', gh: '[]', ghCalls: 0, ghGate: null, usage: {} })
   mock.env(on, { HOME })
   on('settings.read', async () => ({ value: {} }))
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
@@ -71,6 +72,7 @@ export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
     if (cmd === 'git' && e.argv.join(' ') === 'git rev-parse --abbrev-ref HEAD') return { value: { exitCode: 0, stdout: `${st.branch}\n`, stderr: '', ...done } }
     if (cmd === 'gh') {
       st.ghCalls++
+      if (st.ghGate) await st.ghGate
       return { value: st.gh === null ? { exitCode: 1, stdout: '', stderr: 'HTTP 502', ...done } : { exitCode: 0, stdout: ghAnswer(e.argv, st.gh), stderr: '', ...done } }
     }
     if (cmd !== 'tail' || !path || !from) return { value: { exitCode: 1, stdout: '', stderr: 'unexpected command', ...done } }
