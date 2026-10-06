@@ -1,10 +1,10 @@
 // Attribution rule tests (spec #36): which PR a subagent belongs to, from the first `#N` of its description, else its first-line branch.
 import { expect, test } from 'claude-code/testing'
 
-import { assistantLine, jsonl, userLine } from '../tests/transcripts'
-import { attribute } from './attribution'
-import type { PrEntry } from './prindex'
-import { emptyRollup, feed } from './transcript'
+import { attribute } from '../../hooks/attribution'
+import type { PrEntry } from '../../hooks/prindex'
+import { emptyRollup, feed } from '../../hooks/transcript'
+import { assistantLine, jsonl, userLine } from '../transcripts'
 
 const pr = (number: number, head: string, closes: number[], state: PrEntry['state'] = 'OPEN'): PrEntry => ({ number, title: `PR ${number}`, state, head, closes })
 // Issue and PR numbers share one sequence on GitHub: no PR number below is also a ticket number.

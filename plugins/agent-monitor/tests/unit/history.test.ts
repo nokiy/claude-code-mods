@@ -1,9 +1,9 @@
 import { test, expect } from 'claude-code/testing'
 
-import { MAX_WHOLE, historyRecs, projectDir, refreshProject } from './history'
-import type { TxEntry, TxIo } from './history'
-import { agentFiles, agentPaths, assistantLine, fakeFs, jsonl } from '../tests/transcripts'
-import type { FakeFs } from '../tests/transcripts'
+import { MAX_WHOLE, historyRecs, projectDir, refreshProject } from '../../hooks/history'
+import type { TxEntry, TxIo } from '../../hooks/history'
+import { agentFiles, agentPaths, assistantLine, fakeFs, jsonl } from '../transcripts'
+import type { FakeFs } from '../transcripts'
 
 const PROJECT = '/home/u/.claude/projects/-work-repo'
 

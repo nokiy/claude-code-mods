@@ -1,6 +1,6 @@
 // [POS] Subagent transcripts for agent-monitor: the jsonl Claude Code writes per subagent (`<sessionId>/subagents/agent-<id>.jsonl`)
 // rolled up into one small record, fed in byte chunks so a large file resumes from where the last read stopped. Read by history.ts.
-// Pure; tested in tests/transcript.test.ts.
+// Pure; tested in tests/unit/transcript.test.ts.
 import type { AgentSpent } from '../types'
 import { plusSpent } from './cost'
 import { clip } from './logic'

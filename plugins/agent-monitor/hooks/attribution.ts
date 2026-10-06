@@ -1,6 +1,6 @@
 // [POS] The attribution rule of agent-monitor (spec #36): the one function that says which PR a subagent belongs to, from the first
 // `#N` of its description, else the branch on its transcript's first line. Every reader (the /sub PR mode, the per-PR totals, later
-// quota-bar) calls this. Pure; tested in attribution.test.ts.
+// quota-bar) calls this. Pure; tested in tests/unit/attribution.test.ts.
 import type { PrEntry } from './prindex'
 
 // `<prefix>/<N>-<slug>`: a ticket branch; leading zeros are dropped (`feature/007-x` is ticket 7).

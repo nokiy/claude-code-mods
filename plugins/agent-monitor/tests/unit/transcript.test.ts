@@ -1,7 +1,7 @@
 import { test, expect } from 'claude-code/testing'
 
-import { emptyRollup, feed } from './transcript'
-import { agentTranscript, assistantLine, jsonl, userLine } from '../tests/transcripts'
+import { emptyRollup, feed } from '../../hooks/transcript'
+import { agentTranscript, assistantLine, jsonl, userLine } from '../transcripts'
 
 const A = { sessionId: 's1', agentId: 'a1' }
 

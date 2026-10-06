@@ -1,6 +1,6 @@
 // [POS] Subagent history for agent-monitor: the current project's transcript directory scanned into one cache entry per subagent file
 // (size, time, read position, rollup, meta), each turned into a record that fills in what the hook records lack. The file access is
-// handed in (TxIo, built from `$` in register.tsx), so this stays pure; tested in tests/history.test.ts and through the whole mod.
+// handed in (TxIo, built from `$` in register.tsx), so this stays pure; tested in tests/unit/history.test.ts and through the whole mod.
 import type { AgentMonitorRec, AgentSpent } from '../types'
 import { addDenial } from './alerts'
 import { plusSpent, spentTotal } from './cost'
