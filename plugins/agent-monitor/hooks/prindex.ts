@@ -1,15 +1,16 @@
 // [POS] The PR index of agent-monitor: recent open and merged PRs of the session's repository (number, title, state, head branch, closed
-// tickets) from one `gh pr list`, cached in the store and refreshed on an interval; a failed fetch keeps the last good index. The process
+// tickets) from one `gh pr list`, cached in the store under the session directory and refreshed on an interval; a failed fetch keeps the last good index. The process
 // and store access is handed in (PrIo, built from `$` in register.tsx), so this stays pure.
 
 /** One PR as the attribution rule reads it. `closes`: ticket numbers from GitHub's closing references, else the body's `Closes #N` lines. */
 export type PrEntry = { number: number; title: string; state: 'OPEN' | 'MERGED'; head: string; closes: number[] }
-/** What the store keeps under PR_INDEX_KEY: the PRs and when they were fetched (ms). Never PR bodies. */
+/** What the store keeps under prIndexKey(cwd): the PRs and when they were fetched (ms). Never PR bodies. */
 export type PrIndex = { at: number; prs: PrEntry[] }
 /** The index plus the session's branch, as the panel draws from it. */
 export type PrView = { prs: PrEntry[]; branch?: string }
 
-export const PR_INDEX_KEY = 'prIndex'
+/** The store is the plugin's, shared by every session in every repository: each session directory keeps its own index. */
+export const prIndexKey = (cwd: string) => `prIndex:${cwd}`
 /** A stored index younger than this is not fetched again. */
 export const PR_INDEX_TTL = 5 * 60 * 1000
 export const GH_PR_LIST = ['gh', 'pr', 'list', '--state', 'all', '--limit', '50', '--json', 'number,title,state,headRefName,closingIssuesReferences,body']
@@ -47,14 +48,15 @@ export type PrCache = { index?: PrIndex; branch?: string; loaded?: boolean }
  * Bring the cache up to date at `now`: the branch read every call; the index loaded once from the store, fetched again when older than
  * PR_INDEX_TTL. A failed or unusable fetch leaves the index (memory and store) as it was. Returns the view to draw from.
  */
-export async function refreshIndex(io: PrIo, cache: PrCache, now: number): Promise<PrView> {
+export async function refreshIndex(io: PrIo, cache: PrCache, now: number, cwd: string): Promise<PrView> {
+  const key = prIndexKey(cwd)
   try {
     const b = await io.run(GIT_BRANCH)
     cache.branch = b.exitCode === 0 ? b.stdout.trim() || undefined : undefined
   } catch { /* no git here: no current branch */ }
   if (!cache.loaded) {
     cache.loaded = true
-    cache.index ??= asIndex(await io.load(PR_INDEX_KEY).catch(() => undefined))
+    cache.index ??= asIndex(await io.load(key).catch(() => undefined))
   }
   if (!cache.index || now - cache.index.at >= PR_INDEX_TTL) {
     try {
@@ -62,7 +64,7 @@ export async function refreshIndex(io: PrIo, cache: PrCache, now: number): Promi
       const prs = r.exitCode === 0 ? parsePrList(r.stdout) : null
       if (prs) {
         cache.index = { at: now, prs }
-        await io.save(PR_INDEX_KEY, cache.index).catch(() => {})
+        await io.save(key, cache.index).catch(() => {})
       }
     } catch { /* gh missing or timed out: the last index stands */ }
   }

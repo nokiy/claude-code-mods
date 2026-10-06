@@ -108,7 +108,7 @@ const prCache: PrCache = {} // the PR index (prindex.ts: `gh pr list` on an inte
 let prView: PrView = { prs: [] }
 async function refreshPrs($: EngineInterface) {
   const io = { run: (a: string[]) => $.process.run(a), load: (k: string) => $.store.get(k), save: (k: string, v: PrIndex) => $.store.set(k, v) }
-  prView = await refreshIndex(io, prCache, await $.clock.now())
+  prView = await refreshIndex(io, prCache, await $.clock.now(), await $.session.cwd())
   await publish($)
   $.ui.invalidate('ui.render')
 }

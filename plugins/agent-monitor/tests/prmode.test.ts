@@ -17,9 +17,9 @@ const A4 = { sessionId: 's2', agentId: 'a4', type: 'Explore', desc: 'look around
 const PRS = [ghPr(49, 'PR card and agents', 'spec/36-pr-agent-views', [43, 44]), ghPr(38, 'Pass next', 'feature/38-pass-next', [38], 'MERGED'), ghPr(50, 'Retro', 'adhoc/retro', [], 'MERGED'), ghPr(30, 'Closed one', 'feature/30-x', [30], 'CLOSED')]
 
 type Run = [Dollar, Parameters<typeof wire>[0]]
-async function openSub($: Run[0], on: Run[1], branch = 'feature/44-row-layout') {
+async function openSub($: Run[0], on: Run[1], branch = 'feature/44-row-layout', stored: Record<string, unknown> = {}) {
   const clock = mock.clock(on, { now: NOW })
-  mock.store(on)
+  mock.store(on, stored)
   wire(on, fakeFs({ ...agentFiles(PROJECT, A1), ...agentFiles(PROJECT, A2), ...agentFiles(PROJECT, A3), ...agentFiles(PROJECT, A4) }))
   st.branch = branch
   st.gh = JSON.stringify(PRS)
@@ -36,6 +36,15 @@ const rowOf = async (ui: Ui, needle: string) => (await ui.findAll({ type: 'Text'
 test('/sub opens in PR mode: the current branch\'s PR first and open, the others closed, Other last', async ($, on) => {
   const { ui } = await openSub($, on)
   expect(await listKeys(ui)).toEqual(['group:pr:49', 'row:a1', 'row:a2', 'group:pr:38', 'group:other'])
+})
+
+// The store is the plugin's, shared by every session in every repository: a fresh index another repository's session saved a
+// minute ago must not stand in for this repository's PRs (acceptance of PR #49: all 25 subagents in Other, no PR state).
+test('another repository\'s fresh PR index in the store does not stand in for this one\'s', async ($, on) => {
+  const elsewhere = { at: NOW - 60_000, prs: [{ number: 471, title: 'Session title order', state: 'MERGED', head: 'feature/470-session-title-order', closes: [470] }] }
+  const { ui } = await openSub($, on, 'feature/44-row-layout', { prIndex: elsewhere })
+  expect(await listKeys(ui)).toEqual(['group:pr:49', 'row:a1', 'row:a2', 'group:pr:38', 'group:other'])
+  expect(st.ghCalls).toBe(1)
 })
 
 test('a group row shows its agent count, tokens, cost, time and PR state', async ($, on) => {
