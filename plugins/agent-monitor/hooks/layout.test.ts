@@ -39,7 +39,7 @@ test('layout: every row and header fits the width; tier, cost and time never cut
       expect(r.reduce((n, c) => n + cellWidth(c.text), 0)).toBeLessThanOrEqual(cols)
     }
     const text = joined(rowCells(l, rows[0]!))
-    expect(text.trimEnd().endsWith('2:08')).toBe(true)
+    expect(text.trimEnd().endsWith('2:08  !')).toBe(true)
     expect(text).toContain('67.8k')
     expect(text).toContain('sonnet.med')
     expect(joined(headerCells(l))).toContain('cost')
@@ -104,6 +104,20 @@ test('layout: settings hide columns; the rest still fill the width', () => {
   expect(kinds(bare.row)).toEqual(['index', 'status', 'task', 'type'])
   expect(cellWidth(joined(bare.row))).toBe(100)
   expect(cellWidth(joined(bare.row))).toBe(cellWidth(joined(headerCells(bare.l))))
+})
+
+test('alert column: a red `!` ends only an alerted row; no column when no row has an alert or the setting hides it', () => {
+  const clean = sample()
+  const alertedRows = [sample({ stall: { level: 1, idleMs: 1 } }), sample({ clashes: [{ path: '/a', other: 'y' }] }), sample({ tier: { want: 'a', got: 'b', model: true, effort: false } }), sample({ denied: 1 })]
+  for (const a of alertedRows) {
+    const rows = [rowText(a), rowText(clean)]
+    const l = computeLayout(100, rows)
+    const [hit, quiet] = rows.map(r => rowCells(l, r).at(-1)!)
+    expect([hit!.text, hit!.color]).toEqual(['!', PALETTE.red])
+    expect(quiet!.text).toBe(' ')
+  }
+  expect(computeLayout(100, [rowText(clean)]).alert).toBe(0)
+  expect(computeLayout(100, [rowText(sample({ denied: 1 }))], { ...ALL_COLUMNS, alerts: false }).alert).toBe(0)
 })
 
 test('headerSegs: counts, totals at the right edge', () => {

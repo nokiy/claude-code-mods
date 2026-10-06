@@ -20,7 +20,14 @@ export function flagSegs(v: View): Seg[] {
   return flags.flatMap((f, i) => (i === 0 ? [f] : [{ text: ' ', color: PALETTE.fg }, f]))
 }
 
-export const segsWidth = (segs: readonly Seg[]): number => segs.reduce((n, s) => n + cellWidth(s.text), 0)
+// Whether the agent has any of the four alerts (conflict, stall, tier mismatch, refusals).
+export const alerted = (v: View): boolean => v.clashes.length > 0 || v.stall !== undefined || v.tier !== undefined || v.denied > 0
+
+// The row-end alert mark of the panel rows and the live band: one red `!` when the agent has an alert, nothing otherwise.
+export const ALERT_MARK: Seg = { text: '!', color: PALETTE.red, bold: true }
+export const alertMark = (v: View): Seg[] => (alerted(v) ? [ALERT_MARK] : [])
+
+export const segsWidth =(segs: readonly Seg[]): number => segs.reduce((n, s) => n + cellWidth(s.text), 0)
 
 export type AlertLine = { kind: AlertKind; tag: string; label: string; color: string; body: string; ids: string[]; live: boolean }
 

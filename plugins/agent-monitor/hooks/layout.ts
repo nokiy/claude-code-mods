@@ -1,5 +1,6 @@
 // Row layout for agent-monitor: the shared figures (`ctx% · tokens · $ · m:ss`), the three-line running row's texts, the finished table's
 // column widths, row cells and header, the panel header, the row-select marker. Pure; tested in layout.test.ts.
+import { ALERT_MARK, alerted } from './alertlines'
 import { ALL_COLUMNS } from './config'
 import type { Columns } from './config'
 import { formatMoney, totalCost } from './cost'
@@ -58,7 +59,7 @@ const DOT = ' · '
 export type RowText = {
   status: Status; glyph: string; type: string
   model: string; modelKey?: string; effort: string; effortKey?: string
-  task: string; ctx: string; tokens: string; money: string; time: string; tokN: number; bad: boolean
+  task: string; ctx: string; tokens: string; money: string; time: string; tokN: number; bad: boolean; alert: boolean
 }
 
 export function rowText(v: View): RowText {
@@ -80,12 +81,14 @@ export function rowText(v: View): RowText {
     time: f.time,
     tokN: v.tokens ?? 0,
     bad: v.tier !== undefined,
+    alert: alerted(v),
   }
 }
 
 // Widths in cells; 0 = the column is off (hidden by the settings, or no room). `cost` is the whole cell, `ctx`/`tokens`/`money` its parts.
-export type Layout = { status: number; task: number; type: number; tier: number; ctx: number; tokens: number; money: number; cost: number; time: number }
-export type Cell = { text: string; kind: 'index' | 'status' | 'task' | 'type' | 'model' | 'effort' | 'cost' | 'tokens' | 'time'; status?: Status; key?: string; n?: number; bad?: boolean; color?: string }
+// `alert`: 1 when some row has an alert (its red `!` ends the row), else 0.
+export type Layout = { status: number; task: number; type: number; tier: number; ctx: number; tokens: number; money: number; cost: number; time: number; alert: number }
+export type Cell = { text: string; kind: 'index' | 'status' | 'task' | 'type' | 'model' | 'effort' | 'cost' | 'tokens' | 'time' | 'alert'; status?: Status; key?: string; n?: number; bad?: boolean; color?: string }
 
 const maxW = (min: number, items: string[]) => items.reduce((m, s) => Math.max(m, cellWidth(s)), min)
 
@@ -100,9 +103,10 @@ export function computeLayout(cols: number, rows: RowText[], on: Columns = ALL_C
   const time = on.time ? maxW(4, rows.map(r => r.time)) : 0
   let type = Math.min(TYPE_CAP, maxW(4, rows.map(r => r.type)))
   // Everything but desc: the select mark, status and type are always there; a gap sits between neighbours and none after the last.
-  const rest = (t: number) => LEAD + MARK_W + STATUS_W + t + tier + cost + time + GAP * ([tier, cost, time].filter(x => x > 0).length + 2)
+  const alert = on.alerts && rows.some(r => r.alert) ? 1 : 0
+  const rest = (t: number) => LEAD + MARK_W + STATUS_W + t + tier + cost + time + alert + GAP * ([tier, cost, time, alert].filter(x => x > 0).length + 2)
   while (type > 4 && rest(type) > cols) type--
-  return { status: STATUS_W, task: Math.max(0, cols - rest(type) - GAP), type, tier, ctx, tokens, money, cost, time }
+  return { status: STATUS_W, task: Math.max(0, cols - rest(type) - GAP), type, tier, ctx, tokens, money, cost, time, alert }
 }
 
 // The cells of a row (or, `header`, of the column header), each column padded to its width; a gap follows every column but the last.
@@ -124,6 +128,7 @@ function cells(l: Layout, r: RowText, header?: { cost: string }): Cell[] {
         ])
   }
   if (l.time > 0) columns.push([{ text: padStart(r.time, l.time), kind: 'time' }])
+  if (l.alert > 0) columns.push([r.alert ? { text: ALERT_MARK.text, kind: 'alert', color: ALERT_MARK.color } : { text: ' ', kind: 'alert' }])
   const g = ' '.repeat(GAP)
   return columns.flatMap((cs, i) => (i === columns.length - 1 ? cs : cs.map((c, j) => (j === cs.length - 1 ? { ...c, text: c.text + g } : c))))
 }
@@ -142,7 +147,7 @@ export const markLabel = (selected: boolean): string => (selected ? MARK : NO_MA
 
 // The column-header row (drawn gray), same widths as the rows; the names stay English in both languages.
 export function headerCells(l: Layout): Cell[] {
-  return cells(l, { status: 'done', glyph: '#', type: 'type', model: 'tier', effort: '', task: 'desc', ctx: '', tokens: '', money: '', time: 'time', tokN: 0, bad: false }, { cost: 'cost' })
+  return cells(l, { status: 'done', glyph: '#', type: 'type', model: 'tier', effort: '', task: 'desc', ctx: '', tokens: '', money: '', time: 'time', tokN: 0, bad: false, alert: false }, { cost: 'cost' })
 }
 
 export type HeaderSeg = { text: string; color: string; bold?: boolean }

@@ -4,6 +4,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import { PROJECT, ROOT, mountBand, mountPane, rowKeys, shown, st, step, wire } from './testkit'
 import type { Dollar } from './testkit'
 import { agentFiles, fakeFs } from './transcripts'
+import { PALETTE } from '../hooks/palette'
 
 const T0 = Date.parse('2026-10-03T09:00:00Z')
 type On = Parameters<typeof mock.env>[0]
@@ -99,6 +100,23 @@ test('/sub: finished subagents form one table `# desc type tier cost time`, ever
   const dots = (r: string) => [...r.matchAll(/ · /g)].map(m => m.index)
   expect(new Set(rows.map(r => dots(r).join(','))).size).toBe(1)
   expect(new Set(rows.map(r => r.length)).size).toBe(1)
+})
+
+test('/sub: only a row with an alert ends in a red `!`', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const refused = { ...FINISHED[0]!, denials: ['PreToolUse:Bash hook error: no'] }
+  wire(on, fakeFs({ ...agentFiles(PROJECT, refused), ...agentFiles(PROJECT, FINISHED[1]!) }))
+  await $.session.start({ cwd: ROOT } as never)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  const ui = await mountPane($)
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  const row = (task: string) => texts.find(s => s.startsWith('  ●') && s.includes(task)) ?? ''
+  expect(row('map the parser')).toMatch(/\d:\d\d {2}!$/) // the refusal line is the transcript's last, so it sets the time
+  expect(row('review the diff')).toMatch(/12:30 *$/)
+  const marks = await ui.findAll({ type: 'Text', text: /^!$/ })
+  expect(marks.map(m => m.props.color)).toEqual([PALETTE.red])
 })
 
 test('live band: ctx%, tokens without the `tok` word, time as m:ss', async ($, on) => {

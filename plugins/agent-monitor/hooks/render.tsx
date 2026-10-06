@@ -2,7 +2,7 @@
 // `panel` picks the page (table, detail, settings) for a site (band or pane). Colors come from palette.ts.
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import { alertLines, capAlerts, flagSegs, segsWidth } from './alertlines'
+import { alertLines, alertMark, capAlerts, segsWidth } from './alertlines'
 import { capRows, cellWidth, collapse, fitRow, resolveTier, tierName } from './logic'
 import type { Strings } from './strings'
 import type { Board, View } from './views'
@@ -24,7 +24,7 @@ export function bandRows(ui: Ui, running: View[], cols: number, maxRows: number,
   const rows = running.slice(0, shown).map(v => {
     const tier = tierName(v.model, v.effort, v.desc)
     const f = figures(v)
-    const flags = alerts ? flagSegs(v) : []
+    const flags = alerts ? alertMark(v) : []
     const stats = statsText(v)
     const fixed = cellWidth(`◐ ${v.type} · ${tier} · `) + cellWidth(stats) + (flags.length > 0 ? 3 + segsWidth(flags) : 0)
     const fit = fitRow(cols, fixed, v.task, collapse(v.activity ?? t.starting))
@@ -61,6 +61,7 @@ const cell = (Text: Ui['Text'], c: Cell, i: number, header = false) => {
     case 'effort': { const s = effortStyle(c.key); return <Text key={key} color={c.bad ? red : s.color} bold={c.bad ? undefined : s.bold}>{c.text}</Text> }
     case 'task': return <Text key={key} color={c.status === 'failed' ? gray : fg}>{c.text}</Text>
     case 'tokens': return <Text key={key} color={tokenColor(c.n)}>{c.text}</Text>
+    case 'alert': return <Text key={key} color={c.color ?? fg} bold>{c.text}</Text>
     default: return <Text key={key} color={gray}>{c.text}</Text> // index, cost (ctx% and $), time
   }
 }
@@ -71,8 +72,9 @@ const RUN_INDENT = '     ' // lines 2 and 3 start under the description of line 
 const fillColor = (pct: number | undefined) => (pct === undefined || pct < 70 ? PALETTE.green : pct < 90 ? PALETTE.amber : red)
 
 // Running agents, three lines each: the select Button and the tier-prefixed description; type · model ·
-// effort, then the activity (cut, never scrolled); the context-fill bar and `ctx% · tokens · $ · m:ss`. `focus`: the row that takes the ring.
-export function runningRows(ui: Ui, views: View[], ctx: PageCtx, acts: Acts, focus: string | undefined, t: Strings) {
+// effort, then the activity (cut, never scrolled); the context-fill bar and `ctx% · tokens · $ · m:ss`. `focus`: the row that takes the ring;
+// `alerts`: end line 1 with the red `!` of an agent that has an alert.
+export function runningRows(ui: Ui, views: View[], ctx: PageCtx, acts: Acts, focus: string | undefined, alerts: boolean, t: Strings) {
   const { Box, Text, Button } = ui
   return views.map(v => {
     const r = runningText(v)
@@ -88,6 +90,7 @@ export function runningRows(ui: Ui, views: View[], ctx: PageCtx, acts: Acts, foc
           <Text wrap="truncate-end">
             <Text color={statusColor('running')}>{' ◐ '}</Text>
             <Text color={fg} bold>{r.desc}</Text>
+            {alerts && segText(Text, alertMark(v).flatMap(s => [{ text: '  ', color: fg }, s]))}
           </Text>
         </Box>
         <Text key="type" wrap="truncate-end">
@@ -194,7 +197,7 @@ export function historyTable(ui: Ui, board: Board, cols: number, ctx: PageCtx, a
       </Box>
       {cfg.alertsBlock && alertsBlock(ui, board)}
       <Text color={gray}>{rule(cols)}</Text>
-      {runningRows(ui, running, ctx, acts, focus, t)}
+      {runningRows(ui, running, ctx, acts, focus, cfg.columns.alerts, t)}
       {finishedTable(ui, finished, cols, cfg.columns, ctx, acts, focus)}
       <Text color={gray}>{rule(cols)}</Text>
       {listFooter(ui, ctx, acts, true, t)}
