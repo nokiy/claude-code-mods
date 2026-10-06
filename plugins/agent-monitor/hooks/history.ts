@@ -16,14 +16,12 @@ export type TxIo = {
   list: (dir: string) => Promise<readonly Listing[]>
   read: (path: string) => Promise<string>
   tail: (path: string, from: number) => Promise<{ text: string; truncated: boolean }>
-  load: (key: string) => Promise<unknown>
-  save: (key: string, value: TxEntry) => Promise<void>
 }
 /** The meta file beside a transcript (`agent-<id>.meta.json`); it has no model. */
 export type TxMeta = { agentType?: string; description?: string }
 /**
- * What is kept per transcript file, in memory and in `$.store` under storeKey(path): never the transcript itself. `skip`: the read
- * position is inside a line longer than one process read, dropped through its newline.
+ * What is kept per transcript file in memory: never the transcript itself. `skip`: the read position is inside a line longer than one
+ * process read, dropped through its newline.
  */
 export type TxEntry = { size: number; mtimeMs: number; offset: number; roll: Rollup; meta?: TxMeta; skip?: boolean }
 
@@ -33,17 +31,8 @@ export const MAX_WHOLE = 4 * 1024 * 1024
 const MAX_TAILS = 8
 const FILE = /^agent-(.+)\.jsonl$/
 
-// v2: the rollup's refusal count is `denied` (entries under the old `transcript:` key are read afresh once). An entry whose rollup has
-// no `errors` (an older build's) is read afresh too and overwritten in place.
-export const storeKey = (path: string) => `transcript.v2:${path}`
-
 /** Where Claude Code keeps a project's transcripts: the root with every character but a letter or digit turned into `-`. */
 export const projectDir = (configDir: string, root: string) => `${configDir.replace(/\/+$/, '')}/projects/${root.replace(/[^a-zA-Z0-9]/g, '-')}`
-
-const asEntry = (v: unknown): TxEntry | undefined => {
-  const e = v as TxEntry | undefined
-  return e && typeof e === 'object' && typeof e.offset === 'number' && e.roll && typeof e.roll === 'object' && Array.isArray(e.roll.errors) ? e : undefined
-}
 
 async function readMeta(io: TxIo, path: string): Promise<TxMeta | undefined> {
   try {
@@ -55,12 +44,8 @@ async function readMeta(io: TxIo, path: string): Promise<TxMeta | undefined> {
 // Bring one file's entry up to date. Unchanged size and time: nothing is read. Up to 4 MiB: read whole and rolled up afresh. Larger:
 // read from the stored position on, the rollup continued (a file that shrank starts over). Returns whether the entry changed.
 async function refreshFile(io: TxIo, path: string, f: Listing, cache: Map<string, TxEntry>): Promise<boolean> {
-  const had = cache.get(path)
-  const e = had ?? asEntry(await io.load(storeKey(path)))
-  if (e && e.size === f.size && e.mtimeMs === f.mtimeMs) {
-    if (!had) cache.set(path, e)
-    return !had
-  }
+  const e = cache.get(path)
+  if (e && e.size === f.size && e.mtimeMs === f.mtimeMs) return false
   let roll: Rollup
   let offset: number
   let caught = true
@@ -96,7 +81,6 @@ async function refreshFile(io: TxIo, path: string, f: Listing, cache: Map<string
   // Not caught up: no size, so the next refresh reads on.
   const next: TxEntry = { size: caught ? f.size : -1, mtimeMs: f.mtimeMs, offset, roll, meta: e?.meta ?? (await readMeta(io, path)), ...(skip ? { skip } : {}) }
   cache.set(path, next)
-  await io.save(storeKey(path), next).catch(() => {}) // best effort: a full store only costs a re-read in the next load
   return true
 }
 

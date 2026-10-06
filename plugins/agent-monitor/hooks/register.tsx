@@ -90,14 +90,14 @@ async function settleStale($: EngineInterface) {
   await update($, agents, (all: Recs) => settled(all, new Map(stale), now))
 }
 
-// Subagents of every session of this project come from their transcripts (history.ts): the entries live in this load and, with their read positions, in the store. `current`: only this session's folder (the 1 s tick), else the whole project directory.
+// Subagents of every session of this project come from their transcripts (history.ts): the entries live in this load. `current`: only this session's folder (the 1 s tick), else the whole project directory.
 const txCache = new Map<string, TxEntry>()
 let history: Recs = {}
 async function readHistory($: EngineInterface, current = false) {
   try {
     const project = projectDir((await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`, await $.session.root())
     const tail = async (path: string, from: number) => ((r) => ({ text: r.stdout, truncated: r.isStdoutTruncated }))(await $.process.run(['tail', '-c', `+${from + 1}`, path]))
-    const io = { list: (p: string) => $.fs.list(p), read: (p: string) => $.fs.read(p), tail, load: (k: string) => $.store.get(k), save: (k: string, v: TxEntry) => $.store.set(k, v) }
+    const io = { list: (p: string) => $.fs.list(p), read: (p: string) => $.fs.read(p), tail }
     if (!(await refreshProject(io, project, txCache, current ? await $.session.id() : undefined))) return
     history = historyRecs(txCache)
     $.ui.invalidate('ui.render')
