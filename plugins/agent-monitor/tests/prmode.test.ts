@@ -1,5 +1,6 @@
 // The /sub PR mode through the whole mod: subagents grouped by the PR their first-line branch belongs to (a fake `gh pr list` and
-// fake transcripts, testkit.ts), the Other group, expand / collapse, the `p: PR  a: Agent` switch, and a failed gh keeping the last index.
+// fake transcripts, testkit.ts), the Other group, expand / collapse, the `p: PR  a: Agent` switch, the PR state in pr-hint's words and
+// colors (also from an index stored before the draft flag), and a failed gh keeping the last index.
 import { expect, mock, test } from 'claude-code/testing'
 
 import { PROJECT, ROOT, ghPr, listKeys, mountPane, shown, st, wire } from './testkit'

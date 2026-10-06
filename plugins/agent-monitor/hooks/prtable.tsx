@@ -1,6 +1,6 @@
 // [POS] Drawing of the /sub PR mode: the `p: PR  a: Agent` switch, the groups' `Title` column header (PR mode's only header) and the grouped table
 // body (one row per PR group, a toggle Button that opens or closes it, its agents under it drawn by the table's own row). Grouping is
-// groups.ts's; colors come from palette.ts, words from strings.ts.
+// groups.ts's; colors come from palette.ts (the PR state's are pr-hint's ink names: yellow / magenta / green), words from strings.ts.
 import type { EngineInterface, RenderChildren } from 'claude-code'
 
 import { formatMoney } from './cost'
