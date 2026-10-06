@@ -61,6 +61,14 @@ test('refresh: a file over 4 MiB is read from its byte position on; appended lin
   expect(historyRecs(fresh).big?.steps).toBe(2)
 })
 
+test('refresh: a store that refuses the write still leaves the agent in the history', async () => {
+  const fs = fakeFs(agentFiles(PROJECT, { sessionId: 's1', agentId: 'a1' }))
+  const cache = new Map<string, TxEntry>()
+  const io = { ...ioOf(fs), save: async () => { throw new Error('store full') } }
+  expect(await refreshProject(io, PROJECT, cache)).toBe(true)
+  expect(Object.keys(historyRecs(cache))).toEqual(['a1'])
+})
+
 test('refresh: with a session id only that session\'s subagents are listed', async () => {
   const fs = fakeFs({ ...agentFiles(PROJECT, { sessionId: 's1', agentId: 'a1' }), ...agentFiles(PROJECT, { sessionId: 's2', agentId: 'a2' }) })
   const cache = new Map<string, TxEntry>()

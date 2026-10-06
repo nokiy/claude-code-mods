@@ -75,7 +75,7 @@ async function refreshFile(io: TxIo, path: string, f: Listing, cache: Map<string
   // Not caught up: no size, so the next refresh reads on.
   const next: TxEntry = { size: caught ? f.size : -1, mtimeMs: f.mtimeMs, offset, roll, meta: e?.meta ?? (await readMeta(io, path)) }
   cache.set(path, next)
-  await io.save(storeKey(path), next)
+  await io.save(storeKey(path), next).catch(() => {}) // best effort: a full store only costs a re-read in the next load
   return true
 }
 
