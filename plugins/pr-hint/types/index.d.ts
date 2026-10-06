@@ -45,7 +45,7 @@ export type PrData = {
  * One PR's subagent totals as agent-monitor publishes them (docs/adr/0001-cross-mod-state.md).
  * A mirror of `PrStat` in plugins/agent-monitor/types/index.d.ts, which is canonical: keep the two identical.
  */
-export type PrStat = { tokens: number; cost: number; ms: number; refusals: number };
+export type PrStat = { tokens: number; cost?: number; ms: number; refusals: number };
 
 declare module 'claude-code' {
   interface PluginState {
