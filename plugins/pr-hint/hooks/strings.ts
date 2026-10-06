@@ -7,10 +7,12 @@ const plural = (n: number, one: string) => (n === 1 ? `1 ${one}` : `${n} ${one}s
 
 // The PR's own state, the same English words in both languages (owner's ruling): Draft → Ready → Merged.
 const PR_STATE: Record<'draft' | 'ready' | 'merged', string> = { draft: 'Draft', ready: 'Ready', merged: 'Merged' };
+// A ticket's status, English in both languages too: not started → running → Merged → accepted.
+const STATUS = { todo: 'not started', doing: 'running', merged: 'Merged', done: 'accepted' };
 
 const EN = {
   prState: PR_STATE,
-  status: { todo: 'not started', doing: 'in progress', merged: 'merged', done: 'accepted' },
+  status: STATUS,
   ticket: 'Ticket',
   integration: 'integration branch',
   behind: (n: number) => `${plural(n, 'commit')} behind`,
@@ -38,7 +40,7 @@ export type Strings = typeof EN;
 
 const ZH: Strings = {
   prState: PR_STATE,
-  status: { todo: '未开始', doing: '进行中', merged: '已合入', done: '已验收' },
+  status: STATUS,
   ticket: 'Ticket',
   integration: '集成分支',
   behind: n => `还差 ${n} 个提交`,

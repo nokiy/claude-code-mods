@@ -70,7 +70,7 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       expect(idx(/^PR #10 Add dark mode/)).toBeGreaterThanOrEqual(0);
       expect(idx(/^PR #10 /)).toBeLessThan(idx(/^Spec #12 Dark mode · 深色模式贯穿设置页与编辑器 · integration branch dev ← spec\/12-dark-mode/));
       expect(idx(/^Spec #12/)).toBeLessThan(idx(/^CI ✓1\/1 · Ready$/));
-      expect(idx(/^CI ✓1/)).toBeLessThan(idx(/^● #7 in progress Theme toggle · feat\/7-theme-toggle · 2 commits behind/));
+      expect(idx(/^CI ✓1/)).toBeLessThan(idx(/^● #7 running Theme toggle · feat\/7-theme-toggle · 2 commits behind/));
       expect(idx(/^● #7/)).toBeLessThan(idx(/^Open PR · fetched just now$/));
       expect(lines.some(l => l.startsWith('● #12'))).toBe(false);
       await band.unmount();
@@ -188,12 +188,12 @@ test('the 5 min tick makes one GraphQL request and flips a CLOSED ticket to acce
   await $.session.start({ cwd: '/tmp/x' } as never);
   await clock.settle();
   const band = await mountBand($);
-  expect(await band.find({ type: 'Text', text: /^● #7 in progress/ })).toBeDefined();
+  expect(await band.find({ type: 'Text', text: /^● #7 running/ })).toBeDefined();
   st.issue7 = { ...ISSUE, state: 'CLOSED' };
   await clock.advance(280_000);
   // Nothing asks gh before the 5 min mark (the 20 s ticks are local git only).
   expect(tally.gql).toBe(1);
-  expect(await band.find({ type: 'Text', text: /^● #7 in progress/ })).toBeDefined();
+  expect(await band.find({ type: 'Text', text: /^● #7 running/ })).toBeDefined();
   await clock.advance(20_000);
   expect(tally.gql).toBe(2);
   expect(tally.issues).toBe(0);
@@ -259,7 +259,7 @@ test('a PR GitHub links no issue to (non-default base) reads its Closes #N issue
   expect(tally.gql).toBe(1);
   expect(tally.issues).toBe(1);
   const band = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS });
-  expect(await band.find({ type: 'Text', text: /^● #7 in progress Theme toggle/ })).toBeDefined();
+  expect(await band.find({ type: 'Text', text: /^● #7 running Theme toggle/ })).toBeDefined();
   expect(await band.find({ type: 'Text', text: /^Spec #12 / })).toBeDefined();
   await band.unmount();
 });
