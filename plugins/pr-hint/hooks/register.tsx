@@ -326,9 +326,9 @@ export const register: Register = (on, options) => {
     );
   });
 
-  // The detail card lives in the AbovePrompt band: an absolute Box under PromptHint is
-  // clipped by the bottom slot. It is hidden until the hint row's scope is hovered, and always
-  // shown while pinned; the band scrolls by itself when taller than maxRows, so no ticket is dropped.
+  // The detail card lives in the AbovePrompt band (an absolute Box under PromptHint is clipped by the bottom slot),
+  // hidden until the hint row's scope is hovered and always shown while pinned; the band scrolls when taller than maxRows.
+  // The rest of the chain (agent-monitor's rows, the engine band) is drawn under the card, outside its hidden box.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const { data } = await currentPr($);
     if (data === null || e.props.hasSurvey) return next(e);
@@ -351,8 +351,7 @@ export const register: Register = (on, options) => {
         ))}
       </Text>
     );
-
-    return (
+    const box = (
       <Box
         flexDirection="column"
         borderStyle="round"
@@ -379,5 +378,6 @@ export const register: Register = (on, options) => {
         </Text>
       </Box>
     );
+    return <Box flexDirection="column">{box}{await next(e)}</Box>;
   });
 }
