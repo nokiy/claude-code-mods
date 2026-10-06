@@ -46,7 +46,7 @@ From the local git branches plus the PR's commit headlines (no `git fetch`, no m
 | --- | --- |
 | accepted (green dot) | the issue is closed, or its acceptance table (a table whose header has `State` and `Rounds`) is all ✓ |
 | running | a ticket branch (`*/<N>-*` or `<N>-*`) is the PR head, or is ahead of it |
-| Merged | a PR commit headline names the ticket: `<type>(#N): …`, `<type>（<scope>）：… #N` (the number ends the headline), or a `Merge …` headline naming a `/N-` branch. A branch that is merged alone does not count, and neither does a passing mention such as `chore: absorb #N` |
+| Merged | a PR commit headline names the ticket: `<type>(#N): …`, `<type>(<scope>): … (#N)` (what a fast-forward merge leaves), `<type>（<scope>）：… #N` (the number ends the headline), or a `Merge …` headline naming a `/N-` branch. A branch that is merged alone does not count, and neither does a passing mention such as `chore: absorb #N` |
 | not started | none of the above |
 
 A ticket's status colours its own line on the card only; nothing is counted on the hint row. `N commits behind` tells how many commits the ticket's branch has that the PR head does not.

@@ -46,7 +46,7 @@
 | --- | --- |
 | accepted（绿点） | issue 已关闭，或其验收表（表头含 `State` 与 `Rounds`）全部为 ✓ |
 | running | 该 ticket 的某个分支（`*/<N>-*` 或 `<N>-*`）就是 PR 的 head，或领先于它 |
-| Merged | PR 里有提交标题点名该 ticket：`<type>(#N): …`、`<type>（<scope>）：… #N`（票号在标题末尾），或点名 `/N-` 分支的 `Merge …` 标题。仅分支已合入不算，`chore: 吸收 #N` 这类顺带提及也不算 |
+| Merged | PR 里有提交标题点名该 ticket：`<type>(#N): …`、`<type>(<scope>): … (#N)`（快进合入只留下这种标题）、`<type>（<scope>）：… #N`（票号在标题末尾），或点名 `/N-` 分支的 `Merge …` 标题。仅分支已合入不算，`chore: 吸收 #N` 这类顺带提及也不算 |
 | not started | 以上都不是 |
 
 ticket 状态只给卡片上它自己那一行上色，提示行不再计数。`还差 N 个提交` 表示该 ticket 的分支比 PR head 多出的提交数。

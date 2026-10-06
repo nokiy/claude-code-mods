@@ -203,6 +203,30 @@ test('the 5 min tick makes one GraphQL request and flips a CLOSED ticket to acce
   await band.unmount();
 });
 
+// Spec story 3: tickets fast-forward merged into the integration branch count as merged. Their branches sit inside
+// the head (`rev-list head..branch` = 0) and leave no merge commit; their headlines end in `(#N)`.
+// A ticket branch inside the head whose number no headline carries stays not started (a branch alone is no progress).
+const SEVEN = [40, 41, 42, 43, 44, 45, 46];
+for (const withHeadlines of [true, false]) {
+  test(`fast-forward merged tickets: headlines ending (#N) read Merged, Tickets 7/7 (headlines ${withHeadlines})`, async ($, on) => {
+    const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+    wire(on);
+    engineLines(on);
+    st.closing = [...SEVEN, 12];
+    st.issues = Object.fromEntries(SEVEN.map(n => [n, { number: n, title: `t${n}`, state: 'OPEN', body: '' }]));
+    st.branches = ['dev', 'spec/12-dark-mode', ...SEVEN.flatMap(n => [`feature/${n}-x`, `origin/feature/${n}-x`])].join('\n');
+    st.headlines = withHeadlines ? SEVEN.map(n => `feat(x): y (#${n})`) : ['chore: draft PR'];
+    await $.session.start({ cwd: '/tmp/x' } as never);
+    await clock.settle();
+    const band = await mountBand($);
+    const lines = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '');
+    const word = withHeadlines ? 'Merged' : 'not started';
+    for (const n of SEVEN) expect(lines.some(l => l.startsWith(`● #${n} ${word} t${n}`))).toBe(true);
+    expect(lines.some(l => /^PR #10 .+ Tickets (\d)\/7 · Spec #12$/.test(l) && l.includes(withHeadlines ? 'Tickets 7/7' : 'Tickets 0/7'))).toBe(true);
+    await band.unmount();
+  });
+}
+
 // The chain's later drawers (agent-monitor's rows, the engine band) render under the card, never inside its hidden box.
 type Node = { type?: string; props?: { display?: string; borderStyle?: string }; children?: unknown[] };
 const pathTo = (n: unknown, hit: (x: Node) => boolean): Node[] | null => {
