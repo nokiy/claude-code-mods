@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "paste-peek",
-      "source": "./plugins/paste-peek",
+      "source": { "source": "git-subdir", "url": "nokiy/claude-code-mods", "path": "plugins/paste-peek", "ref": "release" },
       "description": "See the images you paste into the prompt, in real pixels, right above it: switch with ⌥←/⌥→, zoom with ⌥↑, side pane with ⌥↓. macOS, foreground Ghostty or kitty.",
       "version": "0.0.2",
       "author": { "name": "nokiy" },
@@ -16,7 +16,7 @@
     },
     {
       "name": "agent-monitor",
-      "source": "./plugins/agent-monitor",
+      "source": { "source": "git-subdir", "url": "nokiy/claude-code-mods", "path": "plugins/agent-monitor", "ref": "release" },
       "description": "Subagent monitor: a live band above the prompt, and /sub with this session's subagent history, alerts (file conflicts, stalls, tier mismatches, denied calls), per-agent detail and a cost estimate.",
       "version": "0.0.1",
       "author": { "name": "nokiy" },
@@ -26,7 +26,7 @@
     },
     {
       "name": "pr-hint",
-      "source": "./plugins/pr-hint",
+      "source": { "source": "git-subdir", "url": "nokiy/claude-code-mods", "path": "plugins/pr-hint", "ref": "release" },
       "description": "Shows the current branch's PR on the prompt hint row (title and its state: Draft, Ready or Merged); hover the hint row to preview a card of the spec, integration branch, CI and every ticket's progress, click the ▸ before the PR number to keep it open.",
       "version": "0.0.5",
       "author": { "name": "nokiy" },
