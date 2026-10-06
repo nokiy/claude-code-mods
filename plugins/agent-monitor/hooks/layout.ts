@@ -1,6 +1,5 @@
-// History-table layout for agent-monitor: column widths, row cells, header, the row-select marker. Pure; tested in layout.test.ts.
-import { flagSegs, segsWidth } from './alertlines'
-import type { Seg } from './alertlines'
+// Row layout for agent-monitor: the shared figures (`ctx% · tokens · $ · m:ss`), the three-line running row's texts, the finished table's
+// column widths, row cells and header, the panel header, the row-select marker. Pure; tested in layout.test.ts.
 import { ALL_COLUMNS } from './config'
 import type { Columns } from './config'
 import { formatMoney, totalCost } from './cost'
@@ -42,25 +41,30 @@ export function ctxBar(v: View): { fill: number; empty: number; pct?: number } {
   const fill = pct === undefined ? 0 : Math.round((pct * BAR_W) / 100)
   return { fill, empty: BAR_W - fill, pct }
 }
+
+// ---- the finished table: `# desc type tier cost time` ----
+
 const GAP = 2
 const LEAD = 1
 const MARK_W = 1 // the select Button at the row start: `▸` on the selected row, a blank elsewhere
 export const MARK = '▸'
 export const NO_MARK = ' '
-const STATUS_W = 6 // 'Status'
+const STATUS_W = 1 // `#`: the status glyph
 const TYPE_CAP = 14
+const DOT = ' · '
 
-// `model` and `effort` are the two halves of the Tier cell (`sonnet` + `.med`), each colored by its own key; `bad` paints both red.
+// `model` and `effort` are the two halves of the tier cell (`sonnet` + `.med`), each colored by its own key; `bad` paints both red.
+// `ctx`, `tokens`, `money`: the three parts of the cost cell, each aligned within its part.
 export type RowText = {
   status: Status; glyph: string; type: string
   model: string; modelKey?: string; effort: string; effortKey?: string
-  task: string; edits: string; rounds: string; tokens: string; time: string; tokN: number
-  alerts: Seg[]; bad: boolean
+  task: string; ctx: string; tokens: string; money: string; time: string; tokN: number; bad: boolean
 }
 
 export function rowText(v: View): RowText {
   const t = resolveTier(v.model, v.effort, v.desc)
   const eff = effortLabel(t.effort)
+  const f = figures(v)
   return {
     status: v.status,
     glyph: GLYPH[v.status],
@@ -70,58 +74,61 @@ export function rowText(v: View): RowText {
     effort: eff ? `.${eff}` : '',
     effortKey: t.effort,
     task: v.task || '—',
-    edits: v.editCount > 0 ? String(v.editCount) : '—',
-    rounds: v.rounds === undefined ? '—' : String(v.rounds),
-    tokens: tokensOrDash(v.tokens),
-    time: v.elapsedMs === undefined ? '—' : formatDuration(v.elapsedMs),
+    ctx: f.ctx,
+    tokens: f.tokens,
+    money: f.money,
+    time: f.time,
     tokN: v.tokens ?? 0,
-    alerts: flagSegs(v),
     bad: v.tier !== undefined,
   }
 }
 
-// Widths in cells; 0 = the column is off (hidden by the settings, or dropped for width).
-export type Layout = { status: number; type: number; tier: number; task: number; edits: number; rounds: number; tokens: number; time: number; alerts: number }
-export type Cell = { text: string; kind: 'index' | 'status' | 'type' | 'model' | 'effort' | 'task' | 'edits' | 'rounds' | 'tokens' | 'time' | 'alerts'; status?: Status; key?: string; n?: number; bad?: boolean; color?: string }
+// Widths in cells; 0 = the column is off (hidden by the settings, or no room). `cost` is the whole cell, `ctx`/`tokens`/`money` its parts.
+export type Layout = { status: number; task: number; type: number; tier: number; ctx: number; tokens: number; money: number; cost: number; time: number }
+export type Cell = { text: string; kind: 'index' | 'status' | 'task' | 'type' | 'model' | 'effort' | 'cost' | 'tokens' | 'time'; status?: Status; key?: string; n?: number; bad?: boolean; color?: string }
 
 const maxW = (min: number, items: string[]) => items.reduce((m, s) => Math.max(m, cellWidth(s)), min)
 
-// Column widths for `cols` cells. The task column takes what the others leave and goes first (width 0: no column at all); when the
-// rest alone does not fit, Edits is dropped, then Type shrinks. Alerts and the stats (rounds, tokens, time) are never cut for width;
-// only the settings hide them.
+// Column widths for `cols` cells. The desc column takes what the others leave (width 0: no column at all); when the rest alone does not
+// fit, type shrinks. Tier, cost and time are never cut for width; only the settings hide them (`tokens` hides the cost column).
 export function computeLayout(cols: number, rows: RowText[], on: Columns = ALL_COLUMNS): Layout {
-  const w = (shown: boolean, min: number, f: (r: RowText) => string) => (shown ? maxW(min, rows.map(f)) : 0)
-  const tier = w(on.tier, 4, r => r.model + r.effort)
-  const rounds = w(on.rounds, 6, r => r.rounds)
-  const tokens = w(on.tokens, 6, r => r.tokens)
-  const time = w(on.time, 4, r => r.time)
-  const alerts = on.alerts ? rows.reduce((m, r) => Math.max(m, segsWidth(r.alerts)), 6) : 0
-  let edits = w(on.edits, 5, r => r.edits)
+  const tier = on.tier ? maxW(4, rows.map(r => r.model + r.effort)) : 0
+  const ctx = on.tokens ? maxW(0, rows.map(r => r.ctx)) : 0
+  const tokens = on.tokens ? maxW(0, rows.map(r => r.tokens)) : 0
+  const money = on.tokens ? maxW(0, rows.map(r => r.money)) : 0
+  const cost = on.tokens ? Math.max(4, ctx + tokens + money + 2 * DOT.length) : 0
+  const time = on.time ? maxW(4, rows.map(r => r.time)) : 0
   let type = Math.min(TYPE_CAP, maxW(4, rows.map(r => r.type)))
-  // Everything but task: the select mark, status and type are always there; a gap sits between neighbours and none after the last.
-  const rest = (t: number, e: number) => LEAD + MARK_W + STATUS_W + t + tier + e + rounds + tokens + time + alerts + GAP * ([tier, e, rounds, tokens, time, alerts].filter(x => x > 0).length + 2)
-  if (rest(type, edits) > cols) edits = 0
-  while (type > 4 && rest(type, edits) > cols) type--
-  return { status: STATUS_W, type, tier, task: Math.max(0, cols - rest(type, edits) - GAP), edits, rounds, tokens, time, alerts }
+  // Everything but desc: the select mark, status and type are always there; a gap sits between neighbours and none after the last.
+  const rest = (t: number) => LEAD + MARK_W + STATUS_W + t + tier + cost + time + GAP * ([tier, cost, time].filter(x => x > 0).length + 2)
+  while (type > 4 && rest(type) > cols) type--
+  return { status: STATUS_W, task: Math.max(0, cols - rest(type) - GAP), type, tier, ctx, tokens, money, cost, time }
 }
 
-// Cells of one row, each column padded to its width; a gap follows every column but the last.
-export function rowCells(l: Layout, r: RowText): Cell[] {
+// The cells of a row (or, `header`, of the column header), each column padded to its width; a gap follows every column but the last.
+function cells(l: Layout, r: RowText, header?: { cost: string }): Cell[] {
   const columns: Cell[][] = [
     [{ text: ' '.repeat(LEAD + MARK_W), kind: 'index' }], // lead + mark blanks; the Button draws the mark
     [{ text: padEnd(r.glyph, l.status), kind: 'status', status: r.status }],
-    [{ text: padEnd(truncate(r.type, l.type), l.type), kind: 'type', key: r.type }],
   ]
-  if (l.tier > 0) columns.push([{ text: r.model, kind: 'model', key: r.modelKey, bad: r.bad }, { text: padEnd(r.effort, l.tier - cellWidth(r.model)), kind: 'effort', key: r.effortKey, bad: r.bad }])
   if (l.task > 0) columns.push([{ text: padEnd(truncate(r.task, l.task), l.task), kind: 'task', status: r.status }])
-  if (l.edits > 0) columns.push([{ text: padStart(r.edits, l.edits), kind: 'edits' }])
-  if (l.rounds > 0) columns.push([{ text: padStart(r.rounds, l.rounds), kind: 'rounds' }])
-  if (l.tokens > 0) columns.push([{ text: padStart(r.tokens, l.tokens), kind: 'tokens', n: r.tokN }])
+  columns.push([{ text: padEnd(truncate(r.type, l.type), l.type), kind: 'type', key: r.type }])
+  if (l.tier > 0) columns.push([{ text: r.model, kind: 'model', key: r.modelKey, bad: r.bad }, { text: padEnd(r.effort, l.tier - cellWidth(r.model)), kind: 'effort', key: r.effortKey, bad: r.bad }])
+  if (l.cost > 0) {
+    columns.push(header
+      ? [{ text: padEnd(header.cost, l.cost), kind: 'cost' }]
+      : [
+          { text: padStart(r.ctx, l.ctx) + DOT, kind: 'cost' },
+          { text: padStart(r.tokens, l.tokens), kind: 'tokens', n: r.tokN },
+          { text: padEnd(DOT + padStart(r.money, l.money), l.cost - l.ctx - DOT.length - l.tokens), kind: 'cost' },
+        ])
+  }
   if (l.time > 0) columns.push([{ text: padStart(r.time, l.time), kind: 'time' }])
-  if (l.alerts > 0) columns.push([...r.alerts.map(s => ({ text: s.text, kind: 'alerts' as const, color: s.color })), { text: ' '.repeat(Math.max(0, l.alerts - segsWidth(r.alerts))), kind: 'alerts' as const }])
   const g = ' '.repeat(GAP)
-  return columns.flatMap((cells, i) => (i === columns.length - 1 ? cells : cells.map((c, j) => (j === cells.length - 1 ? { ...c, text: c.text + g } : c))))
+  return columns.flatMap((cs, i) => (i === columns.length - 1 ? cs : cs.map((c, j) => (j === cs.length - 1 ? { ...c, text: c.text + g } : c))))
 }
+
+export const rowCells = (l: Layout, r: RowText): Cell[] => cells(l, r)
 
 // A row split around its select Button: the lead blank, then the other cells (gap first); the Button's 1-cell label sits between.
 // With the blank label, lead + label + rest are exactly rowCells.
@@ -133,9 +140,9 @@ export function rowParts(l: Layout, r: RowText): { lead: string; rest: Cell[] } 
 export const isSelected = (ringKey: string | null, id: string): boolean => ringKey === `row:${id}`
 export const markLabel = (selected: boolean): string => (selected ? MARK : NO_MARK)
 
-// The column-header row (drawn gray), same widths as the rows.
+// The column-header row (drawn gray), same widths as the rows; the names stay English in both languages.
 export function headerCells(l: Layout): Cell[] {
-  return rowCells(l, { status: 'done', glyph: 'Status', type: 'Type', model: 'Tier', effort: '', task: 'Task', edits: 'Edits', rounds: 'Rounds', tokens: 'Tokens', time: 'Time', tokN: 0, alerts: [{ text: 'Alerts', color: PALETTE.gray }], bad: false })
+  return cells(l, { status: 'done', glyph: '#', type: 'type', model: 'tier', effort: '', task: 'desc', ctx: '', tokens: '', money: '', time: 'time', tokN: 0, bad: false }, { cost: 'cost' })
 }
 
 export type HeaderSeg = { text: string; color: string; bold?: boolean }

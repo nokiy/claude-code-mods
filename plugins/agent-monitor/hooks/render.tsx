@@ -61,8 +61,7 @@ const cell = (Text: Ui['Text'], c: Cell, i: number, header = false) => {
     case 'effort': { const s = effortStyle(c.key); return <Text key={key} color={c.bad ? red : s.color} bold={c.bad ? undefined : s.bold}>{c.text}</Text> }
     case 'task': return <Text key={key} color={c.status === 'failed' ? gray : fg}>{c.text}</Text>
     case 'tokens': return <Text key={key} color={tokenColor(c.n)}>{c.text}</Text>
-    case 'alerts': return <Text key={key} color={c.color ?? fg}>{c.text}</Text>
-    default: return <Text key={key} color={gray}>{c.text}</Text> // index, edits, rounds, time
+    default: return <Text key={key} color={gray}>{c.text}</Text> // index, cost (ctx% and $), time
   }
 }
 

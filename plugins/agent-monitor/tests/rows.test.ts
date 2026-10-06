@@ -1,8 +1,9 @@
 // Row formats through the whole mod: the live band above the prompt and the /sub panel's running rows and finished table (testkit.ts).
 import { expect, mock, test } from 'claude-code/testing'
 
-import { ROOT, mountBand, mountPane, rowKeys, shown, st, step, wire } from './testkit'
+import { PROJECT, ROOT, mountBand, mountPane, rowKeys, shown, st, step, wire } from './testkit'
 import type { Dollar } from './testkit'
+import { agentFiles, fakeFs } from './transcripts'
 
 const T0 = Date.parse('2026-10-03T09:00:00Z')
 type On = Parameters<typeof mock.env>[0]
@@ -59,6 +60,45 @@ test('/sub: tier mismatch, Chinese: line 2 ends `≠ 要求 op.med`', { options:
 test('/sub: tier mismatch, English: line 2 ends `≠ wanted op.med`', async ($, on) => {
   const at = await mismatchLine($, on)
   expect(at(/^ {5}worker · sonnet · med ≠ wanted op\.med {3}starting$/)).toBeGreaterThanOrEqual(0)
+})
+
+// Three finished subagents of earlier sessions, read from their transcripts: types, tiers and figures of different widths.
+const FINISHED = [
+  { sessionId: 'old', agentId: 'f1', type: 'Explore', desc: 'map the parser', model: 'claude-sonnet-5-5', at: '2026-10-01T09:00:00.000Z', steps: [{ id: 'm1', at: '2026-10-01T09:01:05.000Z', usage: { input_tokens: 82_000, output_tokens: 4_200 } }] },
+  { sessionId: 'old', agentId: 'f2', type: 'reviewer', desc: 'review the diff', model: 'claude-opus-5-5', at: '2026-10-01T08:00:00.000Z', steps: [{ id: 'm1', at: '2026-10-01T08:12:30.000Z', usage: { input_tokens: 150_000, output_tokens: 12_000 } }] },
+  { sessionId: 'old', agentId: 'f3', type: 'qa', desc: 'run the suite', model: 'claude-haiku-4-5', at: '2026-10-01T07:00:00.000Z', steps: [{ id: 'm1', at: '2026-10-01T07:00:09.000Z', usage: { input_tokens: 900, output_tokens: 40 } }] },
+]
+
+async function finishedPane($: Dollar, on: On) {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  wire(on, fakeFs(Object.assign({}, ...FINISHED.map(a => agentFiles(PROJECT, a)))))
+  await $.session.start({ cwd: ROOT } as never)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  return mountPane($)
+}
+
+test('/sub: finished subagents form one table `# desc type tier cost time`, every column aligned', async ($, on) => {
+  const ui = await finishedPane($, on)
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  const header = texts.find(s => /^\s+#\s+desc\s+type\s+tier\s+cost\s+time\s*$/.test(s))
+  expect(header).toBeDefined()
+  // A row is the Text after its select Button: lead blank + Button = 2 cells left of where the header's own text starts.
+  const rows = ['map the parser', 'review the diff', 'run the suite'].map(task => `  ${texts.find(s => s.startsWith('  ●') && s.includes(task))}`)
+  // The widest parts read `75% · 162.0k`; narrower parts are padded to line up (`41% ·  86.2k`, `$0.84` under `<$0.01`).
+  const money = String.raw`(?:<\$0\.01|\$\d+\.\d\d)`
+  expect(rows[0]).toMatch(new RegExp(String.raw`●\s+map the parser\s+Explore\s+sonnet\s+41% ·\s+86\.2k ·\s+${money}\s+1:05$`))
+  expect(rows[1]).toMatch(new RegExp(String.raw`●\s+review the diff\s+reviewer\s+opus\s+75% · 162\.0k ·\s+${money}\s+12:30$`))
+  expect(rows[2]).toMatch(new RegExp(String.raw`●\s+run the suite\s+qa\s+haiku\s+0% ·\s+940 ·\s+${money}\s+0:09$`))
+  // Aligned: type and tier start where their headers do, the ` · ` of the cost parts line up, every row ends at the same cell.
+  for (const word of ['type', 'tier']) {
+    const col = header!.indexOf(` ${word}`) + 1
+    expect(rows.map(r => r[col - 1] === ' ' && r[col] !== ' ')).toEqual([true, true, true])
+  }
+  const dots = (r: string) => [...r.matchAll(/ · /g)].map(m => m.index)
+  expect(new Set(rows.map(r => dots(r).join(','))).size).toBe(1)
+  expect(new Set(rows.map(r => r.length)).size).toBe(1)
 })
 
 test('live band: ctx%, tokens without the `tok` word, time as m:ss', async ($, on) => {
