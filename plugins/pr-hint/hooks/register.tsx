@@ -266,7 +266,7 @@ export const register: Register = (on, options) => {
   });
 
   // Hint row: the engine's hint, a pin Button (` ▸ ` / ` ▾ `, the click that pins the card),
-  // then `PR #N` (cyan, bold), the title and counts in one Text. Only a Button takes a press
+  // then `PR #N` (cyan, bold), the title and the PR state chip. Only a Button takes a press
   // (Box and Text have no onPress) and a plain Button's hit area is its label cells, so the pin
   // is padded to three cells and `PR #N` keeps its colour. The Box is the hover handle: the card shares its `scope`.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
@@ -310,7 +310,7 @@ export const register: Register = (on, options) => {
           <Text key="pr-num" color="cyan" bold>{`PR #${data.number}`}</Text>
         </Box>
         {/* Only the title shrinks: the row's real width (the engine's own pills included) decides
-            where it is cut, so the counts after it always stay whole. */}
+            where it is cut, so the state chip after it always stays whole. */}
         <Box flexShrink={1}>
           <Text key="pr-title" wrap="truncate-end">{` ${layout.hasSummary ? data.title : layout.title}`}</Text>
         </Box>
