@@ -51,10 +51,10 @@ export function prStats(groups: readonly Group[]): Record<string, PrStat> {
 export function groupByPr(views: readonly View[], index: readonly PrEntry[], branch?: string): Group[] {
   const byKey = new Map<string, View[]>()
   for (const v of views) {
-    const k = groupKey(attribute(v.branch, index))
+    const k = groupKey(attribute(v, index))
     byKey.set(k, [...(byKey.get(k) ?? []), v])
   }
-  const current = groupKey(attribute(branch, index))
+  const current = groupKey(attribute({ branch }, index))
   const keys = [...byKey.keys()].filter(k => k !== current && k !== OTHER_KEY)
   const order = [...(current !== OTHER_KEY || byKey.has(OTHER_KEY) ? [current] : []), ...keys, ...(current !== OTHER_KEY && byKey.has(OTHER_KEY) ? [OTHER_KEY] : [])]
   const prOf = (k: string) => index.find(p => groupKey(p.number) === k)
