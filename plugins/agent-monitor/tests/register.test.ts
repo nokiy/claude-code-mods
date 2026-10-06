@@ -10,20 +10,25 @@ const OLD2 = { sessionId: 'old2', agentId: 'a2', type: 'reviewer', desc: 'review
 test('/clear: /sub still lists the subagents of earlier sessions, with type, description and model', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-10-03T09:00:00Z') })
   mock.store(on)
-  wire(on, fakeFs({ ...agentFiles(PROJECT, OLD1), ...agentFiles(PROJECT, OLD2) }))
+  const live = { sessionId: 'cur', agentId: 'a3', type: 'worker', desc: 'fix the lexer', at: '2026-10-03T08:59:00.000Z' }
+  wire(on, fakeFs({ ...agentFiles(PROJECT, OLD1), ...agentFiles(PROJECT, OLD2), ...agentFiles(PROJECT, live) }))
+  on('agent.spawn', async () => ({ agentId: 'a3', model: 'claude-opus-4-5' }))
   await $.session.start({ cwd: ROOT } as never)
+  // An agent of this session, seen by the hooks, then cleared from the live records with the session.
+  await $.agent.spawn({ subagentType: 'worker', description: 'fix the lexer', prompt: 'go' } as never)
   await $.session.end({ reason: 'clear', sessionId: 'cur' } as never)
   st.session = 'next'
   await $.session.start({ cwd: ROOT } as never)
   await $.command.run({ command: 'sub', args: '' } as never)
   await clock.settle()
-  const text = await shown(await mountPane($))
-  expect(text).toContain('map the parser')
-  expect(text).toContain('review the diff')
-  expect(text).toContain('Explore')
-  expect(text).toContain('reviewer')
-  expect(text).toContain('sonnet')
-  expect(text).toContain('opus')
+  const ui = await mountPane($)
+  expect(await rowKeys(ui)).toEqual(['row:a3', 'row:a2', 'row:a1'])
+  // Each row carries its own type and model (the model from the transcript's assistant lines; meta has none).
+  // A row is the outermost Text holding the task (the task cell is a Text nested in it): the longest match.
+  const row = async (task: string) => (await ui.findAll({ type: 'Text' })).map(t => t.text).filter(t => t.includes(task)).sort((a, b) => b.length - a.length)[0] ?? ''
+  expect(await row('map the parser')).toMatch(/Explore\s+sonnet/)
+  expect(await row('review the diff')).toMatch(/reviewer\s+opus/)
+  expect(await row('fix the lexer')).toMatch(/worker\s+opus/)
 })
 
 test('an agent in both the hook events and its transcript is one row', async ($, on) => {

@@ -224,7 +224,7 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     if (await active($)) {
       await ensureCommand($) // a hot reload may have dropped it
-      if (!backfilled) await backfill($) // once per load; /sub backfills again, and an Agent result is a second way in
+      if (!backfilled) void backfill($) // once per load, not holding the turn (a first scan reads every transcript); /sub backfills again, and an Agent result is a second way in
       backfilled = true
       if (cfg.pricesBad && !priceToasted) { priceToasted = true; $.ui.toast(t.pricesBad, { timeoutMs: 8000 }) }
     }
