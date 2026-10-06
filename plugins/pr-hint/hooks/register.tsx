@@ -351,7 +351,7 @@ export const register: Register = (on, options) => {
         ))}
       </Text>
     );
-    const box = (
+    const detail = (
       <Box
         flexDirection="column"
         borderStyle="round"
@@ -378,6 +378,6 @@ export const register: Register = (on, options) => {
         </Text>
       </Box>
     );
-    return <Box flexDirection="column">{box}{await next(e)}</Box>;
+    return <Box flexDirection="column">{detail}{await next(e)}</Box>;
   });
 }
