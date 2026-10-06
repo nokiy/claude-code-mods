@@ -57,6 +57,27 @@ test('a group row shows its agent count, tokens, cost, time and PR state', async
   expect(other).not.toMatch(/Open|Merged/)
 })
 
+// pr-hint's words and colors for the same PR (plugins/pr-hint: parse.ts prState, strings.ts PR_STATE, card.ts STATE_COLOR).
+test('a group row\'s PR state reads Draft (yellow), Ready (magenta) or Merged (green), as pr-hint says it', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on)
+  const D = { ...A1, agentId: 'd1', branch: 'feature/60-draft' }
+  const R = { ...A1, agentId: 'r1', branch: 'feature/61-ready' }
+  const M = { ...A1, agentId: 'm1', branch: 'feature/62-merged' }
+  wire(on, fakeFs({ ...agentFiles(PROJECT, D), ...agentFiles(PROJECT, R), ...agentFiles(PROJECT, M) }))
+  st.branch = 'dev'
+  st.gh = JSON.stringify([ghPr(60, 'Drafted', 'feature/60-draft', [], 'OPEN', true), ghPr(61, 'Readied', 'feature/61-ready'), ghPr(62, 'Landed', 'feature/62-merged', [], 'MERGED')])
+  await $.session.start({ cwd: ROOT } as never)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  const ui = await mountPane($)
+  const texts = await ui.findAll({ type: 'Text' })
+  for (const [title, word, color] of [['#60 Drafted', 'Draft', 'yellow'], ['#61 Readied', 'Ready', 'magenta'], ['#62 Landed', 'Merged', 'green']]) {
+    expect(await rowOf(ui, title)).toMatch(new RegExp(`\\s${word}\\s*$`))
+    expect(texts.find(t => t.text.trim() === word)?.props.color).toBe(color)
+  }
+})
+
 test('the agent on dev lands in Other, whose row is drawn unlike a PR group\'s', async ($, on) => {
   const { ui } = await openSub($, on)
   await ui.press({ key: 'group:other' })
