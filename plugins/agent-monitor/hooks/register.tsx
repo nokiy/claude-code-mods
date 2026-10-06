@@ -6,21 +6,17 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentMonitorDraft, AgentMonitorRec, MainEdit } from '../types'
 import { alertLines, dueToasts } from './alertlines'
 import { MAX_MAIN, editedPath, normPath, reasonOf } from './alerts'
-import { DEFAULTS, readConfig } from './config'
-import type { Config } from './config'
+import { DEFAULTS, readConfig, type Config } from './config'
+import { historyRecs, projectDir, refreshProject, withHistory, type TxEntry } from './history'
 import { inScope } from './logic'
-import { CLOSED, pageStr, parsePage, ringKeyOf, siteFlags, subEffects } from './nav'
-import type { NavPatch, Placement } from './nav'
+import { CLOSED, pageStr, parsePage, ringKeyOf, siteFlags, subEffects, type NavPatch, type Placement } from './nav'
 import { agentLaunched, blank, clean, editDelta, onAgentResult, onComplete, onSpawn, onStep, onStepEnd, onToolEnd, onToolStart } from './patches'
 import { bandTree, panel } from './render'
-import { configKey, draftFromConfig, saveEffects, toggleDraft } from './settings'
-import type { SettingKey } from './settings'
-import { pickLang, strings } from './strings'
-import type { Strings } from './strings'
+import { configKey, draftFromConfig, saveEffects, toggleDraft, type SettingKey } from './settings'
+import { pickLang, strings, type Strings } from './strings'
 import { parseSubArg } from './subarg'
 import { mergeBackfill, recsFromMessages } from './backfill'
-import { buildViews, reconcile, seedRec, settled, withoutGhosts } from './views'
-import type { Board } from './views'
+import { buildViews, reconcile, seedRec, settled, withoutGhosts, type Board } from './views'
 
 const PANE = 'sub'
 
@@ -74,7 +70,7 @@ async function track($: EngineInterface, id: string, fn: (r: AgentMonitorRec) =>
 }
 
 async function loadBoard($: EngineInterface): Promise<Board> {
-  const views = buildViews(await read($, agents), await $.agent.list(), await $.clock.now(), { stallMs: cfg.stallMs, main: await read($, mainEdits), prices: cfg.prices })
+  const views = buildViews(withHistory(await read($, agents), history), await $.agent.list(), await $.clock.now(), { stallMs: cfg.stallMs, main: await read($, mainEdits), prices: cfg.prices })
   return { views, cwd: await $.session.cwd(), cfg, t }
 }
 
@@ -83,7 +79,6 @@ async function noteMainEdit($: EngineInterface, path: string, now: number) {
   if (!Object.values(await read($, agents)).some(r => r.status === 'running')) return
   await update($, mainEdits, (m: MainEdit[]) => [...m, { path, at: now }].slice(-MAX_MAIN))
 }
-
 // Persist the end of records the engine no longer runs (a stale `running` would keep the timer alive); drop undescribed leftovers.
 async function settleStale($: EngineInterface) {
   const recs = await read($, agents)
@@ -93,8 +88,23 @@ async function settleStale($: EngineInterface) {
   await update($, agents, (all: Recs) => settled(all, new Map(stale), now))
 }
 
-// Agents the mod never saw spawn come back from the main conversation (its Agent tool uses and task notifications).
+// Subagents of every session of this project come from their transcripts (history.ts): the entries live in this load and, with their
+// read positions, in the store. `current`: only this session's folder (the 1 s tick), else the whole project directory.
+const txCache = new Map<string, TxEntry>()
+let history: Recs = {}
+async function readHistory($: EngineInterface, current = false) {
+  try {
+    const project = projectDir((await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`, await $.session.root())
+    const tail = async (path: string, from: number) => ((r) => ({ text: r.stdout, truncated: r.isStdoutTruncated }))(await $.process.run(['tail', '-c', `+${from + 1}`, path]))
+    const io = { list: (p: string) => $.fs.list(p), read: (p: string) => $.fs.read(p), tail, load: (k: string) => $.store.get(k), save: (k: string, v: TxEntry) => $.store.set(k, v) }
+    if (!(await refreshProject(io, project, txCache, current ? await $.session.id() : undefined))) return
+    history = historyRecs(txCache)
+    $.ui.invalidate('ui.render')
+  } catch { /* no transcript readable now: the live records still stand */ }
+}
+// Agents the mod never saw spawn come back from the main conversation (its Agent tool uses and task notifications), earlier ones from the transcripts.
 async function backfill($: EngineInterface) {
+  await readHistory($)
   try {
     const found = recsFromMessages(await $.session.messages())
     const recs = await read($, agents)
@@ -112,14 +122,11 @@ async function warn($: EngineInterface, board: Board) {
   }
 }
 let timer: { cancel: () => void } | undefined
-function stopTimer() {
-  try { timer?.cancel() } catch { /* already gone */ }
-  timer = undefined
-}
+const stopTimer = () => { try { timer?.cancel() } catch { /* already gone */ } timer = undefined }
 function ensureTimer($: EngineInterface) {
   timer ??= $.clock.every(1000, async () => {
     try {
-      await settleStale($)
+      await Promise.all([settleStale($), readHistory($, true)])
       const board = await loadBoard($)
       await warn($, board)
       if (!board.views.some(v => v.status === 'running')) stopTimer()
@@ -127,7 +134,6 @@ function ensureTimer($: EngineInterface) {
     } catch { stopTimer() } // a later event starts a fresh timer
   })
 }
-
 // The /sub command (`/subs` if the host refuses the first) and the panel's buttons; the decisions are nav.ts's and settings.ts's.
 let commandName: string | undefined
 async function ensureCommand($: EngineInterface) {
@@ -147,7 +153,6 @@ async function setSite($: EngineInterface, where: Placement | null) {
   if (where === 'right') await openPane($)
   else if (await paneUp($)) await $.ui.close({ id: PANE })
 }
-
 // `/sub` shows the panel (or steps back to the table, or closes it), `/sub top|right` places it, `/sub set` opens the settings page.
 async function runSub($: EngineInterface, args: string): Promise<{ text?: string }> {
   const nav = await readNav($)
@@ -162,7 +167,6 @@ async function runSub($: EngineInterface, args: string): Promise<{ text?: string
   }
   return {}
 }
-
 // Write the draft's changed rows to the settings in one go (the module reloads with them), the state first: the reload may cut what follows.
 async function saveSettings($: EngineInterface) {
   const fx = saveEffects((await readNav($)).draft, cfg)
@@ -173,7 +177,6 @@ async function saveSettings($: EngineInterface) {
   const denied = done.find(r => r.deny !== undefined)
   if (denied?.deny) $.ui.toast(t.notSaved(denied.deny), { timeoutMs: 8000 })
 }
-
 function actsOf($: EngineInterface) {
   return {
     open: (id: string) => void writeNav($, { page: pageStr({ kind: 'detail', id }) }),
@@ -184,15 +187,12 @@ function actsOf($: EngineInterface) {
     save: () => void saveSettings($),
   }
 }
-
 // What a site draws from; a running agent keeps the timer going.
 async function screen($: EngineInterface) {
-  const nav = await readNav($)
-  const board = await loadBoard($)
+  const [nav, board] = await Promise.all([readNav($), loadBoard($)])
   if (board.views.some(v => v.status === 'running')) ensureTimer($)
   return { nav, board }
 }
-
 // The mod acts everywhere, or only when the session cwd is inside the `scope` setting (session.start says, else the first hook asks).
 // Every hook goes through `active`, so the language is read before anything is drawn.
 let scoped: boolean | undefined
