@@ -1,4 +1,4 @@
-// State contract of pr-hint: the PR snapshot the hint line and hover card draw from.
+// State contract of pr-hint: the PR snapshot the hint line and hover card draw from, plus a read-only mirror of agent-monitor's `prStats`.
 
 export type PrCi = { ok: number; fail: number; pending: number; total: number };
 
@@ -41,8 +41,22 @@ export type PrData = {
   spec: { number: number; title: string } | null;
 };
 
+/**
+ * One PR's subagent totals as agent-monitor publishes them (docs/adr/0001-cross-mod-state.md).
+ * A mirror of `PrStat` in plugins/agent-monitor/types/index.d.ts, which is canonical: keep the two identical.
+ */
+export type PrStat = { tokens: number; cost: number; ms: number; refusals: number };
+
 declare module 'claude-code' {
   interface PluginState {
+    /**
+     * agent-monitor's published value, read only (its owner alone writes it). pr-hint lists no `dependencies`, so
+     * agent-monitor's own contract is not laid here; this mirrors the one key pr-hint reads. Absent = never written.
+     */
+    'agent-monitor': {
+      /** Subagent totals per PR, keyed by the PR number as a string. */
+      prStats: Record<string, PrStat>;
+    };
     'pr-hint': {
       /** Kept under a shape tag (see register.tsx); bump the tag when PrData changes. */
       pr: Shaped<PrData | null>;
