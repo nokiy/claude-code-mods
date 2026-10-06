@@ -8,10 +8,10 @@ See what your Claude Code subagents are doing: a live band above the prompt whil
 
 ## What it does
 
-- **Live band** — one row per running subagent above the prompt: type, model and effort, task, current activity, tokens, elapsed time, alert glyphs.
-- **`/sub` history** — a table of every subagent of this project, earlier sessions included: it is read from the transcripts Claude Code keeps under `~/.claude/projects/`, so it survives `/clear` and a new session (newest first): `#`, status, type, tier (model.effort), task, edits, rounds, tokens, time, alerts. Running agents carry their current activity on a second line. Pick a row with ↑/↓.
+- **Live band** — one row per running subagent above the prompt: type, model and effort, task, current activity, then `ctx% · tokens · $ · m:ss` and a red `!` when it has an alert.
+- **`/sub` history** — every subagent of this project, earlier sessions included: it is read from the transcripts Claude Code keeps under `~/.claude/projects/`, so it survives `/clear` and a new session (newest first). Running agents come first, three lines each: the description with its tier prefix (`op.med · task`); `type · model · effort` with `≠ wanted <tier>` on a mismatch, then the current activity (cut, not scrolled); a context-fill bar and `ctx% · tokens · $ · m:ss`. Finished agents form a dense aligned table `# desc type tier cost time`, where `#` is the status glyph and cost is `ctx% · tokens · $` (`41% · 86.2k · $0.42`). Pick a row with ↑/↓.
 - **Detail page** — Enter on a row opens it: instruction, timeline, tokens (cache hit / miss / output) with an **estimated cost**, edited files with `+/−` line counts, tool counts, skills, recent actions, alerts and the result. `b` goes back.
-- **Alerts** — shown as glyphs in the table and as sentences above it:
+- **Alerts** — a red `!` ends the row of an agent with any alert; the sentences above the table say which, by glyph:
   - `!` **file conflict** — two agents (or an agent and the main loop) edited the same file while both were running.
   - `~` **stall** — a running agent has had no step or tool call for the threshold (amber at the threshold, red at twice it); the toast fires once per agent.
   - `≠` **tier mismatch** — the model or effort an agent actually ran differs from its description prefix (see below).
@@ -44,7 +44,7 @@ Open **/config** and pick agent-monitor, or use `/sub set` for the panel options
 | Live rows above the prompt | on | One row per running subagent. |
 | Alerts block / Toasts | on | Alert sentences above the table; a toast the first time a conflict or stall is seen. |
 | Default `/sub` placement | `last` | `last`, `right` or `top`. |
-| Columns | all on | Tier, Edits, Rounds, Tokens, Time, Alerts. |
+| Columns | all on | Tier, Cost, Time columns of the finished table; Alert mark (the red `!`). |
 | Model prices | API list prices | Compact JSON, USD per million tokens: `{"sonnet":[input,cacheWrite5m,cacheRead,output],...}`. A family left out keeps its default; bad JSON falls back to the defaults. |
 
 Costs are **estimates** from token counts and list prices (no batch, fast-mode or regional modifiers); an unpriced model shows a dash.

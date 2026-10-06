@@ -61,6 +61,8 @@ test('/sub: tier mismatch, Chinese: line 2 ends `≠ 要求 op.med`', { options:
 test('/sub: tier mismatch, English: line 2 ends `≠ wanted op.med`', async ($, on) => {
   const at = await mismatchLine($, on)
   expect(at(/^ {5}worker · sonnet · med ≠ wanted op\.med {3}starting$/)).toBeGreaterThanOrEqual(0)
+  // a mismatch is an alert: line 1 ends with the red `!`
+  expect(at(/^ ◐ op\.med · fix the parser {2}!$/)).toBeGreaterThanOrEqual(0)
 })
 
 // Three finished subagents of earlier sessions, read from their transcripts: types, tiers and figures of different widths.
