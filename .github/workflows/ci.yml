@@ -1,4 +1,5 @@
-# Checks every mod on PRs into dev/main once they are ready (drafts skip).
+# Checks every mod on PRs into dev/main once they are ready (drafts skip), plus the release gate
+# (docs/release-packaging.md): installs read the release branch and no test code ships.
 # Runs with no Claude login: plugin validate/test need none. Never add Claude credentials here.
 name: plugin-check
 
@@ -29,6 +30,8 @@ jobs:
       - run: claude --version
       - name: Validate marketplace
         run: claude plugin validate --strict .
+      - name: Release gate (installs read release; no test code ships)
+        run: scripts/build-release.sh HEAD --check
       - name: Validate and test each mod
         run: |
           set -e
