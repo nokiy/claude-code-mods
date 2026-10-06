@@ -115,7 +115,8 @@ const headLine = (pr: PrData, s: Strings, room: number): CardLine => {
   ]);
 };
 
-// agent-monitor's figures, written the way its own panel writes them: `86.2k`, `12m34s`, `$1.25`.
+// agent-monitor's figures, written the way its own panel writes them: `86.2k`, `12m34s`, `$1.25`. Copies of agent-monitor's
+// formatTokens / formatDuration / formatMoney (its logic.ts and cost.ts): change both together (docs/adr/0001-cross-mod-state.md).
 const tokenText = (n: number) => (n < 1000 ? String(n) : n < 1_000_000 ? `${(n / 1000).toFixed(1)}k` : `${(n / 1_000_000).toFixed(1)}M`);
 const timeText = (ms: number) => {
   const sec = Math.max(0, Math.floor(ms / 1000));
@@ -132,7 +133,7 @@ export const statusParts = (pr: PrData, s: Strings, stats?: PrStat): CardPart[] 
   { text: '◐', color: STATUS_COLOR.doing },
   { text: ` ${pr.tickets.filter(t => t.status === 'doing').length} ${s.status.doing}` },
   ...(stats ? [
-    { text: ` · ${stats.cost === undefined ? '' : `≈${moneyText(stats.cost)} · `}${tokenText(stats.tokens)} tokens · ${timeText(stats.ms)}` },
+    { text: ` · ${stats.cost === undefined ? '' : `≈${moneyText(stats.cost)} · `}${s.tokens(tokenText(stats.tokens))} · ${timeText(stats.ms)}` },
     { text: ` ${s.agentsOnly}`, dim: true },
     ...(stats.refusals > 0 ? [{ text: ` · ${s.refused(stats.refusals)}`, color: 'red' }] : []),
   ] : []),

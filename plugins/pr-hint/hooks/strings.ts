@@ -11,11 +11,14 @@ const PR_STATE: Record<'draft' | 'ready' | 'merged', string> = { draft: 'Draft',
 const STATUS = { todo: 'not started', doing: 'running', merged: 'Merged', done: 'accepted' };
 // The card header's delivered count, English in both languages beside the English status words.
 const ticketCount = (d: number, n: number) => `Tickets ${d}/${n}`;
+// agent-monitor's token figure on header line 2, English in both languages like agent-monitor's own panel.
+const tokens = (n: string) => `${n} tokens`;
 
 const EN = {
   prState: PR_STATE,
   status: STATUS,
   ticketCount,
+  tokens,
   behind: (n: number) => `${plural(n, 'commit')} behind`,
   agentsOnly: '(subagents only)',
   refused: (n: number) => `blocked ×${n}`,
@@ -44,6 +47,7 @@ const ZH: Strings = {
   prState: PR_STATE,
   status: STATUS,
   ticketCount,
+  tokens,
   behind: n => `还差 ${n} 个提交`,
   agentsOnly: '(仅子代理)',
   refused: n => `拦截 ×${n}`,
