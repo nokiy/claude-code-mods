@@ -1,6 +1,6 @@
 # agent-monitor
 
-See what your Claude Code subagents are doing: a live band above the prompt while they run, and a `/sub` panel with this session's subagent history, alerts, a detail page per agent and a cost estimate.
+See what your Claude Code subagents are doing: a live band above the prompt while they run, and a `/sub` panel with this project's subagent history, alerts, a detail page per agent and a cost estimate.
 
 [中文说明](README.zh-CN.md)
 
@@ -9,7 +9,7 @@ See what your Claude Code subagents are doing: a live band above the prompt whil
 ## What it does
 
 - **Live band** — one row per running subagent above the prompt: type, model and effort, task, current activity, tokens, elapsed time, alert glyphs.
-- **`/sub` history** — a table of every subagent this session (newest first): `#`, status, type, tier (model.effort), task, edits, rounds, tokens, time, alerts. Running agents carry their current activity on a second line. Pick a row with ↑/↓.
+- **`/sub` history** — a table of every subagent of this project, earlier sessions included: it is read from the transcripts Claude Code keeps under `~/.claude/projects/`, so it survives `/clear` and a new session (newest first): `#`, status, type, tier (model.effort), task, edits, rounds, tokens, time, alerts. Running agents carry their current activity on a second line. Pick a row with ↑/↓.
 - **Detail page** — Enter on a row opens it: instruction, timeline, tokens (cache hit / miss / output) with an **estimated cost**, edited files with `+/−` line counts, tool counts, skills, recent actions, alerts and the result. `b` goes back.
 - **Alerts** — shown as glyphs in the table and as sentences above it:
   - `!` **file conflict** — two agents (or an agent and the main loop) edited the same file while both were running.
