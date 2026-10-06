@@ -1,6 +1,6 @@
 // Tests the GraphQL unwrapping (PR node, closing issues, labels, CI contexts, by-number issues) on answers shaped like GitHub's, and that the parsers read the result as `gh pr view` was read.
 import { expect, test } from 'claude-code/testing';
-import { PR_ARGS, PR_QUERY, issuesQuery, parseGraphql, parseIssues, splitIssues } from '../hooks/graphql';
+import { PR_ARGS, PR_QUERY, branchHead, isCurrentPr, issuesQuery, parseGraphql, parseIssues, splitIssues } from '../hooks/graphql';
 import { closingNumbers, parsePr, prHead } from '../hooks/parse';
 
 const issue = (number: number, labels: string[] = []) => ({
@@ -86,5 +86,20 @@ test('gh fills the repository and branch itself', () => {
   expect(PR_ARGS).toEqual(['api', 'graphql', '-F', 'owner={owner}', '-F', 'name={repo}', '-F', 'branch={branch}']);
   expect(PR_QUERY).toContain('pullRequests(headRefName:$branch,states:[OPEN,MERGED],first:10,orderBy:{field:UPDATED_AT,direction:DESC})');
   expect(PR_QUERY).toContain('isCrossRepository');
-  expect(PR_QUERY).not.toContain('headRefOid');
+  // headRefOid is back (dropped in #22 as unused): it tells whether a merged PR is still the branch's.
+  expect(PR_QUERY).toContain('headRefOid');
+});
+
+test('a MERGED PR is current only while the branch sits on its merged commit; an OPEN one always is', () => {
+  const refs = 'refs/heads/dev d2\nrefs/heads/feat/9-x f9\nrefs/remotes/origin/dev d1\n';
+  expect(branchHead(refs, 'dev')).toBe('d2');
+  expect(branchHead(refs, 'main')).toBeNull();
+  expect(branchHead(null, 'dev')).toBeNull();
+  // A feature branch right after its merge: still on the merged commit → Merged shows.
+  expect(isCurrentPr({ state: 'MERGED', headRefOid: 'f9' }, refs, 'feat/9-x')).toBe(true);
+  // dev after a dev → main release plus newer work: the old release PR is history.
+  expect(isCurrentPr({ state: 'MERGED', headRefOid: 'd1' }, refs, 'dev')).toBe(false);
+  // No local branch to compare (detached HEAD, git failed): hidden rather than guessed.
+  expect(isCurrentPr({ state: 'MERGED', headRefOid: 'd2' }, null, 'dev')).toBe(false);
+  expect(isCurrentPr({ state: 'OPEN', headRefOid: 'zz' }, refs, 'dev')).toBe(true);
 });

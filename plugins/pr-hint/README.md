@@ -14,7 +14,7 @@ When the branch your session is on has an open pull request (or, with none open,
 ▸▸ bypass permissions on · PR #15 Add dark mode — settings page and editor · Ready
 ```
 
-The state is the PR's own, the same for a single-ticket and a multi-ticket delivery: `Draft` (yellow, being built) → `Ready` (magenta, waiting for acceptance) → `Merged` (green, done; shown while you stay on that branch). The mode phrase keeps its colour, the PR title takes all remaining width, and on narrow rows the state drops first, then the title shrinks.
+The state is the PR's own, the same for a single-ticket and a multi-ticket delivery: `Draft` (yellow, being built) → `Ready` (magenta, waiting for acceptance) → `Merged` (green, done; shown only while the branch still sits on the commit that was merged, so a long-lived `dev` that moved on after a `dev → main` release shows nothing). The mode phrase keeps its colour, the PR title takes all remaining width, and on narrow rows the state drops first, then the title shrinks.
 
 Hover the hint row to preview a card above the prompt; it hides when the pointer leaves. Click the ` ▸ ` just before `PR #N` (padded to three cells so it is easy to hit) to pin it open (it turns into `▾`), click it again to unpin:
 
@@ -63,7 +63,7 @@ Two tiers, each on its own timer, never overlapping (a tick that finds another r
 
 Only a PR into a non-default branch, which GitHub links to no issue, costs a second request: its `Closes #N` issues by number. Need fresher data sooner? Press the button, or end a turn.
 
-A failed fetch (gh exits non-zero, times out, answers something unreadable or with GraphQL errors) is not "no PR": the PR already shown stays, with its old `fetched` time. Only a successful answer with no open or merged PR clears it.
+A failed fetch (gh exits non-zero, times out, answers something unreadable or with GraphQL errors) is not "no PR": the PR already shown stays, with its old `fetched` time. Only a successful answer with no open PR, and no merged PR the branch still sits on, clears it.
 
 **Manual refresh:** press ` ↻ refresh ` on the card for a full refresh (it joins a running one; the button reads `refreshing…` meanwhile and ignores extra presses). When it ends a toast says what changed (`PR #23 updated: Draft → Ready · CI ✓1/1`), `PR #23 is up to date`, `No PR on this branch`, or `Fetch failed, try again later`, even if the card has been closed. The footer's `fetched` time is the last successful answer from GitHub; the 20 s git recompute does not move it.
 

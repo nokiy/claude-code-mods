@@ -5,7 +5,8 @@ import { mock, test } from 'claude-code/testing';
 export const PR = {
   number: 10, title: 'Add dark mode', state: 'OPEN', isDraft: false,
   statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }], closingIssuesReferences: [7, 12],
-  baseRefName: 'dev', headRefName: 'spec/12-dark-mode', url: 'https://example.test/pull/10', body: 'Closes #7\nCloses #12',
+  // headRefOid matches the session branch's sha in `st.refs` (`refs/heads/dev aaa`): a MERGED fixture is still current.
+  baseRefName: 'dev', headRefName: 'spec/12-dark-mode', headRefOid: 'aaa', url: 'https://example.test/pull/10', body: 'Closes #7\nCloses #12',
 };
 export const ISSUE = {
   number: 7, title: 'Theme toggle', state: 'OPEN',
