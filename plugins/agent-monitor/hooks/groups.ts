@@ -10,8 +10,8 @@ import type { View } from './views'
 /**
  * One group: `key` is `pr:<n>` or `other`; `pr` absent for Other. Totals over its agents: `tokens` (every step's usage, input, output
  * and cache, added up; View.tokens where the split is unknown), `cost` (sum of known costs, undefined when none is known), `ms` (wall
- * time: the union of the agents' spans, so agents that ran at once count once), `refusals` (their refused or errored tool calls,
- * View.denied). The group row shows tokens, cost and time; the published value carries all four.
+ * time: the union of the agents' spans, so agents that ran at once count once), `refusals` (tool calls a hook refused,
+ * View.refusals; errored results do not count). The group row shows tokens, cost and time; the published value carries all four.
  */
 export type Group = { key: string; pr?: PrEntry; views: View[]; tokens: number; cost?: number; ms: number; refusals: number }
 
@@ -32,7 +32,7 @@ const group = (key: string, pr: PrEntry | undefined, views: View[]): Group => ({
   tokens: views.reduce((n, v) => n + (v.spent ? spentTotal(v.spent) : (v.tokens ?? 0)), 0),
   cost: totalCost(views.map(v => v.cost)),
   ms: wallTime(views),
-  refusals: views.reduce((n, v) => n + v.denied, 0),
+  refusals: views.reduce((n, v) => n + v.refusals, 0),
 })
 
 /** The published per-PR totals: one entry per PR group with agents, keyed by the PR number; Other and empty groups give none. */

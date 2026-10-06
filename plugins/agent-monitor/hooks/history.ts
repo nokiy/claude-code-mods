@@ -151,7 +151,7 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
       durationMs: r.startedAt !== undefined && r.lastAt !== undefined ? r.lastAt - r.startedAt : undefined,
       status: 'done',
       branch: r.gitBranch,
-      ...(r.denied ? { denied: r.denied, reasons: denials.reasons } : {}),
+      ...(r.denied ? { denied: r.denied, reasons: denials.reasons, refusals: r.denied } : {}), // every transcript refusal is a hook's
     })
   }
   return out

@@ -333,7 +333,8 @@ export const register: Register = (on, options) => {
     } finally {
       if (id && tracked) {
         const done = await $.clock.now()
-        await track($, id, p => onToolEnd(p, tool, reasonOf(r), done, editDelta(file, r)))
+        const hookDenied = (r as { deny?: string } | undefined)?.deny !== undefined
+        await track($, id, p => onToolEnd(p, tool, reasonOf(r), done, editDelta(file, r), hookDenied))
       }
     }
     const launched = agentLaunched(e, r as { result?: unknown; isError?: boolean })

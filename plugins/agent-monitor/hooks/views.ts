@@ -58,6 +58,8 @@ export type View = {
   clashes: Clash[]
   /** The transcript's first-line branch (which PR the agent counts toward). */
   branch?: string
+  /** Hook denials only (AgentMonitorRec.refusals); `denied` also counts errored results. */
+  refusals: number
 }
 
 // What every screen draws from: the views (newest first), the session cwd for short paths, the settings, the PR index and current branch (PR mode).
@@ -174,6 +176,7 @@ export function buildViews(recs: Record<string, AgentMonitorRec>, list: ListAgen
       skills: r?.skills ?? [],
       result: r?.result,
       branch: r?.branch,
+      refusals: r?.refusals ?? 0,
       stall: r ? stallOf({ status, lastEventAt: r.lastEventAt, startedAt: r.startedAt, pendingTool: r.pendingTool }, now, ctx.stallMs ?? DEFAULT_STALL_MS) : undefined,
       tier: r ? tierMismatch(desc, r.actualModel, r.actualEffort) : undefined,
       clashes: [],

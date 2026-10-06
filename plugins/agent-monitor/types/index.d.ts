@@ -85,8 +85,10 @@ export type AgentMonitorRec = {
   pendingCalls?: Record<string, number>
   /** Tool calls per tool name; a backfilled agent gets Read / Search / Bash / Edit / Other from toolStats. */
   toolCounts?: Record<string, number>
-  /** Refused (a hook's deny) or errored tool results: from the hook events, else the transcript's `toolDenialKind` lines. The one refusal count: the alert's ×N and the PR's `refusals`. */
+  /** Refused (a hook's deny) or errored tool results: the alert's ×N, from the hook events, else the transcript's `toolDenialKind` lines. */
   denied?: number
+  /** Hook denials only (a hook's deny live, `toolDenialKind` lines in the transcript): what the PR's published `refusals` adds up. */
+  refusals?: number
   /** Their reasons, deduped by first line (at most 10 distinct). */
   reasons?: Denial[]
   /** The branch on the agent's transcript's first line: what the attribution rule (hooks/attribution.ts) reads. */
@@ -95,7 +97,7 @@ export type AgentMonitorRec = {
 
 /**
  * One PR's subagent totals, published for other mods (docs/adr/0001-cross-mod-state.md): tokens, estimated cost in USD (absent when
- * no agent's model has a price), wall time in ms (the union of the agents' spans), refused or errored tool calls. Canonical;
+ * no agent's model has a price), wall time in ms (the union of the agents' spans), tool calls a hook refused. Canonical;
  * pr-hint mirrors it in plugins/pr-hint/types/index.d.ts.
  */
 export type PrStat = { tokens: number; cost?: number; ms: number; refusals: number }

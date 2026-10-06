@@ -101,6 +101,31 @@ test('an agent watched live keeps every step\'s usage when its Agent result arri
   expect(pub.value?.['49']?.tokens).toBe(33_000)
 })
 
+test('refusals count hook denials only: a failed Bash run is no refusal', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on)
+  wire(on, fakeFs())
+  st.branch = 'dev'
+  st.gh = JSON.stringify(PRS)
+  const pub = { value: undefined as Stats | undefined }
+  on('state.set', async (_$, e, next) => {
+    if (e.plugin === 'agent-monitor' && e.key === 'prStats') pub.value = e.value as Stats
+    return next(e)
+  })
+  on('agent.spawn', async () => ({ agentId: 'R1', model: 'claude-opus-5-5' }))
+  // A hook refuses `rm`; `bun test` runs and fails.
+  on('tool.call', async (_$, e) => ((e as { command?: string }).command?.startsWith('rm') ? { deny: 'PreToolUse:Bash hook error: no rm' } : { result: {}, isError: true, text: 'exit code 1' }) as never)
+  await $.session.start({ cwd: ROOT } as never)
+  await $.agent.spawn({ subagentType: 'worker', description: '#44 tidy the rows', prompt: 'go' } as never)
+  st.agents = [{ id: 'R1', type: 'worker', status: 'running', description: '#44 tidy the rows' }]
+  await step($, 'R1', 'claude-opus-5-5', { input_tokens: 1_000, output_tokens: 100 })
+  await $.tool.call({ tool: 'Bash', command: 'rm -rf build', agentId: 'R1' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'bun test', agentId: 'R1' } as never)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  expect(pub.value?.['49']?.refusals).toBe(1)
+})
+
 test('the group row shows the same time as the published value: wall time, not the sum', async ($, on) => {
   const { pub } = await start($, on, {})
   expect(pub.value?.['49']?.ms).toBe(4 * 60_000)
