@@ -1,0 +1,33 @@
+# Builds the `release` branch (main without test files) on every push to main; marketplace installs read only that branch.
+# Runs with no Claude login: plugin validate needs none. Never add Claude credentials here.
+name: release-branch
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-branch
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Claude Code
+        run: npm i -g @anthropic-ai/claude-code@2.1.288
+      - name: Build and push release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          scripts/build-release.sh "$GITHUB_SHA" --push
