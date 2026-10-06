@@ -9,15 +9,15 @@ const plural = (n: number, one: string) => (n === 1 ? `1 ${one}` : `${n} ${one}s
 const PR_STATE: Record<'draft' | 'ready' | 'merged', string> = { draft: 'Draft', ready: 'Ready', merged: 'Merged' };
 // A ticket's status, English in both languages too: not started → running → Merged → accepted.
 const STATUS = { todo: 'not started', doing: 'running', merged: 'Merged', done: 'accepted' };
+// The card header's delivered count, English in both languages beside the English status words.
+const ticketCount = (d: number, n: number) => `Tickets ${d}/${n}`;
 
 const EN = {
   prState: PR_STATE,
   status: STATUS,
-  ticket: 'Ticket',
-  integration: 'integration branch',
+  ticketCount,
   behind: (n: number) => `${plural(n, 'commit')} behind`,
   noCi: 'no CI',
-  noTickets: 'no linked tickets',
   openPr: 'Open PR',
   fetched: (rel: string) => ` · fetched ${rel}`,
   refresh: '↻ refresh',
@@ -41,11 +41,9 @@ export type Strings = typeof EN;
 const ZH: Strings = {
   prState: PR_STATE,
   status: STATUS,
-  ticket: 'Ticket',
-  integration: '集成分支',
+  ticketCount,
   behind: n => `还差 ${n} 个提交`,
   noCi: 'CI 无',
-  noTickets: 'Tickets 无关联',
   openPr: '打开 PR',
   fetched: rel => ` · 拉取于 ${rel}`,
   refresh: '↻ 刷新',

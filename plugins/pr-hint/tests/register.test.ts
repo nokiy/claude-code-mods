@@ -66,12 +66,14 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       expect(hidden((await band.drawn()) as unknown as typeof root)).toContain('"display":"none"');
       const lines = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '');
       const idx = (re: RegExp) => lines.findIndex(l => re.test(l));
-      // Order: title, Spec, CI + PR state, ticket lines, link row (the Spec is not a ticket line).
-      expect(idx(/^PR #10 Add dark mode/)).toBeGreaterThanOrEqual(0);
-      expect(idx(/^PR #10 /)).toBeLessThan(idx(/^Spec #12 Dark mode · 深色模式贯穿设置页与编辑器 · integration branch dev ← spec\/12-dark-mode/));
-      expect(idx(/^Spec #12/)).toBeLessThan(idx(/^CI ✓1\/1 · Ready$/));
-      expect(idx(/^CI ✓1/)).toBeLessThan(idx(/^● #7 running Theme toggle · feat\/7-theme-toggle · 2 commits behind/));
-      expect(idx(/^● #7/)).toBeLessThan(idx(/^Open PR · fetched just now$/));
+      // Exactly two header rows (PR #n, title, bar, Tickets d/n, Spec #n; then ◐ N running), ticket lines, link row.
+      const rows = lines.filter(l => /^(PR #10 .+ Tickets|◐ \d+ running|● #\d+ |Open PR)/.test(l));
+      expect(rows).toHaveLength(4);
+      expect(rows[0]).toMatch(/^PR #10 Add dark mode █*░+ Tickets 0\/1 · Spec #12$/);
+      expect(rows[1]).toBe('◐ 1 running');
+      expect(rows[2]).toBe('● #7 running Theme toggle · feat/7-theme-toggle · 2 commits behind');
+      expect(rows[3]).toBe('Open PR · fetched just now');
+      expect(idx(/^PR #10 /)).toBeLessThan(idx(/^◐/));
       expect(lines.some(l => l.startsWith('● #12'))).toBe(false);
       await band.unmount();
     } else {
@@ -260,9 +262,35 @@ test('a PR GitHub links no issue to (non-default base) reads its Closes #N issue
   expect(tally.issues).toBe(1);
   const band = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS });
   expect(await band.find({ type: 'Text', text: /^● #7 running Theme toggle/ })).toBeDefined();
-  expect(await band.find({ type: 'Text', text: /^Spec #12 / })).toBeDefined();
+  expect(await band.find({ type: 'Text', text: /^PR #10 .+ · Spec #12$/ })).toBeDefined();
   await band.unmount();
 });
+
+// The card header reads the same for a Draft and a Ready PR, in either language: no state word, no percent;
+// ticket status words stay English.
+for (const lang of ['en', 'zh'] as const) {
+  for (const isDraft of [true, false]) {
+    test(`card header: no Draft / Ready, no %, English status words (${lang}, draft ${isDraft})`, { options: { language: lang } }, async ($, on) => {
+      const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+      wire(on);
+      engineLines(on);
+      PR.isDraft = isDraft;
+      try {
+        await $.session.start({ cwd: '/tmp/x' } as never);
+        await clock.settle();
+        const band = await mountBand($);
+        const lines = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '');
+        const head = lines.filter(l => /^(PR #10 .+ Tickets|◐ \d+ running)/.test(l));
+        expect(head).toHaveLength(2);
+        expect(head.join('\n')).not.toMatch(/Draft|Ready|%/);
+        expect(lines).toContain('● #7 running Theme toggle · feat/7-theme-toggle · ' + (lang === 'zh' ? '还差 2 个提交' : '2 commits behind'));
+        await band.unmount();
+      } finally {
+        PR.isDraft = false;
+      }
+    });
+  }
+}
 
 test('two session.start events leave one timer per tier', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
