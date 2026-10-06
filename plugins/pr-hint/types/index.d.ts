@@ -1,4 +1,4 @@
-// State contract of pr-hint: the PR snapshot the hint line and hover card draw from.
+// State contract of pr-hint: the PR snapshot the hint line and hover card draw from, plus a read-only mirror of agent-monitor's `prStats`.
 
 export type PrCi = { ok: number; fail: number; pending: number; total: number };
 

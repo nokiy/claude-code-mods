@@ -1,5 +1,6 @@
 // Session state contract of agent-monitor: one record per subagent, the panel's page and focus, the settings draft, the session's
-// placement override and the main loop's recent edits, kept in `$.state` so a hot reload keeps them.
+// placement override, the main loop's recent edits and the per-PR totals published to other mods (`prStats`), kept in `$.state` so a
+// hot reload keeps them.
 
 /** One distinct denied / errored tool result, deduped by its first line. */
 export type Denial = { text: string; n: number }
