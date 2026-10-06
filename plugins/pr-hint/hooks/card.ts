@@ -115,26 +115,42 @@ const headLine = (pr: PrData, s: Strings, room: number): CardLine => {
   ]);
 };
 
-/** Header line 2's runs: `◐ N running`, N the tickets in progress. Later segments append here. */
-export const statusParts = (pr: PrData, s: Strings): CardPart[] => [
+// agent-monitor's figures, written the way its own panel writes them: `86.2k`, `12m34s`, `$1.25`.
+const tokenText = (n: number) => (n < 1000 ? String(n) : n < 1_000_000 ? `${(n / 1000).toFixed(1)}k` : `${(n / 1_000_000).toFixed(1)}M`);
+const timeText = (ms: number) => {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(sec / 60);
+  return sec < 60 ? `${sec}s` : m < 60 ? `${m}m${String(sec % 60).padStart(2, '0')}s` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`;
+};
+const moneyText = (usd: number) => (usd > 0 && usd < 0.005 ? '<$0.01' : `$${usd.toFixed(2)}`);
+
+/**
+ * Header line 2's runs: `◐ N running`, N the tickets in progress; then, with agent-monitor's `stats` for this PR,
+ * ` · ≈$ · tokens · time (subagents only)` (no `≈$` when no price is known) and ` · blocked ×N` when hooks refused any.
+ */
+export const statusParts = (pr: PrData, s: Strings, stats?: PrStat): CardPart[] => [
   { text: '◐', color: STATUS_COLOR.doing },
   { text: ` ${pr.tickets.filter(t => t.status === 'doing').length} ${s.status.doing}` },
+  ...(stats ? [
+    { text: ` · ${stats.cost === undefined ? '' : `≈${moneyText(stats.cost)} · `}${tokenText(stats.tokens)} tokens · ${timeText(stats.ms)}` },
+    { text: ` ${s.agentsOnly}`, dim: true },
+    ...(stats.refusals > 0 ? [{ text: ` · ${s.refused(stats.refusals)}`, color: 'red' }] : []),
+  ] : []),
 ];
 
 /**
  * The card, top to bottom: two header lines (line 1 fits `titleInner`, the width the refresh button
  * leaves; line 2 is `statusParts`), then one line per ticket, `inner` cells wide. `footer` follows the link.
- * `extra.stats` is this PR's subagent totals read from agent-monitor (undefined when absent); not drawn.
+ * `extra.stats` is this PR's subagent totals read from agent-monitor (undefined when absent: line 2 stays `◐ N running`).
  */
 export function cardLines(
   pr: PrData, nowMs: number, inner: number, s: Strings, titleInner = inner, extra: { stats?: PrStat } = {},
 ): { lines: CardLine[]; footer: string } {
-  void extra;
   const subjects = ticketSubjects(pr.tickets);
   return {
     lines: [
       headLine(pr, s, titleInner),
-      line(statusParts(pr, s)),
+      line(statusParts(pr, s, extra.stats)),
       ...sortTickets(pr.tickets).map(t => ticketLine(t, subjects.get(t.number) ?? t.title, s, inner)),
     ],
     footer: s.fetched(relTime(pr.fetchedAt, nowMs, s)),

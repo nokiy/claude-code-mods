@@ -2,10 +2,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentMonitorDraft, AgentMonitorRec, MainEdit } from '../types'
+import type { AgentMonitorDraft, AgentMonitorRec, MainEdit, PrStat } from '../types'
 import { alertLines, dueToasts } from './alertlines'
 import { MAX_MAIN, editedPath, normPath, reasonOf } from './alerts'
 import { DEFAULTS, readConfig, type Config } from './config'
+import { groupByPr, prStats } from './groups'
 import { historyRecs, projectDir, refreshProject, withHistory, type TxEntry } from './history'
 import { inScope } from './logic'
 import { CLOSED, pageStr, parsePage, ringKeyOf, siteFlags, subEffects, type NavPatch, type Placement } from './nav'
@@ -32,6 +33,7 @@ const draft = atom({ plugin: 'agent-monitor', key: 'draft' } as const, null as A
 const sessionPlacement = atom({ plugin: 'agent-monitor', key: 'sessionPlacement' } as const, null as Placement | null)
 const mode = atom({ plugin: 'agent-monitor', key: 'mode' } as const, 'pr' as 'pr' | 'agent')
 const expanded = atom({ plugin: 'agent-monitor', key: 'expanded' } as const, {} as Record<string, boolean>)
+const published = atom({ plugin: 'agent-monitor', key: 'prStats' } as const, {} as Record<string, PrStat>)
 
 type Recs = Record<string, AgentMonitorRec>
 let cfg: Config = DEFAULTS // the settings (plugin.json userConfig); a change in /config or on the settings page reloads the module, so register() sets it afresh
@@ -101,7 +103,9 @@ async function readHistory($: EngineInterface, current = false) {
 }
 const prCache: PrCache = {} // the PR index (prindex.ts: `gh pr list` on an interval, last good kept in the store) and the session's branch, for the PR mode
 let prView: PrView = { prs: [] }
-const refreshPrs = async ($: EngineInterface) => { prView = await refreshIndex({ run: a => $.process.run(a), load: k => $.store.get(k), save: (k, v) => $.store.set(k, v) }, prCache, await $.clock.now()); $.ui.invalidate('ui.render') }
+const refreshPrs = async ($: EngineInterface) => { prView = await refreshIndex({ run: a => $.process.run(a), load: k => $.store.get(k), save: (k, v) => $.store.set(k, v) }, prCache, await $.clock.now()); await publish($); $.ui.invalidate('ui.render') }
+// The per-PR subagent totals other mods read (docs/adr/0001-cross-mod-state.md), written only when they change: each write redraws the readers.
+const publish = async ($: EngineInterface, views?: Board['views']) => { const next = prStats(groupByPr(views ?? (await loadBoard($)).views, prView.prs)); if (JSON.stringify(next) !== JSON.stringify(await read($, published))) await update($, published, () => next) }
 // Agents the mod never saw spawn come back from the main conversation (its Agent tool uses and task notifications), earlier ones from the transcripts.
 async function backfill($: EngineInterface) {
   await Promise.all([readHistory($), refreshPrs($)])
@@ -110,6 +114,7 @@ async function backfill($: EngineInterface) {
     const recs = await read($, agents)
     if (mergeBackfill(recs, found) !== recs) await update($, agents, (all: Record<string, AgentMonitorRec>) => mergeBackfill(all, found))
   } catch { /* the conversation is not readable now: the live records still stand */ }
+  await publish($)
 }
 // One tick a second while an agent runs; one toast per agent per conflict / stall (`warned:<agentId>:<kind>` in the store, `told` its memory in this load).
 const told = new Set<string>()
@@ -128,7 +133,7 @@ function ensureTimer($: EngineInterface) {
     try {
       await Promise.all([settleStale($), readHistory($, true)])
       const board = await loadBoard($)
-      await warn($, board)
+      await Promise.all([warn($, board), publish($, board.views)])
       if (!board.views.some(v => v.status === 'running')) stopTimer()
       $.ui.invalidate('ui.render')
     } catch { stopTimer() } // a later event starts a fresh timer
@@ -301,19 +306,13 @@ export const register: Register = (on, options) => {
       }
     }
     const launched = agentLaunched(e, r as { result?: unknown; isError?: boolean })
-    if (launched) {
-      const at = await $.clock.now()
-      await track($, launched.res.agentId, p => onAgentResult(p, launched.call, launched.res, at), true)
-      $.ui.invalidate('ui.render')
-    }
+    if (launched) { const at = await $.clock.now(); await track($, launched.res.agentId, p => onAgentResult(p, launched.call, launched.res, at), true); $.ui.invalidate('ui.render') }
     return r
   })
   on('turn.complete', async ($, e, next) => {
     if (!(await active($))) return next(e)
-    if (e.agentId) {
-      const now = await $.clock.now()
-      if (await track($, e.agentId, p => onComplete(p, e.reason, now))) $.ui.invalidate('ui.render')
-    }
+    const now = await $.clock.now()
+    if (e.agentId && (await track($, e.agentId, p => onComplete(p, e.reason, now)))) $.ui.invalidate('ui.render')
     return next(e)
   })
   // The band above the prompt: the panel while `/sub top` is open, else the running agents, one row each.

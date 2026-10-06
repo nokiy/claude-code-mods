@@ -1,6 +1,6 @@
 # 0001 · Cross-mod state: agent-monitor publishes, pr-hint reads
 
-Status: accepted · Spec #36 · Ticket #40
+Status: accepted · Spec #36 · Ticket #40 (contract) · Ticket #45 (written and drawn)
 
 ## Context
 
@@ -12,11 +12,16 @@ agent-monitor owns one published value in `$.state`; pr-hint reads it with a lit
 
 - **Key:** `PluginState['agent-monitor'].prStats`.
 - **Type:** `Record<string, PrStat>`, keyed by the PR number as a string (`$.state` holds JSON, so object keys are strings).
-- **Fields:** `PrStat = { tokens: number; cost: number; ms: number; refusals: number }`: the PR's subagent tokens, estimated cost in USD, wall time in ms, and hook-refused tool calls. Subagents only; the main session is not counted.
+- **Fields:** `PrStat = { tokens: number; cost?: number; ms: number; refusals: number }`, all over the PR's subagents (the main session is not counted), the same figures as agent-monitor's PR-mode group row:
+  - `tokens`: the sum of each agent's tokens.
+  - `cost`: estimated USD at agent-monitor's price table; absent when no agent's model has a price (unknown, never `0`).
+  - `ms`: wall time, the length of the union of the agents' spans (start to start + elapsed), so agents that ran at once count once. Not the panel's Σ of elapsed times.
+  - `refusals`: tool calls a hook refused, counted from the agents' transcripts (lines carrying `toolDenialKind`), not from live tool errors.
+- **Which PRs:** a PR gets an entry once at least one subagent is attributed to it (`hooks/attribution.ts`); agents of no PR (Other) are never published. agent-monitor computes it in `hooks/groups.ts` (`prStats`) and writes it from `register.tsx` after a transcript scan, after each PR-index refresh and on the 1 s tick while an agent runs, only when the value changed (each write redraws the readers), never while drawing.
 - **Owner:** agent-monitor alone writes it (the engine refuses a write from any other plugin). Its contract `plugins/agent-monitor/types/index.d.ts` holds the canonical `PrStat`.
-- **Reader:** pr-hint, in its AbovePrompt hook (`plugins/pr-hint/hooks/register.tsx`): `$.state.get({ plugin: 'agent-monitor', key: 'prStats' } as const)`, and it hands this PR's entry to `cardLines` as `extra.stats`. The read happens while the card draws, so a later write by agent-monitor redraws the card.
+- **Reader:** pr-hint, in its AbovePrompt hook (`plugins/pr-hint/hooks/register.tsx`): `$.state.get({ plugin: 'agent-monitor', key: 'prStats' } as const)`, and it hands this PR's entry to `cardLines` as `extra.stats`, which appends ` · ≈$ · tokens · time (subagents only)` and ` · blocked ×N` (N > 0) to header line 2. The read happens while the card draws, so a later write by agent-monitor redraws the card.
 - **One-way dependency:** pr-hint lists no `dependencies` in `plugin.json`, so installing pr-hint never pulls agent-monitor in. To type-check the read anyway, pr-hint's own contract mirrors the one key (`'agent-monitor': { prStats: Record<string, PrStat> }`). A mirror is valid only while agent-monitor's contract is not laid beside pr-hint's. If pr-hint ever adds a `dependencies` entry, delete the mirror: two declarations of the `'agent-monitor'` property would no longer merge (TS2717). Change `PrStat` in agent-monitor first, then copy it to the mirror.
-- **Absent value:** with agent-monitor not installed, or installed but not yet written for this PR, the read gives `undefined`, and pr-hint draws the card exactly as it does without the value. There is no placeholder, zero or error. agent-monitor publishes only PRs it has data for, so a missing entry means "unknown", never "zero".
+- **Absent value:** with agent-monitor not installed, or installed but not yet written for this PR, the read gives `undefined`, and pr-hint draws the card exactly as it does without the value (line 2 is `◐ N running` alone). There is no placeholder, zero or error. agent-monitor publishes only PRs it has data for, so a missing entry means "unknown", never "zero".
 
 ## Evidence (spike, Claude Code 2.1.291)
 

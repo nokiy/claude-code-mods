@@ -237,7 +237,7 @@ for (const pin of [false, true]) {
   });
 }
 
-test("the card reads agent-monitor's prStats: absent or present, the card is drawn as before", async ($, on) => {
+test("the card reads agent-monitor's prStats: absent, line 2 is ◐ N running alone; present, it gains cost and refusals", async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
   wire(on);
   engineLines(on);
@@ -252,12 +252,12 @@ test("the card reads agent-monitor's prStats: absent or present, the card is dra
   };
   const absent = await draw();
   expect(stats.reads).toBeGreaterThan(0);
-  expect(absent.filter(l => /^PR #10 /.test(l))).toHaveLength(1);
+  expect(absent.filter(l => /^◐ \d+ running$/.test(l))).toHaveLength(1);
   const seen = stats.reads;
   stats.value = { '10': { tokens: 86_200, cost: 1.25, ms: 754_000, refusals: 2 } };
   const present = await draw();
   expect(stats.reads).toBeGreaterThan(seen);
-  expect(present).toEqual(absent);
+  expect(present.filter(l => /^◐ \d+ running · ≈\$1\.25 · 86\.2k tokens · 12m34s \(subagents only\) · blocked ×2$/.test(l))).toHaveLength(1);
 });
 
 test('with a PR and an empty rest of the chain, the band shows the card alone', async ($, on) => {

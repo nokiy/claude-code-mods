@@ -91,13 +91,16 @@ export type AgentMonitorRec = {
   reasons?: Denial[]
   /** The branch on the agent's transcript's first line: what the attribution rule (hooks/attribution.ts) reads. */
   branch?: string
+  /** Hook refusals counted from the transcript (lines carrying `toolDenialKind`); set by the history alone, so it survives the merge. */
+  refused?: number
 }
 
 /**
- * One PR's subagent totals, published for other mods (docs/adr/0001-cross-mod-state.md): tokens, estimated cost in USD,
- * wall time in ms, hook refusals. Canonical; pr-hint mirrors it in plugins/pr-hint/types/index.d.ts.
+ * One PR's subagent totals, published for other mods (docs/adr/0001-cross-mod-state.md): tokens, estimated cost in USD (absent when
+ * no agent's model has a price), wall time in ms (the union of the agents' spans), hook refusals from the transcripts. Canonical;
+ * pr-hint mirrors it in plugins/pr-hint/types/index.d.ts.
  */
-export type PrStat = { tokens: number; cost: number; ms: number; refusals: number }
+export type PrStat = { tokens: number; cost?: number; ms: number; refusals: number }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -120,7 +123,7 @@ declare module 'claude-code' {
       sessionPlacement: 'top' | 'right' | null
       /** The main loop's recent file edits, for conflicts with a running subagent. */
       mainEdits: MainEdit[]
-      /** Published (pr-hint reads it): subagent totals per PR, keyed by the PR number as a string. Never written yet: absent. */
+      /** Published (pr-hint reads it): subagent totals per PR, keyed by the PR number as a string; only PRs with subagents (hooks/groups.ts `prStats`). */
       prStats: Record<string, PrStat>
       /** The table's mode: `pr` (grouped by PR, the default) or `agent` (one flat list). */
       mode: 'pr' | 'agent'

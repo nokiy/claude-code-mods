@@ -204,6 +204,25 @@ test('ticketSubjects drops a leading [mod] tag, before the shared lead is looked
   expect(shared.get(2)).toBe('② 配色');
 });
 
+// agent-monitor's published totals for this PR (docs/adr/0001-cross-mod-state.md): 86.2k tokens, $1.25, 12 min 34 s, 2 refusals.
+const STATS = { tokens: 86_200, cost: 1.25, ms: 754_000, refusals: 2 };
+const line2 = (s = en, stats?: typeof STATS | Omit<typeof STATS, 'cost'>) =>
+  cardLines({ ...base, tickets: [t(1, 'doing')] }, NOW, 90, s, 90, { stats }).lines[1]!;
+
+test('line 2 carries the subagents\' cost, tokens and time, marked subagents only, then the refusals', () => {
+  expect(line2(zh, STATS).text).toBe('◐ 1 running · ≈$1.25 · 86.2k tokens · 12m34s (仅子代理) · 拦截 ×2');
+  expect(line2(en, STATS).text).toBe('◐ 1 running · ≈$1.25 · 86.2k tokens · 12m34s (subagents only) · blocked ×2');
+  const parts = line2(en, STATS).parts;
+  expect(parts.find(p => p.text.includes('subagents only'))?.dim).toBe(true);
+  expect(parts.find(p => p.text.includes('blocked'))?.color).toBe('red');
+});
+
+test('line 2 without agent-monitor\'s value is only ◐ N running; no refusals or no price drops that segment alone', () => {
+  expect(line2(en).text).toBe('◐ 1 running');
+  expect(line2(en, { ...STATS, refusals: 0 }).text).toBe('◐ 1 running · ≈$1.25 · 86.2k tokens · 12m34s (subagents only)');
+  expect(line2(en, { tokens: 900, ms: 5_000, refusals: 0 }).text).toBe('◐ 1 running · 900 tokens · 5s (subagents only)');
+});
+
 test('withoutAgents drops the agents pill so the row keeps one length while typing', () => {
   expect(withoutAgents('▸▸ bypass permissions on · (shift+tab to cycle) · ← 3 agents')).toBe('▸▸ bypass permissions on · (shift+tab to cycle)');
   expect(withoutAgents('▸▸ bypass permissions on (shift+tab to cycle) · ← 1 agent')).toBe('▸▸ bypass permissions on (shift+tab to cycle)');
