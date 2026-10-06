@@ -25,16 +25,24 @@ test('↻ refresh is on the card header row; a press runs a full fetch and toast
   expect(btn?.props.label).toBe(' ↻ refresh ');
   expect(btn?.props.plain).toBe(true);
 
-  st.issue7 = { ...ISSUE, state: 'CLOSED' };
   const before = tally.gql;
-  await band.press({ key: 'refresh' });
-  await clock.settle();
+  PR.state = 'MERGED';
+  try {
+    await band.press({ key: 'refresh' });
+    await clock.settle();
+  } finally {
+    PR.state = 'OPEN';
+  }
   expect(tally.gql).toBe(before + 1);
-  expect(toasts).toEqual(['PR #10 updated: merged 0/1 → 1/1 · accepted 0/1 → 1/1']);
+  expect(toasts).toEqual(['PR #10 updated: Ready → Merged']);
 
+  // A ticket closing is not a PR change: the toast reads only the PR state (here back to the fixture's Ready).
+  st.issue7 = { ...ISSUE, state: 'CLOSED' };
   await band.press({ key: 'refresh' });
   await clock.settle();
-  expect(toasts).toEqual([toasts[0], 'PR #10 is up to date']);
+  await band.press({ key: 'refresh' });
+  await clock.settle();
+  expect(toasts).toEqual([toasts[0], 'PR #10 updated: Merged → Ready', 'PR #10 is up to date']);
   // The footer shows the fetch time and nothing else.
   expect((await band.findAll({ type: 'Text' })).some(x => /^Open PR · fetched just now$/.test(x.text ?? ''))).toBe(true);
   expect((await band.find({ type: 'Button', key: 'refresh' }))?.props.label).toBe(' ↻ refresh ');
@@ -73,16 +81,16 @@ test('a failed fetch keeps the data and the old fetch time, and the toast says i
   await band.unmount();
 });
 
-test('a PR that is gone toasts that no PR is open', async ($, on) => {
+test('a PR that is gone (closed unmerged) toasts that the branch has no PR', async ($, on) => {
   const { clock, band, toasts } = await setup($, on);
-  PR.state = 'MERGED';
+  PR.state = 'CLOSED';
   try {
     await band.press({ key: 'refresh' });
     await clock.settle();
   } finally {
     PR.state = 'OPEN';
   }
-  expect(toasts).toEqual(['No open PR on this branch']);
+  expect(toasts).toEqual(['No PR on this branch']);
   await band.unmount();
 });
 
@@ -92,7 +100,7 @@ test('while a full fetch is in flight the press joins it (one gh request), shows
   st.gate = new Promise<void>(r => (release = r));
   // The 5 min tick starts a refresh that hangs on gh.
   await clock.advance(300_000);
-  st.issue7 = { ...ISSUE, state: 'CLOSED' };
+  PR.isDraft = true;
   const first = band.press({ key: 'refresh' });
   await clock.settle();
   expect((await band.find({ type: 'Button', key: 'refresh' }))?.props.label).toBe(' refreshing… ');
@@ -101,10 +109,14 @@ test('while a full fetch is in flight the press joins it (one gh request), shows
   expect(toasts).toEqual([]);
 
   release();
-  await first;
-  await second;
-  await clock.settle();
-  expect(toasts).toEqual(['PR #10 updated: merged 0/1 → 1/1 · accepted 0/1 → 1/1']);
+  try {
+    await first;
+    await second;
+    await clock.settle();
+  } finally {
+    PR.isDraft = false;
+  }
+  expect(toasts).toEqual(['PR #10 updated: Ready → Draft']);
   // The start-up fetch and the one the press joined: no third request was queued.
   expect(tally.gql).toBe(2);
   expect((await band.find({ type: 'Button', key: 'refresh' }))?.props.label).toBe(' ↻ refresh ');

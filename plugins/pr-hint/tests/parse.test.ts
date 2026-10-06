@@ -2,7 +2,7 @@
 import { describe, expect, test } from 'claude-code/testing';
 import type { PrTicket, TicketStatus } from '../types';
 import type { TicketFacts } from '../hooks/parse';
-import { bodyClosingNumbers, closingNumbers, isInside, mergedByCommits, parseAcceptance, parseCi, parsePr, pickShown, relTime, sameWhere, shortTitle, sortTickets, summarize, ticketBranches, ticketStatus, truncate, width, wrapCells } from '../hooks/parse';
+import { bodyClosingNumbers, closingNumbers, isInside, mergedByCommits, parseAcceptance, parseCi, parsePr, pickShown, prState, relTime, sameWhere, shortTitle, sortTickets, ticketBranches, ticketStatus, truncate, width, wrapCells } from '../hooks/parse';
 import { strings } from '../hooks/strings';
 
 describe('parseCi', () => {
@@ -114,8 +114,11 @@ describe('ticket status from git', () => {
     expect([...mergedByCommits(heads, [8, 107, 132, 133, 134])].sort((a, b) => a - b)).toEqual([107, 132]);
   });
   const mk = (number: number, status: TicketStatus): PrTicket => ({ number, title: '', state: '', progress: null, status, branch: null, ahead: 0 });
-  test('summarize: merged = merged + done, accepted = done', () => {
-    expect(summarize([mk(1, 'merged'), mk(2, 'done'), mk(3, 'todo'), mk(4, 'doing')])).toEqual({ merged: 2, done: 1, total: 4 });
+  test('prState: MERGED → merged; an open draft → draft; an open non-draft → ready', () => {
+    expect(prState({ state: 'MERGED', isDraft: false })).toBe('merged');
+    expect(prState({ state: 'MERGED', isDraft: true })).toBe('merged');
+    expect(prState({ state: 'OPEN', isDraft: true })).toBe('draft');
+    expect(prState({ state: 'OPEN', isDraft: false })).toBe('ready');
   });
   test('sortTickets: in progress, not started, merged, done, stable within a status', () => {
     const sorted = sortTickets([mk(1, 'done'), mk(2, 'merged'), mk(3, 'todo'), mk(4, 'doing'), mk(5, 'doing'), mk(6, 'merged')]);

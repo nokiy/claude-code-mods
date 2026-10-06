@@ -5,9 +5,11 @@ export type Lang = 'en' | 'zh';
 
 const plural = (n: number, one: string) => (n === 1 ? `1 ${one}` : `${n} ${one}s`);
 
+// The PR's own state, the same English words in both languages (owner's ruling): Draft → Ready → Merged.
+const PR_STATE: Record<'draft' | 'ready' | 'merged', string> = { draft: 'Draft', ready: 'Ready', merged: 'Merged' };
+
 const EN = {
-  merged: 'merged',
-  accepted: 'accepted',
+  prState: PR_STATE,
   status: { todo: 'not started', doing: 'in progress', merged: 'merged', done: 'accepted' },
   ticket: 'Ticket',
   integration: 'integration branch',
@@ -21,7 +23,7 @@ const EN = {
   tickets: 'tickets',
   upToDate: (n: number) => `PR #${n} is up to date`,
   changed: (n: number, what: string) => `PR #${n} updated: ${what}`,
-  gone: 'No open PR on this branch',
+  gone: 'No PR on this branch',
   failed: 'Fetch failed, try again later',
   rel: {
     unknown: 'unknown',
@@ -35,8 +37,7 @@ const EN = {
 export type Strings = typeof EN;
 
 const ZH: Strings = {
-  merged: '合入',
-  accepted: '验收',
+  prState: PR_STATE,
   status: { todo: '未开始', doing: '进行中', merged: '已合入', done: '已验收' },
   ticket: 'Ticket',
   integration: '集成分支',
@@ -50,7 +51,7 @@ const ZH: Strings = {
   tickets: 'Tickets',
   upToDate: n => `PR #${n} 已是最新`,
   changed: (n, what) => `PR #${n} 已更新：${what}`,
-  gone: '当前分支已没有打开的 PR',
+  gone: '当前分支已没有 PR',
   failed: '拉取失败，稍后再试',
   rel: {
     unknown: '未知',

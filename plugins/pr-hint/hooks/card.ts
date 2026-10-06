@@ -1,6 +1,7 @@
 // Pure text for the AbovePrompt detail card (full hierarchy, no row cap) and the hint row's spans and layout.
 import type { PrData, PrTicket, TicketStatus } from '../types';
-import { relTime, shortTitle, sortTickets, summarize, truncate, width, wrapCells } from './parse';
+import { prState, relTime, shortTitle, sortTickets, truncate, width, wrapCells } from './parse';
+import type { PrState } from './parse';
 import type { Strings } from './strings';
 
 /** One coloured run inside a line. */
@@ -13,6 +14,19 @@ export const STATUS_COLOR: Record<TicketStatus, string> = {
   doing: 'yellow',
   merged: 'blueBright',
   done: 'green',
+};
+
+/** The PR state chip: building, waiting on the owner's acceptance, done. */
+export const STATE_COLOR: Record<PrState, string> = {
+  draft: 'yellow',
+  ready: 'magenta',
+  merged: 'green',
+};
+
+/** The chip's text and colour for one PR. */
+export const stateChip = (pr: PrData, s: Strings): { text: string; color: string } => {
+  const state = prState(pr);
+  return { text: s.prState[state], color: STATE_COLOR[state] };
 };
 
 const line = (parts: CardPart[]): CardLine => ({ text: parts.map(p => p.text).join(''), parts });
@@ -60,23 +74,19 @@ const ticketLine = (t: PrTicket, subject: string, s: Strings, inner: number): Ca
 const ciText = (ci: PrData['ci'], s: Strings): string =>
   ci.total === 0 ? s.noCi : `CI ✓${ci.ok}/${ci.total}${ci.fail > 0 ? ` ✗${ci.fail}` : ''}${ci.pending > 0 ? ` ↻${ci.pending}` : ''}`;
 
-const stateText = (p: PrData): string => (p.isDraft ? `${p.state} (draft)` : p.state);
-
 /**
- * The toast after a manual refresh: what changed between `prev` and `next` (title, state, CI,
- * merged and accepted counts, number of tickets), "up to date" when nothing did, or that the PR is gone.
+ * The toast after a manual refresh: what changed between `prev` and `next` (title, PR state, CI,
+ * number of tickets), "up to date" when nothing did, or that the PR is gone.
  */
 export function refreshText(prev: PrData | null, next: PrData | null, s: Strings): string {
   if (next === null) return s.gone;
   if (prev === null) return s.upToDate(next.number);
-  const a = summarize(prev.tickets);
-  const b = summarize(next.tickets);
+  const was = stateChip(prev, s).text;
+  const now = stateChip(next, s).text;
   const parts = [
     prev.title !== next.title ? `“${next.title}”` : '',
-    stateText(prev) !== stateText(next) ? `${stateText(prev)} → ${stateText(next)}` : '',
+    was !== now ? `${was} → ${now}` : '',
     ciText(prev.ci, s) !== ciText(next.ci, s) ? ciText(next.ci, s) : '',
-    a.merged !== b.merged || a.total !== b.total ? `${s.merged} ${a.merged}/${a.total} → ${b.merged}/${b.total}` : '',
-    a.done !== b.done || a.total !== b.total ? `${s.accepted} ${a.done}/${a.total} → ${b.done}/${b.total}` : '',
     prev.tickets.length !== next.tickets.length ? `${s.tickets} ${prev.tickets.length} → ${next.tickets.length}` : '',
   ].filter(Boolean);
   return parts.length === 0 ? s.upToDate(next.number) : s.changed(next.number, parts.join(' · '));
@@ -84,7 +94,7 @@ export function refreshText(prev: PrData | null, next: PrData | null, s: Strings
 
 /**
  * The card, top to bottom, `inner` cells wide: the PR title (wrapped to at most
- * 3 rows), the Spec with its integration branch, the CI and merged/accepted summary,
+ * 3 rows), the Spec with its integration branch, the CI and the PR state chip,
  * then one line per ticket. `footer` follows the link.
  */
 export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings, titleInner = inner): { lines: CardLine[]; footer: string } {
@@ -112,22 +122,17 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings, 
   } else if (pr.tickets.length >= 2) {
     meta = line([{ text: branches, color: 'magenta' }]);
   } else {
-    meta = line([{ text: `${branches} · ${stateText(pr)}` }]);
+    meta = line([{ text: branches }]);
   }
 
   const { ci } = pr;
   const ciColor = ci.total === 0 ? undefined : ci.fail > 0 ? 'red' : ci.pending > 0 ? 'yellow' : 'green';
-  const sum = summarize(pr.tickets);
+  const chip = stateChip(pr, s);
   const summary = line([
     { text: ciText(ci, s), color: ciColor },
-    ...(pr.tickets.length === 0
-      ? [{ text: ` · ${s.noTickets}` }]
-      : [
-          { text: ` · ${s.merged} ` },
-          { text: `${sum.merged}/${sum.total}`, color: STATUS_COLOR.merged, bold: true },
-          { text: ` · ${s.accepted} ` },
-          { text: `${sum.done}/${sum.total}`, color: STATUS_COLOR.done, bold: true },
-        ]),
+    { text: ' · ' },
+    { text: chip.text, color: chip.color, bold: true },
+    ...(pr.tickets.length === 0 ? [{ text: ` · ${s.noTickets}` }] : []),
   ]);
 
   return {
@@ -139,14 +144,13 @@ export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings, 
 /**
  * What fits on the hint row after the hint text: `available` is the row's width
  * less the hint, the ` · ` separator and a safety margin. The title takes all
- * that is left after `PR #N ` and the summary, cut with `…`. When under 8 cells
- * would remain for the title, the summary goes first, then the title shrinks.
+ * that is left after `PR #N ` and the state chip, cut with `…`. When under 8 cells
+ * would remain for the title, the chip goes first, then the title shrinks.
  */
 export function hintLayout(pr: PrData, available: number, s: Strings): { title: string; hasSummary: boolean } {
   const head = width(`PR #${pr.number} `);
-  const sum = summarize(pr.tickets);
-  const summary = pr.tickets.length === 0 ? 0 : width(` · ${s.merged} ${sum.merged}/${sum.total} · ${s.accepted} ${sum.done}/${sum.total}`);
-  if (summary > 0 && available - head - summary >= 8) {
+  const summary = width(` · ${stateChip(pr, s).text}`);
+  if (available - head - summary >= 8) {
     return { title: truncate(pr.title, available - head - summary), hasSummary: true };
   }
   return { title: truncate(pr.title, Math.max(8, available - head)), hasSummary: false };
