@@ -2,7 +2,7 @@
 // `panel` picks the page (table, detail, settings) for a site (band or pane). In PR mode (the default) the table's body is grouped by prtable.tsx. Colors come from palette.ts.
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import { alertLines, alertMark, capAlerts, segsWidth } from './alertlines'
+import { alertClock, alertLines, alertMark, capAlerts, segsWidth } from './alertlines'
 import { capRows, cellWidth, collapse, fitRow, resolveTier, tierName } from './logic'
 import type { Strings } from './strings'
 import type { Board, View } from './views'
@@ -115,20 +115,22 @@ export function runningRow(ui: Ui, v: View, ctx: PageCtx, acts: Acts, auto: bool
   )
 }
 
-// The Alerts block: up to four sentences, `+N more` after them; nothing when there are none.
+// The Alerts block: the newest four lines of the alert timeline (`time  tag  sentence`), `+N more` before them for the earlier ones;
+// nothing when there are none.
 function alertsBlock(ui: Ui, board: Board) {
   const { Box, Text } = ui
   const { shown, hidden } = capAlerts(alertLines(board.views, board.cwd, board.t))
   if (shown.length === 0) return null
   return (
     <Box flexDirection="column">
+      {hidden > 0 && <Text color={gray}>{`   +${hidden} more`}</Text>}
       {shown.map((l, i) => (
         <Text key={String(i)} wrap="truncate-end">
+          <Text color={gray}>{` ${alertClock(l)}`}</Text>
           <Text color={l.color} bold>{` ${l.tag} ${l.label}`}</Text>
           <Text color={fg}>{`  ${l.body}`}</Text>
         </Text>
       ))}
-      {hidden > 0 && <Text color={gray}>{`   +${hidden} more`}</Text>}
     </Box>
   )
 }

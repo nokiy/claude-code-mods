@@ -1,6 +1,7 @@
-// The alerts as shown: width-1 glyph flags for a row's Alerts cell, and the sentences of the Alerts block (in the UI language). Pure; tested in alertlines.test.ts.
+// The alerts as shown: width-1 glyph flags, the row-end `!` mark, and the alert timeline (timestamped sentences with their causes, in the
+// UI language) that the Alerts block and the detail page draw. Pure; tested in alertlines.test.ts.
 import { idleText, shortPath } from './alerts'
-import { agentRef, cellWidth, collapse } from './logic'
+import { agentRef, cellWidth, collapse, formatClock } from './logic'
 import { PALETTE, alertColor } from './palette'
 import type { AlertKind } from './palette'
 import type { Strings } from './strings'
@@ -29,20 +30,26 @@ export const alertMark = (v: View): Seg[] => (alerted(v) ? [ALERT_MARK] : [])
 
 export const segsWidth =(segs: readonly Seg[]): number => segs.reduce((n, s) => n + cellWidth(s.text), 0)
 
-export type AlertLine = { kind: AlertKind; tag: string; label: string; color: string; body: string; ids: string[]; live: boolean }
+// `at`: when the alert began (the conflict's overlap or main edit, the stall's last event, the spawn for a tier mismatch, a refusal
+// reason's first sighting); undefined when unknown.
+export type AlertLine = { kind: AlertKind; tag: string; label: string; color: string; body: string; ids: string[]; live: boolean; at?: number }
 
-export const lineText = (l: AlertLine): string => `${l.tag} ${l.label}  ${l.body}`
+// `14:02:11` (local clock) of a timeline line, `--:--:--` when its time is unknown.
+export const alertClock = (l: AlertLine): string => (l.at === undefined ? '--:--:--' : formatClock(l.at))
+
+export const lineText = (l: AlertLine): string => `${alertClock(l)} ${l.tag} ${l.label}  ${l.body}`
 
 const GLYPH: Record<AlertKind, string> = { conflict: '!', stall: '~', tier: '≠', denied: '×' }
 
-// One line per alert: conflicts (a pair and path once), stalls, tier mismatches, denials; agents still running first, then the kind order,
-// then newest first. An agent is named `type"task"` (agentRef); a conflict pair names the older agent first.
+// The alert timeline, one line per alert: conflicts (a pair and path once), stalls, tier mismatches, and one line per distinct refusal
+// reason with its count; oldest first, those of unknown time last, ties in the kind order. An agent is named `type"task"` (agentRef);
+// a conflict pair names the older agent first.
 export function alertLines(views: readonly View[], cwd: string, t: Strings): AlertLine[] {
   const no = new Map(views.map((v, i) => [v.id, i + 1]))
   const who = (v: View) => agentRef(v.type, v.task, t)
   const out: AlertLine[] = []
-  const line = (kind: AlertKind, body: string, ids: string[], live: boolean, level?: 1 | 2) => {
-    out.push({ kind, tag: GLYPH[kind], label: t.tag[kind], color: alertColor(kind, level), body, ids, live })
+  const line = (kind: AlertKind, at: number | undefined, body: string, ids: string[], live: boolean, level?: 1 | 2) => {
+    out.push({ kind, tag: GLYPH[kind], label: t.tag[kind], color: alertColor(kind, level), body, ids, live, ...(at === undefined ? {} : { at }) })
   }
   const seen = new Set<string>()
   for (const v of views) {
@@ -52,30 +59,34 @@ export function alertLines(views: readonly View[], cwd: string, t: Strings): Ale
       seen.add(key)
       const other = views.find(x => x.id === c.other)
       const pair = other ? (no.get(other.id)! > no.get(v.id)! ? t.and(who(other), who(v)) : t.and(who(v), who(other))) : t.and(who(v), 'main')
-      line('conflict', t.conflictLine(pair, shortPath(c.path, cwd)), other ? [v.id, other.id] : [v.id], v.status === 'running' || other?.status === 'running')
+      line('conflict', c.at, t.conflictLine(pair, shortPath(c.path, cwd)), other ? [v.id, other.id] : [v.id], v.status === 'running' || other?.status === 'running')
     }
   }
   for (const v of views) {
     if (v.stall) {
       const idle = idleText(v.stall.idleMs)
-      line('stall', v.stall.tool ? t.stallTool(who(v), idle, v.stall.tool) : t.stallSilent(who(v), idle, v.activity ? collapse(v.activity) : undefined), [v.id], true, v.stall.level)
+      const body = v.stall.tool ? t.stallTool(who(v), idle, v.stall.tool) : t.stallSilent(who(v), idle, v.activity ? collapse(v.activity) : undefined)
+      line('stall', v.lastEventAt ?? v.startedAt, body, [v.id], true, v.stall.level)
     }
   }
-  for (const v of views) if (v.tier) line('tier', t.tierLine(who(v), v.tier.want, v.tier.got), [v.id], v.status === 'running')
+  for (const v of views) if (v.tier) line('tier', v.startedAt, t.tierLine(who(v), v.tier.want, v.tier.got), [v.id], v.status === 'running')
   for (const v of views) {
     if (v.denied === 0) continue
-    const top = v.reasons.reduce<typeof v.reasons[number] | undefined>((m, r) => (m && m.n >= r.n ? m : r), undefined)
-    line('denied', t.deniedLine(who(v), v.denied, top?.text ?? '(no reason)', v.reasons.length), [v.id], v.status === 'running')
+    const live = v.status === 'running'
+    if (v.reasons.length === 0) line('denied', undefined, t.deniedLine(who(v), v.denied, '(no reason)'), [v.id], live)
+    for (const r of v.reasons) line('denied', r.at, t.deniedLine(who(v), r.n, r.text), [v.id], live)
   }
+  const when = (l: AlertLine) => l.at ?? Infinity
   return out
     .map((l, i) => ({ l, i }))
-    .sort((a, b) => Number(b.l.live) - Number(a.l.live) || ORDER.indexOf(a.l.kind) - ORDER.indexOf(b.l.kind) || a.i - b.i)
+    .sort((a, b) => when(a.l) - when(b.l) || ORDER.indexOf(a.l.kind) - ORDER.indexOf(b.l.kind) || a.i - b.i)
     .map(x => x.l)
 }
 
-// At most `max` lines; the rest is a count for the `+N more` line.
+// The newest `max` lines of the timeline; the earlier ones are a count for the `+N more` line.
 export function capAlerts(lines: readonly AlertLine[], max = 4): { shown: AlertLine[]; hidden: number } {
-  return { shown: lines.slice(0, max), hidden: Math.max(0, lines.length - max) }
+  const hidden = Math.max(0, lines.length - max)
+  return { shown: lines.slice(hidden), hidden }
 }
 
 // The toasts still owed: a conflict or stall of an agent still running, once per agent per kind (`told` holds the `warned:<agentId>:<kind>` keys already done).

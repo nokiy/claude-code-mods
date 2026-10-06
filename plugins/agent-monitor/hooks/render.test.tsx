@@ -28,11 +28,11 @@ test('table: footer and alert line follow the language', () => {
   expect(en).toContain('↑↓ select · Enter detail')
   expect(en).toContain('Esc close')
   expect(en).toContain('denied')
-  expect(en).toContain('refused 1 time: no')
+  expect(en).toContain('--:--:-- × denied  worker"task" refused ×1: no') // the time column leads; this refusal's time is unknown
   const zh = textOf(historyTable(ui, board('zh'), 100, ctx, acts) as never)
   expect(zh).toContain('↑↓ 选择 · Enter 详情')
   expect(zh).toContain('拦截')
-  expect(zh).toContain('被拒 1 次：no')
+  expect(zh).toContain('被拒 ×1：no')
   expect(zh).not.toContain('select')
 })
 

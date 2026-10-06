@@ -23,7 +23,8 @@ const EN = {
   tierShort: (want: string, got: string) => `≠ described ${want} · ran ${got}`,
   // a running row's line 2 when the steps did not run the tier the description asked for
   wanted: (tier: string) => `≠ wanted ${tier}`,
-  deniedLine: (who: string, n: number, reason: string, kinds: number) => `${who} refused ${times(n)}: ${reason}${kinds > 1 ? ` (${kinds} kinds)` : ''}`,
+  // one refusal reason of the alert timeline: its count and its text
+  deniedLine: (who: string, n: number, reason: string) => `${who} refused ×${n}: ${reason}`,
   deniedShort: (n: number) => `× refused ${times(n)}`,
   // detail page
   sec: { prompt: 'Instruction', timeline: 'Timeline', files: 'Edited files', tools: 'Tools', skills: 'Skills', recent: 'Recent actions', alerts: 'Alerts', result: 'Result' },
@@ -78,7 +79,7 @@ const ZH: Strings = {
   tierLine: (who, want, got) => `${who} 描述 ${want} · 实际 ${got}`,
   tierShort: (want, got) => `≠ 描述 ${want} · 实际 ${got}`,
   wanted: tier => `≠ 要求 ${tier}`,
-  deniedLine: (who, n, reason, kinds) => `${who} 被拒 ${n} 次：${reason}${kinds > 1 ? ` 等 ${kinds} 种` : ''}`,
+  deniedLine: (who, n, reason) => `${who} 被拒 ×${n}：${reason}`,
   deniedShort: n => `× 拦截 ${n} 次`,
   sec: { prompt: '指令', timeline: '时间线', files: '改过的文件', tools: '工具', skills: '技能', recent: '最近动作', alerts: '告警', result: '结果' },
   inProgress: '进行中',
