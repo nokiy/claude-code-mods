@@ -1,6 +1,8 @@
-// Subagent transcripts for agent-monitor: the jsonl Claude Code writes per subagent (`<sessionId>/subagents/agent-<id>.jsonl`) rolled up
-// into one small record, fed in byte chunks so a large file resumes from where the last read stopped. Pure; tested in transcript.test.ts.
+// [POS] Subagent transcripts for agent-monitor: the jsonl Claude Code writes per subagent (`<sessionId>/subagents/agent-<id>.jsonl`)
+// rolled up into one small record, fed in byte chunks so a large file resumes from where the last read stopped. Read by history.ts.
+// Pure; tested in tests/transcript.test.ts.
 import type { AgentSpent } from '../types'
+import { plusSpent } from './cost'
 import { clip } from './logic'
 import { MAX_PROMPT } from './patches'
 
@@ -48,9 +50,6 @@ type Line = {
 }
 
 const ZERO: AgentSpent = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-const plus = (a: AgentSpent, b: AgentSpent, sign = 1): AgentSpent => ({
-  input: a.input + sign * b.input, output: a.output + sign * b.output, cacheRead: a.cacheRead + sign * b.cacheRead, cacheWrite: a.cacheWrite + sign * b.cacheWrite,
-})
 const spentOf = (u: Record<string, number | null | undefined>): AgentSpent => ({
   input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0,
 })
@@ -98,8 +97,8 @@ function addLine(r: Rollup, l: Line): Rollup {
     const usage = spentOf(m.usage ?? {})
     const byModel = { ...r.byModel }
     const same = r.open?.id === m.id
-    if (same && r.open) byModel[r.open.model] = plus(byModel[r.open.model] ?? ZERO, r.open.usage, -1)
-    byModel[m.model] = plus(byModel[m.model] ?? ZERO, usage)
+    if (same && r.open) byModel[r.open.model] = plusSpent(byModel[r.open.model] ?? ZERO, r.open.usage, -1)
+    byModel[m.model] = plusSpent(byModel[m.model] ?? ZERO, usage)
     Object.assign(out, { byModel, model: m.model, steps: r.steps + (same ? 0 : 1), open: { id: m.id, model: m.model, usage } })
   }
   return out

@@ -2,7 +2,7 @@
 // read, through the whole mod: fake transcripts and a fake `gh pr list` (testkit.ts), the value taken from the mod's own writes.
 import { expect, mock, test } from 'claude-code/testing'
 
-import { PROJECT, ROOT, ghPr, st, wire } from './testkit'
+import { PROJECT, ROOT, ghPr, mountPane, st, wire } from './testkit'
 import { agentFiles, assistantLine, fakeFs, jsonl, userLine } from './transcripts'
 
 const NOW = Date.parse('2026-10-03T09:00:00Z')
@@ -58,4 +58,26 @@ test("the main session's usage is not counted: neither its transcript nor its ow
   await clock.advance(2000)
   const s = pub.value?.['49']
   expect({ ...s, cost: s?.cost?.toFixed(6) }).toEqual({ tokens: 53_000, cost: '0.260000', ms: 4 * 60_000, refusals: 2 })
+})
+
+// The group row of the /sub PR mode, as a person reads it off the pane.
+async function groupRow($: Run[0]) {
+  await $.command.run({ command: 'sub', args: '' } as never)
+  const ui = await mountPane($)
+  return (await ui.findAll({ type: 'Text' })).map(t => t.text).filter(t => t.includes('#49 PR card')).sort((a, b) => b.length - a.length)[0] ?? ''
+}
+
+test('a PR\'s tokens are every step\'s usage added up, not the last step\'s context', async ($, on) => {
+  // Three distinct messages of 10k in + 1k out each: 33k spent, while the last step alone holds 11k.
+  const steps = ['m1', 'm2', 'm3'].map((id, i) => opus(id, `2026-10-01T10:0${i + 1}:00.000Z`, 10_000, 1_000))
+  const A4 = { sessionId: 's1', agentId: 'a4', type: 'worker', desc: 'three steps', branch: 'feature/44-row-layout', at: '2026-10-01T11:00:00.000Z', steps }
+  const { pub } = await start($, on, agentFiles(PROJECT, A4))
+  expect(pub.value?.['49']?.tokens).toBe(53_000 + 33_000)
+  expect(await groupRow($)).toMatch(/3 agents\s+86\.0k tok/)
+})
+
+test('the group row shows the same time as the published value: wall time, not the sum', async ($, on) => {
+  const { pub } = await start($, on, {})
+  expect(pub.value?.['49']?.ms).toBe(4 * 60_000)
+  expect(await groupRow($)).toMatch(/\s4m00s\s/)
 })

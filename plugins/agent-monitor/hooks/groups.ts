@@ -3,16 +3,17 @@
 // for other mods (docs/adr/0001-cross-mod-state.md). Pure.
 import type { PrStat } from '../types'
 import { attribute } from './attribution'
-import { totalCost } from './cost'
+import { spentTotal, totalCost } from './cost'
 import type { PrEntry } from './prindex'
 import type { View } from './views'
 
 /**
- * One group: `key` is `pr:<n>` or `other`; `pr` absent for Other. Totals over its agents: `tokens` (sum of View.tokens), `cost`
- * (sum of known costs, undefined when none is known), `ms` (sum of each agent's elapsed time, as the table header's Σ; not wall time),
- * `wallMs` (the union of the agents' spans: agents that ran at once count once), `refused` (hook refusals from their transcripts).
+ * One group: `key` is `pr:<n>` or `other`; `pr` absent for Other. Totals over its agents: `tokens` (every step's usage, input, output
+ * and cache, added up; View.tokens where the split is unknown), `cost` (sum of known costs, undefined when none is known), `ms` (wall
+ * time: the union of the agents' spans, so agents that ran at once count once), `refused` (hook refusals from their transcripts).
+ * The group row and the published value show these same figures.
  */
-export type Group = { key: string; pr?: PrEntry; views: View[]; tokens: number; cost?: number; ms: number; wallMs: number; refused: number }
+export type Group = { key: string; pr?: PrEntry; views: View[]; tokens: number; cost?: number; ms: number; refused: number }
 
 export const OTHER_KEY = 'other'
 export const groupKey = (pr: number | null): string => (pr === null ? OTHER_KEY : `pr:${pr}`)
@@ -28,10 +29,9 @@ function wallTime(views: readonly View[]): number {
 
 const group = (key: string, pr: PrEntry | undefined, views: View[]): Group => ({
   key, pr, views,
-  tokens: views.reduce((n, v) => n + (v.tokens ?? 0), 0),
+  tokens: views.reduce((n, v) => n + (v.spent ? spentTotal(v.spent) : (v.tokens ?? 0)), 0),
   cost: totalCost(views.map(v => v.cost)),
-  ms: views.reduce((n, v) => n + (v.elapsedMs ?? 0), 0),
-  wallMs: wallTime(views),
+  ms: wallTime(views),
   refused: views.reduce((n, v) => n + v.refused, 0),
 })
 
@@ -39,7 +39,7 @@ const group = (key: string, pr: PrEntry | undefined, views: View[]): Group => ({
 export function prStats(groups: readonly Group[]): Record<string, PrStat> {
   const out: Record<string, PrStat> = {}
   for (const g of groups) {
-    if (g.pr && g.views.length > 0) out[String(g.pr.number)] = { tokens: g.tokens, ...(g.cost === undefined ? {} : { cost: g.cost }), ms: g.wallMs, refusals: g.refused }
+    if (g.pr && g.views.length > 0) out[String(g.pr.number)] = { tokens: g.tokens, ...(g.cost === undefined ? {} : { cost: g.cost }), ms: g.ms, refusals: g.refused }
   }
   return out
 }

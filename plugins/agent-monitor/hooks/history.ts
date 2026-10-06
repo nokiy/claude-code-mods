@@ -1,8 +1,9 @@
-// Subagent history for agent-monitor: the current project's transcript directory scanned into one cache entry per subagent file
+// [POS] Subagent history for agent-monitor: the current project's transcript directory scanned into one cache entry per subagent file
 // (size, time, read position, rollup, meta), each turned into a record that fills in what the hook records lack. The file access is
-// handed in (TxIo, built from `$` in register.tsx), so this stays pure; tested in history.test.ts.
+// handed in (TxIo, built from `$` in register.tsx), so this stays pure; tested in tests/history.test.ts and through the whole mod.
 import type { AgentMonitorRec, AgentSpent } from '../types'
 import { addDenial } from './alerts'
+import { plusSpent, spentTotal } from './cost'
 import { parseDescription } from './logic'
 import { clean } from './patches'
 import { emptyRollup, feed } from './transcript'
@@ -100,8 +101,7 @@ export async function refreshProject(io: TxIo, project: string, cache: Map<strin
   return changed
 }
 
-const sum = (all: readonly AgentSpent[]): AgentSpent | undefined =>
-  all.length === 0 ? undefined : all.reduce((a, b) => ({ input: a.input + b.input, output: a.output + b.output, cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite }))
+const sum = (all: readonly AgentSpent[]): AgentSpent | undefined => (all.length === 0 ? undefined : all.reduce((a, b) => plusSpent(a, b)))
 
 /** One finished record per cached transcript, keyed by agentId; a file with no meta type (an engine fork, not a subagent) gives none. */
 export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string, AgentMonitorRec> {
@@ -112,6 +112,7 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
     const desc = e.meta.description ?? ''
     const r = e.roll
     const last = r.open?.usage
+    const spent = sum(Object.values(r.byModel))
     const denials = r.refusals.reduce<{ denied?: number; reasons?: AgentMonitorRec['reasons'] }>((p, x) => addDenial(p, x.text, x.at), {})
     out[id] = clean({
       type: e.meta.agentType,
@@ -121,10 +122,10 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
       model: r.model,
       steps: r.steps,
       watched: true,
-      context: last ? last.input + last.cacheRead + last.cacheWrite : 0,
+      context: last ? spentTotal(last) - last.output : 0,
       output: last?.output ?? 0,
-      tokens: last ? last.input + last.cacheRead + last.cacheWrite + last.output : undefined,
-      spent: sum(Object.values(r.byModel)),
+      tokens: spent ? spentTotal(spent) : undefined, // every step's usage, as the price table counts it
+      spent,
       byModel: Object.keys(r.byModel).length ? r.byModel : undefined,
       startedAt: r.startedAt,
       finishedAt: r.lastAt,
