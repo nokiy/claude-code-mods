@@ -49,12 +49,12 @@ test('another repository\'s fresh PR index in the store does not stand in for th
 
 test('a group row shows its agent count, tokens, cost, time and PR state', async ($, on) => {
   const { ui } = await openSub($, on)
-  // #49: 42.0k + 11.0k tokens, $0.20 + $0.06, a minute each; open. #38: one agent of 15 tokens; merged. Other: no PR state.
-  expect(await rowOf(ui, '#49 PR card and agents')).toMatch(/2 agents\s+53\.0k tok\s+≈ \$0\.26\s+2m00s\s+Open/)
+  // #49: 42.0k + 11.0k tokens, $0.20 + $0.06, a minute each; open, not a draft. #38: one agent of 15 tokens; merged. Other: no PR state.
+  expect(await rowOf(ui, '#49 PR card and agents')).toMatch(/2 agents\s+53\.0k tok\s+≈ \$0\.26\s+2m00s\s+Ready/)
   expect(await rowOf(ui, '#38 Pass next')).toMatch(/1 agent\s+15 tok\s+≈ <\$0\.01\s+1m00s\s+Merged/)
   const other = await rowOf(ui, 'Other')
   expect(other).toMatch(/1 agent\s+15 tok/)
-  expect(other).not.toMatch(/Open|Merged/)
+  expect(other).not.toMatch(/Draft|Ready|Merged/)
 })
 
 // pr-hint's words and colors for the same PR (plugins/pr-hint: parse.ts prState, strings.ts PR_STATE, card.ts STATE_COLOR).
@@ -154,5 +154,5 @@ test('the PR index is fetched again only when due, and a failed fetch keeps the 
   await clock.settle()
   expect(st.ghCalls).toBe(2)
   expect(await listKeys(ui)).toEqual(before)
-  expect(await rowOf(ui, '#49 PR card and agents')).toContain('Open')
+  expect(await rowOf(ui, '#49 PR card and agents')).toContain('Ready')
 })

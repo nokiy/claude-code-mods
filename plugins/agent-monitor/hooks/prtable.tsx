@@ -10,14 +10,17 @@ import { cellWidth, formatDuration, padEnd, padStart, tokensOrDash, truncate } f
 import { elementKey } from './nav'
 import type { Acts, Mode, PageCtx } from './pages'
 import { PALETTE } from './palette'
+import { prState } from './prindex'
+import type { PrState } from './prindex'
 import type { Strings } from './strings'
 import type { Board, View } from './views'
 
 type Ui = ReturnType<EngineInterface['ui']['resolve']>
 
-const { fg, gray, green, purple, selBg } = PALETTE
+const { fg, gray, selBg } = PALETTE
 const GAP = '  '
-const STATE_COLOR: Record<string, string> = { OPEN: green, MERGED: purple }
+// pr-hint's state chip colors (plugins/pr-hint/hooks/card.ts STATE_COLOR): building, waiting on acceptance, done.
+const STATE_COLOR: Record<PrState, string> = { draft: 'yellow', ready: 'magenta', merged: 'green' }
 const LEAD = 3 // a blank, the 1-cell toggle Button, the blank before the title
 
 /** Cells of the switch as drawn in the header: `p: PR  a: Agent` plus the gap before it. */
@@ -53,7 +56,7 @@ export function prRows(ui: Ui, board: Board, cols: number, ctx: PageCtx, acts: A
   const cells = groups.map(g => statCols(g, t))
   const head = headCols(t)
   const widths = head.map((h, i) => Math.max(cellWidth(h), ...cells.map(c => cellWidth(c[i]!))))
-  const stateW = Math.max(cellWidth(t.prColumns.state), ...groups.map(g => cellWidth(t.prState[g.pr?.state ?? ''] ?? '')))
+  const stateW = Math.max(cellWidth(t.prColumns.state), ...groups.map(g => cellWidth(g.pr ? t.prState[prState(g.pr)] : '')))
   const statsW = widths.reduce((n, w) => n + w + GAP.length, 0) + stateW
   const titleW = Math.max(0, cols - LEAD - GAP.length - statsW)
   const header = (
@@ -66,7 +69,7 @@ export function prRows(ui: Ui, board: Board, cols: number, ctx: PageCtx, acts: A
     const sel = ctx.ringKey === key
     const other = g.pr === undefined
     const title = truncate(other ? t.otherGroup : `#${g.pr!.number} ${g.pr!.title}`, Math.max(4, titleW))
-    const state = g.pr ? t.prState[g.pr.state] : undefined
+    const state = g.pr ? prState(g.pr) : undefined
     return (
       <Box key={key} flexDirection="column">
         <Box flexDirection="row" backgroundColor={sel ? selBg : undefined} hover={{ backgroundColor: selBg }}>
@@ -75,7 +78,7 @@ export function prRows(ui: Ui, board: Board, cols: number, ctx: PageCtx, acts: A
           <Text wrap="truncate-end">
             <Text color={other ? gray : fg} bold={other ? undefined : true} italic={other ? true : undefined}>{` ${padEnd(title, titleW)}`}</Text>
             <Text color={gray}>{`${GAP}${joinCols(cells[gi]!, widths)}${GAP}`}</Text>
-            <Text color={STATE_COLOR[g.pr?.state ?? ''] ?? gray}>{padEnd(state ?? '', stateW)}</Text>
+            <Text color={state ? STATE_COLOR[state] : gray}>{padEnd(state ? t.prState[state] : '', stateW)}</Text>
           </Text>
         </Box>
         {open(g) && g.views.map(v => agentRow(v, auto === elementKey('row', v.id)))}

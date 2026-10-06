@@ -1,5 +1,6 @@
 // UI strings of agent-monitor, English and Chinese; English unless the session's language says Chinese. Called by every drawing and text module.
 // Column names (Tier, Edits, ...) and the table's other headers stay English in both languages. Pure; tested in strings.test.ts.
+import type { PrState } from './prindex'
 
 export type Lang = 'en' | 'zh'
 
@@ -63,7 +64,7 @@ const EN = {
   modes: { pr: 'PR', agent: 'Agent' },
   prColumns: { title: 'Title', agents: 'agents', tokens: 'tokens', cost: 'cost', time: 'time', state: 'state' },
   tok: (n: string) => `${n} tok`,
-  prState: { OPEN: 'Open', MERGED: 'Merged' } as Record<string, string>,
+  prState: { draft: 'Draft', ready: 'Ready', merged: 'Merged' } as Record<PrState, string>, // pr-hint's PR_STATE words
   // an alert timeline refusal with no reason text
   noReason: '(no reason)',
 }
