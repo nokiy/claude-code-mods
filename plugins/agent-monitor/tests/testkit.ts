@@ -18,8 +18,15 @@ type On = Parameters<typeof mock.env>[0]
 export type Dollar = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[0]
 export type ListAgent = { id: string; type: string; status: string; description: string }
 
-/** Mutable answers: the session id `$.session.id()` gives, what `$.agent.list()` lists. Reset by wire(). */
-export const st = { session: 'cur', agents: [] as ListAgent[] }
+/**
+ * Mutable answers: the session id `$.session.id()` gives, what `$.agent.list()` lists, the branch `git rev-parse --abbrev-ref HEAD`
+ * prints, and what `gh pr list` prints (null: gh fails, exit 1). `ghCalls` counts gh runs. Reset by wire().
+ */
+export const st = { session: 'cur', agents: [] as ListAgent[], branch: 'dev', gh: '[]' as string | null, ghCalls: 0 }
+
+/** One row of `gh pr list --json number,title,state,headRefName,closingIssuesReferences,body`; `closes` go into the body as `Closes #N` lines. */
+export const ghPr = (number: number, title: string, headRefName: string, closes: number[] = [], state = 'OPEN') =>
+  ({ number, title, state, headRefName, closingIssuesReferences: [], body: `Summary\n\n${closes.map(n => `Closes #${n}`).join('\n')}` })
 
 /**
  * Answer every engine call agent-monitor makes, from memory: English UI, HOME, the session at ROOT, an empty conversation, `st`'s
@@ -27,8 +34,7 @@ export const st = { session: 'cur', agents: [] as ListAgent[] }
  * Returns the fake fs, whose `tally` counts reads, tails and listings.
  */
 export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
-  st.session = 'cur'
-  st.agents = []
+  Object.assign(st, { session: 'cur', agents: [], branch: 'dev', gh: '[]', ghCalls: 0 })
   mock.env(on, { HOME })
   on('settings.read', async () => ({ value: {} }))
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
@@ -48,6 +54,11 @@ export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
   on('fs.read', async (_$, e) => ({ value: fs.read(e.path) }))
   on('process.run', async (_$, e) => {
     const [cmd, , from, path] = e.argv
+    if (cmd === 'git' && e.argv.join(' ') === 'git rev-parse --abbrev-ref HEAD') return { value: { exitCode: 0, stdout: `${st.branch}\n`, stderr: '', ...done } }
+    if (cmd === 'gh') {
+      st.ghCalls++
+      return { value: st.gh === null ? { exitCode: 1, stdout: '', stderr: 'HTTP 502', ...done } : { exitCode: 0, stdout: st.gh, stderr: '', ...done } }
+    }
     if (cmd !== 'tail' || !path || !from) return { value: { exitCode: 1, stdout: '', stderr: 'unexpected command', ...done } }
     return { value: { exitCode: 0, stdout: fs.tail(path, Number(from.slice(1)) - 1), stderr: '', ...done } }
   })
@@ -61,6 +72,10 @@ export const mountPane = ($: Dollar, bodyColumns = 120) =>
 /** The table's rows, one Button each keyed `row:<agentId>`, in drawn order. */
 export const rowKeys = async (ui: { findAll: (q: { type: string }) => Promise<{ key: string | undefined }[]> }) =>
   (await ui.findAll({ type: 'Button' })).map(b => b.key ?? '').filter(k => k.startsWith('row:'))
+
+/** The PR-mode list in drawn order: group rows (`group:pr:<n>`, `group:other`) and agent rows (`row:<agentId>`). */
+export const listKeys = async (ui: { findAll: (q: { type: string }) => Promise<{ key: string | undefined }[]> }) =>
+  (await ui.findAll({ type: 'Button' })).map(b => b.key ?? '').filter(k => k.startsWith('row:') || k.startsWith('group:'))
 
 /** The text of every Text element drawn, joined: what a person reads off the pane. */
 export const shown = async (ui: { findAll: (q: { type: string }) => Promise<{ text: string }[]> }) => (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')

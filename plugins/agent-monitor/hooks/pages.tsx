@@ -24,11 +24,16 @@ export type Acts = {
   close: () => void
   toggle: (key: SettingKey) => void
   save: () => void
+  /** PR mode: switch the table's mode; open or close a group (by its key). */
+  mode: (m: Mode) => void
+  fold: (key: string, open: boolean) => void
 }
+export type Mode = 'pr' | 'agent'
 
 // What a site draws from beside the board: the page, the settings draft, the last row that held the ring (to restore it), the element
-// the ring is on now (`ringKey`, null off any element; drives the row highlight), whether Esc closes (the pane).
-export type PageCtx = { page: Page; draft: Draft | null; focusKey: string | null; ringKey: string | null; esc: boolean }
+// the ring is on now (`ringKey`, null off any element; drives the row highlight), whether Esc closes (the pane), the table's mode
+// (absent: `pr`) and the PR-mode groups opened or closed by hand.
+export type PageCtx = { page: Page; draft: Draft | null; focusKey: string | null; ringKey: string | null; esc: boolean; mode?: Mode; expanded?: Record<string, boolean> }
 
 export const segText = (Text: Ui['Text'], segs: readonly Seg[]) =>
   segs.map((s, i) => <Text key={String(i)} color={s.color} bold={s.bold} italic={s.italic}>{s.text}</Text>)

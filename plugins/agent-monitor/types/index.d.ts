@@ -91,6 +91,8 @@ export type AgentMonitorRec = {
   denied?: number
   /** Their reasons, deduped by first line (at most 10 distinct). */
   reasons?: Denial[]
+  /** The branch on the agent's transcript's first line: what the attribution rule (hooks/attribution.ts) reads. */
+  branch?: string
 }
 
 /**
@@ -122,6 +124,10 @@ declare module 'claude-code' {
       mainEdits: MainEdit[]
       /** Published (pr-hint reads it): subagent totals per PR, keyed by the PR number as a string. Never written yet: absent. */
       prStats: Record<string, PrStat>
+      /** The table's mode: `pr` (grouped by PR, the default) or `agent` (one flat list). */
+      mode: 'pr' | 'agent'
+      /** PR-mode groups opened or closed by hand (`pr:<n>` / `other` -> open); a group not named here follows the default (the first group open). */
+      expanded: Record<string, boolean>
     }
   }
 }

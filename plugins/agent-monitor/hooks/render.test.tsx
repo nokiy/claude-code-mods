@@ -11,7 +11,7 @@ import type { Board } from './views'
 type Node = { children?: unknown; label?: string } | string | number | boolean | null | undefined | Node[]
 const keep = (type: string) => (p: { children?: unknown }) => ({ type, children: p.children })
 const ui = { Box: keep('Box'), Text: keep('Text'), Button: (p: { children?: unknown }) => ({ type: 'Button', label: String(p.children) }) } as never
-const acts = { open: () => {}, back: () => {}, settings: () => {}, close: () => {}, toggle: () => {}, save: () => {} }
+const acts = { open: () => {}, back: () => {}, settings: () => {}, close: () => {}, toggle: () => {}, save: () => {}, mode: () => {}, fold: () => {} }
 
 const textOf = (n: Node): string => {
   if (n === null || n === undefined || typeof n === 'boolean') return ''

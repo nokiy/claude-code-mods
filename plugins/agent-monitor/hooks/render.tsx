@@ -11,6 +11,7 @@ import type { Cell } from './layout'
 import { detailPage, footer, segText, settingsPage } from './pages'
 import type { Acts, PageCtx } from './pages'
 import { PALETTE, effortStyle, modelColor, statusColor, tokenColor, typeStyle } from './palette'
+import { SWITCH_W, modeSwitch, prRows } from './prtable'
 
 type Ui = ReturnType<EngineInterface['ui']['resolve']>
 
@@ -88,7 +89,7 @@ function alertsBlock(ui: Ui, board: Board) {
 function listFooter(ui: Ui, ctx: PageCtx, acts: Acts, rows: boolean, t: Strings) {
   const x = { hotkey: 'x', label: t.close, onPress: acts.close } as const
   const settings = { hotkey: 's', label: t.settings, onPress: acts.settings } as const
-  return footer(ui, rows ? [t.listHint, settings, ctx.esc ? t.escClose : t.xClose] : [' ', settings, ' · ', x, ctx.esc ? ' · Esc' : ''])
+  return footer(ui, rows ? [t.listHint, settings, t.modeHint, ctx.esc ? t.escClose : t.xClose] : [' ', settings, ' · ', x, ctx.esc ? ' · Esc' : ''])
 }
 
 // The history table: header with `[ close ]` (hotkey x), alerts block, rule, column header, one row per agent led by a 1-cell select Button
@@ -110,34 +111,37 @@ export function historyTable(ui: Ui, board: Board, cols: number, ctx: PageCtx, a
   const layout = computeLayout(cols, texts, cfg.columns)
   const held = views.findIndex(v => ctx.focusKey === `row:${v.id}`)
   const first = Math.max(0, held)
+  const mode = ctx.mode ?? 'pr'
+  const agentRow = (v: View, auto: boolean) => {
+    const p = rowParts(layout, texts[views.indexOf(v)]!)
+    const sel = isSelected(ctx.ringKey, v.id)
+    return (
+      <Box key={v.id} flexDirection="column">
+        <Box flexDirection="row" backgroundColor={sel ? selBg : undefined} hover={{ backgroundColor: selBg }}>
+          <Text>{p.lead}</Text>
+          <Button key={`row:${v.id}`} plain autoFocus={auto ? true : undefined} onPress={() => acts.open(v.id)}>{markLabel(sel)}</Button>
+          <Text wrap="truncate-end">{p.rest.map((c, j) => cell(Text, c, j))}</Text>
+        </Box>
+        {v.status === 'running' && <Text color={gray} italic wrap="truncate-end">{`       ↳ ${collapse(v.activity ?? t.starting)}`}</Text>}
+      </Box>
+    )
+  }
   return (
     <Box flexDirection="column">
       <Box flexDirection="row">
         <Text wrap="truncate-end">
-          {headerSegs(cols - CLOSE_W, views).map((s, i) => (
+          {headerSegs(cols - CLOSE_W - SWITCH_W, views).map((s, i) => (
             <Text key={String(i)} bold={s.bold} color={s.color}>{s.text}</Text>
           ))}
         </Text>
+        {modeSwitch(ui, mode, acts)}
         <Text>{'  '}</Text>
         <Button key="close" hotkey="x" onPress={acts.close}>{t.close}</Button>
       </Box>
       {cfg.alertsBlock && alertsBlock(ui, board)}
       <Text color={gray}>{rule(cols)}</Text>
       <Text wrap="truncate-end">{headerCells(layout).map((c, i) => cell(Text, c, i, true))}</Text>
-      {views.map((v, i) => {
-        const p = rowParts(layout, texts[i]!)
-        const sel = isSelected(ctx.ringKey, v.id)
-        return (
-          <Box key={v.id} flexDirection="column">
-            <Box flexDirection="row" backgroundColor={sel ? selBg : undefined} hover={{ backgroundColor: selBg }}>
-              <Text>{p.lead}</Text>
-              <Button key={`row:${v.id}`} plain autoFocus={i === first ? true : undefined} onPress={() => acts.open(v.id)}>{markLabel(sel)}</Button>
-              <Text wrap="truncate-end">{p.rest.map((c, j) => cell(Text, c, j))}</Text>
-            </Box>
-            {v.status === 'running' && <Text color={gray} italic wrap="truncate-end">{`       ↳ ${collapse(v.activity ?? t.starting)}`}</Text>}
-          </Box>
-        )
-      })}
+      {mode === 'agent' ? views.map((v, i) => agentRow(v, i === first)) : prRows(ui, board, cols, ctx, acts, agentRow)}
       <Text color={gray}>{rule(cols)}</Text>
       {listFooter(ui, ctx, acts, true, t)}
     </Box>
