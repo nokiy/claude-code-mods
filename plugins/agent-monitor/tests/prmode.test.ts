@@ -1,0 +1,99 @@
+// The /sub PR mode through the whole mod: subagents grouped by the PR their first-line branch belongs to (a fake `gh pr list` and
+// fake transcripts, testkit.ts), the Other group, expand / collapse, the [PR] [Agent] switch, and a failed gh keeping the last index.
+import { expect, mock, test } from 'claude-code/testing'
+
+import { PROJECT, ROOT, ghPr, listKeys, mountPane, st, wire } from './testkit'
+import { agentFiles, fakeFs } from './transcripts'
+
+const NOW = Date.parse('2026-10-03T09:00:00Z')
+// One assistant message a minute after the agent's start (`hh` its hour), priced as Opus 5.5 ($4 in, $20 out per million).
+const step = (hh: string, input: number, output: number) => [{ id: 'm1', model: 'claude-opus-5-5', usage: { input_tokens: input, output_tokens: output }, at: `2026-10-01T${hh}:01:00.000Z` }]
+// Two on the open spec PR #49 (a ticket branch it closes, and its own head branch), one on merged PR #38, one on dev.
+const A1 = { sessionId: 's1', agentId: 'a1', type: 'worker', desc: 'build the index', branch: 'feature/43-pr-mode', at: '2026-10-01T10:00:00.000Z', steps: step('10', 40_000, 2_000) }
+const A2 = { sessionId: 's1', agentId: 'a2', type: 'reviewer', desc: 'review the spec', branch: 'spec/36-pr-agent-views', at: '2026-10-01T09:00:00.000Z', steps: step('09', 10_000, 1_000) }
+const A3 = { sessionId: 's2', agentId: 'a3', type: 'Explore', desc: 'map the card', branch: 'feature/38-pass-next', at: '2026-10-01T08:00:00.000Z', steps: step('08', 10, 5) }
+const A4 = { sessionId: 's2', agentId: 'a4', type: 'Explore', desc: 'look around', branch: 'dev', at: '2026-10-01T07:00:00.000Z' }
+const PRS = [ghPr(49, 'PR card and agents', 'spec/36-pr-agent-views', [43, 44]), ghPr(38, 'Pass next', 'feature/38-pass-next', [38], 'MERGED'), ghPr(50, 'Retro', 'adhoc/retro', [], 'MERGED'), ghPr(30, 'Closed one', 'feature/30-x', [30], 'CLOSED')]
+
+type Run = Parameters<Parameters<typeof test>[1]>
+async function openSub($: Run[0], on: Run[1], branch = 'feature/44-row-layout') {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on)
+  wire(on, fakeFs({ ...agentFiles(PROJECT, A1), ...agentFiles(PROJECT, A2), ...agentFiles(PROJECT, A3), ...agentFiles(PROJECT, A4) }))
+  st.branch = branch
+  st.gh = JSON.stringify(PRS)
+  await $.session.start({ cwd: ROOT } as never)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  return { clock, ui: await mountPane($) }
+}
+
+type Ui = Awaited<ReturnType<typeof mountPane>>
+// A row is the outermost Text holding `needle` (its cells are Texts nested in it): the longest match.
+const rowOf = async (ui: Ui, needle: string) => (await ui.findAll({ type: 'Text' })).map(t => t.text).filter(t => t.includes(needle)).sort((a, b) => b.length - a.length)[0] ?? ''
+
+test('/sub opens in PR mode: the current branch\'s PR first and open, the others closed, Other last', async ($, on) => {
+  const { ui } = await openSub($, on)
+  expect(await listKeys(ui)).toEqual(['group:pr:49', 'row:a1', 'row:a2', 'group:pr:38', 'group:other'])
+})
+
+test('a group row shows its agent count, tokens, cost, time and PR state', async ($, on) => {
+  const { ui } = await openSub($, on)
+  // #49: 42.0k + 11.0k tokens, $0.20 + $0.06, a minute each; open. #38: one agent of 15 tokens; merged. Other: no PR state.
+  expect(await rowOf(ui, '#49 PR card and agents')).toMatch(/2 agents\s+53\.0k tok\s+≈ \$0\.26\s+2m00s\s+Open/)
+  expect(await rowOf(ui, '#38 Pass next')).toMatch(/1 agent\s+15 tok\s+≈ <\$0\.01\s+1m00s\s+Merged/)
+  const other = await rowOf(ui, 'Other')
+  expect(other).toMatch(/1 agent\s+15 tok/)
+  expect(other).not.toMatch(/Open|Merged/)
+})
+
+test('the agent on dev lands in Other, whose row is drawn unlike a PR group\'s', async ($, on) => {
+  const { ui } = await openSub($, on)
+  await ui.press({ key: 'group:other' })
+  expect((await listKeys(ui)).slice(-2)).toEqual(['group:other', 'row:a4'])
+  // The group's title cell: the colored Text that starts with the title.
+  const title = async (name: string) => (await ui.findAll({ type: 'Text' })).find(t => t.props.color !== undefined && t.text.trim().startsWith(name))?.props ?? {}
+  const [pr, other] = [await title('#49'), await title('Other')]
+  expect(pr.color).toBeDefined()
+  expect(other.color).not.toBe(pr.color)
+  expect(other.italic).toBe(true)
+  expect(pr.bold).toBe(true)
+})
+
+test('Enter on a group shows its agents, Enter again hides them', async ($, on) => {
+  const { ui } = await openSub($, on)
+  await ui.press({ key: 'group:pr:38' })
+  expect(await listKeys(ui)).toEqual(['group:pr:49', 'row:a1', 'row:a2', 'group:pr:38', 'row:a3', 'group:other'])
+  await ui.press({ key: 'group:pr:49' })
+  await ui.press({ key: 'group:pr:38' })
+  expect(await listKeys(ui)).toEqual(['group:pr:49', 'group:pr:38', 'group:other'])
+})
+
+test('[PR] [Agent]: a gives the flat list, p the groups again; the active one is highlighted', async ($, on) => {
+  const { ui } = await openSub($, on)
+  const seg = async (m: string) => (await ui.find({ type: 'Button', key: `mode:${m}` })).props
+  expect([(await seg('pr')).hotkey, (await seg('agent')).hotkey]).toEqual(['p', 'a'])
+  expect((await seg('pr')).variant).toBe('primary')
+  expect((await seg('agent')).variant).toBeUndefined()
+  await ui.press({ key: 'mode:agent' })
+  expect(await listKeys(ui)).toEqual(['row:a1', 'row:a2', 'row:a3', 'row:a4'])
+  expect((await seg('agent')).variant).toBe('primary')
+  expect((await seg('pr')).variant).toBeUndefined()
+  await ui.press({ key: 'mode:pr' })
+  expect(await listKeys(ui)).toEqual(['group:pr:49', 'row:a1', 'row:a2', 'group:pr:38', 'group:other'])
+  expect((await seg('pr')).variant).toBe('primary')
+})
+
+test('the PR index is fetched again only when due, and a failed fetch keeps the last one', async ($, on) => {
+  const { clock, ui } = await openSub($, on)
+  const before = await listKeys(ui)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  expect(st.ghCalls).toBe(1) // fresh: no second fetch
+  await clock.advance(6 * 60 * 1000)
+  st.gh = null
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  expect(st.ghCalls).toBe(2)
+  expect(await listKeys(ui)).toEqual(before)
+  expect(await rowOf(ui, '#49 PR card and agents')).toContain('Open')
+})

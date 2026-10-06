@@ -1,5 +1,4 @@
-// The hooks module of agent-monitor: tracks subagents from the engine's events, keeps the session state, and draws the band above the prompt
-// and the /sub pane. The engine's `$` and the state atoms stay in this file (a validator follows them nowhere else); the decisions live in nav.ts, settings.ts and patches.ts.
+// The hooks module of agent-monitor: tracks subagents from the engine's events, keeps the session state, and draws the band above the prompt and the /sub pane. The engine's `$` and the state atoms stay in this file (a validator follows them nowhere else); the decisions live in nav.ts, settings.ts and patches.ts.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
@@ -13,6 +12,7 @@ import { CLOSED, pageStr, parsePage, ringKeyOf, siteFlags, subEffects, type NavP
 import { agentLaunched, blank, clean, editDelta, onAgentResult, onComplete, onSpawn, onStep, onStepEnd, onToolEnd, onToolStart } from './patches'
 import { bandTree, panel } from './render'
 import { configKey, draftFromConfig, saveEffects, toggleDraft, type SettingKey } from './settings'
+import { refreshIndex, type PrCache, type PrView } from './prindex'
 import { pickLang, strings, type Strings } from './strings'
 import { parseSubArg } from './subarg'
 import { mergeBackfill, recsFromMessages } from './backfill'
@@ -20,8 +20,7 @@ import { buildViews, reconcile, seedRec, settled, withoutGhosts, type Board } fr
 
 const PANE = 'sub'
 
-// State in the session (`$.state`, typed by ../types/index.d.ts), so a hot reload keeps it: the records, the main loop's edits, and the panel's
-// flags, page, focus ring, settings draft and this session's placement.
+// State in the session (`$.state`, typed by ../types/index.d.ts), so a hot reload keeps it: the records, the main loop's edits, and the panel's flags, page, focus ring, settings draft, placement, mode and open groups.
 const agents = atom({ plugin: 'agent-monitor', key: 'agents' } as const, {} as Record<string, AgentMonitorRec>)
 const mainEdits = atom({ plugin: 'agent-monitor', key: 'mainEdits' } as const, [] as MainEdit[])
 const historyOpen = atom({ plugin: 'agent-monitor', key: 'historyOpen' } as const, false)
@@ -31,11 +30,11 @@ const focusKey = atom({ plugin: 'agent-monitor', key: 'focusKey' } as const, nul
 const ringKey = atom({ plugin: 'agent-monitor', key: 'ringKey' } as const, null as string | null)
 const draft = atom({ plugin: 'agent-monitor', key: 'draft' } as const, null as AgentMonitorDraft | null)
 const sessionPlacement = atom({ plugin: 'agent-monitor', key: 'sessionPlacement' } as const, null as Placement | null)
-
+const mode = atom({ plugin: 'agent-monitor', key: 'mode' } as const, 'pr' as 'pr' | 'agent')
+const expanded = atom({ plugin: 'agent-monitor', key: 'expanded' } as const, {} as Record<string, boolean>)
 
 type Recs = Record<string, AgentMonitorRec>
-// The settings (plugin.json userConfig); a change in /config or on the settings page reloads the module, so register() sets it afresh.
-let cfg: Config = DEFAULTS
+let cfg: Config = DEFAULTS // the settings (plugin.json userConfig); a change in /config or on the settings page reloads the module, so register() sets it afresh
 // The UI strings: the language option is read once per load (it needs the session's settings and LANG), English until then.
 let langOption: unknown = 'auto'
 let t: Strings = strings('en')
@@ -45,8 +44,8 @@ const ensureLang = ($: EngineInterface) => (langLoad ??= (async () => {
 })())
 
 async function readNav($: EngineInterface) {
-  const [v, f, r, d, band, pane, session] = await Promise.all([read($, view), read($, focusKey), read($, ringKey), read($, draft), read($, historyOpen), read($, paneOpen), read($, sessionPlacement)])
-  return { page: parsePage(v), focusKey: f, ringKey: r, draft: d, band, pane, session }
+  const [v, f, r, d, band, pane, session, m, open] = await Promise.all([read($, view), read($, focusKey), read($, ringKey), read($, draft), read($, historyOpen), read($, paneOpen), read($, sessionPlacement), read($, mode), read($, expanded)])
+  return { page: parsePage(v), focusKey: f, ringKey: r, draft: d, band, pane, session, mode: m, expanded: open }
 }
 
 async function writeNav($: EngineInterface, p: NavPatch) {
@@ -59,8 +58,7 @@ async function writeNav($: EngineInterface, p: NavPatch) {
   if (p.session !== undefined) await update($, sessionPlacement, () => p.session ?? null)
 }
 
-// Read-modify-write one record. An agent with no record yet starts one only when `$.agent.list()` names it or `spawned` says the engine just
-// started it (an engine fork or workflow agent is no subagent: no row). Returns whether a record was written.
+// Read-modify-write one record. An agent with no record yet starts one only when `$.agent.list()` names it or `spawned` says the engine just started it (an engine fork or workflow agent is no subagent: no row). Returns whether a record was written.
 async function track($: EngineInterface, id: string, fn: (r: AgentMonitorRec) => AgentMonitorRec, spawned = false): Promise<boolean> {
   const known = (await read($, agents))[id] !== undefined
   const seed = known || spawned ? undefined : seedRec((await $.agent.list()).find(a => a.id === id))
@@ -71,7 +69,7 @@ async function track($: EngineInterface, id: string, fn: (r: AgentMonitorRec) =>
 
 async function loadBoard($: EngineInterface): Promise<Board> {
   const views = buildViews(withHistory(await read($, agents), history), await $.agent.list(), await $.clock.now(), { stallMs: cfg.stallMs, main: await read($, mainEdits), prices: cfg.prices })
-  return { views, cwd: await $.session.cwd(), cfg, t }
+  return { views, cwd: await $.session.cwd(), cfg, t, prs: prView }
 }
 
 // A main-loop edit takes part in conflicts only while a subagent runs, so it is kept only then.
@@ -88,8 +86,7 @@ async function settleStale($: EngineInterface) {
   await update($, agents, (all: Recs) => settled(all, new Map(stale), now))
 }
 
-// Subagents of every session of this project come from their transcripts (history.ts): the entries live in this load and, with their
-// read positions, in the store. `current`: only this session's folder (the 1 s tick), else the whole project directory.
+// Subagents of every session of this project come from their transcripts (history.ts): the entries live in this load and, with their read positions, in the store. `current`: only this session's folder (the 1 s tick), else the whole project directory.
 const txCache = new Map<string, TxEntry>()
 let history: Recs = {}
 async function readHistory($: EngineInterface, current = false) {
@@ -102,9 +99,12 @@ async function readHistory($: EngineInterface, current = false) {
     $.ui.invalidate('ui.render')
   } catch { /* no transcript readable now: the live records still stand */ }
 }
+const prCache: PrCache = {} // the PR index (prindex.ts: `gh pr list` on an interval, last good kept in the store) and the session's branch, for the PR mode
+let prView: PrView = { prs: [] }
+const refreshPrs = async ($: EngineInterface) => { prView = await refreshIndex({ run: a => $.process.run(a), load: k => $.store.get(k), save: (k, v) => $.store.set(k, v) }, prCache, await $.clock.now()); $.ui.invalidate('ui.render') }
 // Agents the mod never saw spawn come back from the main conversation (its Agent tool uses and task notifications), earlier ones from the transcripts.
 async function backfill($: EngineInterface) {
-  await readHistory($)
+  await Promise.all([readHistory($), refreshPrs($)])
   try {
     const found = recsFromMessages(await $.session.messages())
     const recs = await read($, agents)
@@ -185,6 +185,8 @@ function actsOf($: EngineInterface) {
     close: () => void setSite($, null),
     toggle: (key: SettingKey) => void update($, draft, (d: AgentMonitorDraft | null) => (d ? toggleDraft(d, key) : d)),
     save: () => void saveSettings($),
+    mode: (m: 'pr' | 'agent') => void update($, mode, () => m),
+    fold: (key: string, open: boolean) => void update($, expanded, (x: Record<string, boolean>) => ({ ...x, [key]: open })),
   }
 }
 // What a site draws from; a running agent keeps the timer going.
@@ -193,8 +195,7 @@ async function screen($: EngineInterface) {
   if (board.views.some(v => v.status === 'running')) ensureTimer($)
   return { nav, board }
 }
-// The mod acts everywhere, or only when the session cwd is inside the `scope` setting (session.start says, else the first hook asks).
-// Every hook goes through `active`, so the language is read before anything is drawn.
+// The mod acts everywhere, or only when the session cwd is inside the `scope` setting (session.start says, else the first hook asks). Every hook goes through `active`, so the language is read before anything is drawn.
 let scoped: boolean | undefined
 const active = async ($: EngineInterface) => {
   await ensureLang($)
@@ -224,7 +225,7 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     if (await active($)) {
       await ensureCommand($) // a hot reload may have dropped it
-      if (!backfilled) void backfill($) // once per load, not holding the turn (a first scan reads every transcript); /sub backfills again, and an Agent result is a second way in
+      void (backfilled ? refreshPrs($) : backfill($)) // backfill once per load, not holding the turn (a first scan reads every transcript); /sub backfills again; later turns refresh the PR index when due
       backfilled = true
       if (cfg.pricesBad && !priceToasted) { priceToasted = true; $.ui.toast(t.pricesBad, { timeoutMs: 8000 }) }
     }
@@ -241,10 +242,9 @@ export const register: Register = (on, options) => {
     return next(e)
   })
   for (const command of ['sub', 'subs']) on('command.run', { command }, async ($, e, next) => ((await active($)) ? runSub($, e.args) : next(e)))
-  // The ring moved onto a row's Button: remembered (focusKey), so a page change can put it back. Every move in our pane or band, onto any
-  // element or off all of them, is written to ringKey, which drives the selected-row highlight.
+  // The ring moved onto a row's or group's Button: remembered (focusKey), so a page change can put it back. Every move in our pane or band, onto any element or off all of them, is written to ringKey, which drives the selected-row highlight.
   on('ui.focus', async ($, e, next) => {
-    if (e.element?.startsWith('row:') && (await read($, focusKey)) !== e.element) await update($, focusKey, () => e.element ?? null)
+    if (/^(row|group):/.test(e.element ?? '') &&(await read($, focusKey)) !== e.element) await update($, focusKey, () => e.element ?? null)
     if (e.requestId === PANE || e.component === 'AbovePrompt') {
       const key = ringKeyOf(e)
       if ((await read($, ringKey)) !== key) {

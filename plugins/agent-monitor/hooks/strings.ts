@@ -57,6 +57,10 @@ const EN = {
   paneTitle: 'Subagents',
   notSaved: (why: string) => `Settings not saved: ${why}`,
   pricesBad: 'The prices setting is invalid; costs are estimated with the default prices',
+  // PR mode: the group of agents on no PR, a group's agent count, the footer's mode keys
+  otherGroup: 'Other',
+  agentsN: (n: number) => (n === 1 ? '1 agent' : `${n} agents`),
+  modeHint: ' · p/a PR/Agent',
 }
 
 export type Strings = typeof EN
@@ -103,6 +107,9 @@ const ZH: Strings = {
   paneTitle: 'Subagents',
   notSaved: why => `设置未保存：${why}`,
   pricesBad: 'prices 设置无效，已按默认价格估算',
+  otherGroup: '其他',
+  agentsN: n => `${n} 个子代理`,
+  modeHint: ' · p/a 切换 PR/Agent',
 }
 
 export const strings = (lang: Lang): Strings => (lang === 'zh' ? ZH : EN)

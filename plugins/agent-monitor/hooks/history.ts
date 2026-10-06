@@ -130,6 +130,7 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
       finishedAt: r.lastAt,
       durationMs: r.startedAt !== undefined && r.lastAt !== undefined ? r.lastAt - r.startedAt : undefined,
       status: 'done',
+      branch: r.gitBranch,
       ...(r.refused ? { denied: r.refused, reasons: denials.reasons } : {}),
     })
   }
