@@ -78,6 +78,13 @@ test('a group row\'s PR state reads Draft (yellow), Ready (magenta) or Merged (g
   }
 })
 
+test('an index stored before the draft flag reads its open PR as Ready until it is fetched again', async ($, on) => {
+  const old = { at: NOW - 60_000, prs: [{ number: 49, title: 'PR card and agents', state: 'OPEN', head: 'spec/36-pr-agent-views', closes: [43, 44] }] }
+  const { ui } = await openSub($, on, 'feature/44-row-layout', { [`prIndex:${ROOT}`]: old })
+  expect(st.ghCalls).toBe(0)
+  expect(await rowOf(ui, '#49 PR card and agents')).toMatch(/\sReady\s*$/)
+})
+
 test('the agent on dev lands in Other, whose row is drawn unlike a PR group\'s', async ($, on) => {
   const { ui } = await openSub($, on)
   await ui.press({ key: 'group:other' })
