@@ -1,5 +1,6 @@
 // Session state contract of agent-monitor: one record per subagent, the panel's page and focus, the settings draft, the session's
-// placement override and the main loop's recent edits, kept in `$.state` so a hot reload keeps them.
+// placement override, the main loop's recent edits and the per-PR totals published to other mods (`prStats`), kept in `$.state` so a
+// hot reload keeps them.
 
 /** One distinct denied / errored tool result, deduped by its first line. */
 export type Denial = { text: string; n: number }
@@ -92,6 +93,12 @@ export type AgentMonitorRec = {
   reasons?: Denial[]
 }
 
+/**
+ * One PR's subagent totals, published for other mods (docs/adr/0001-cross-mod-state.md): tokens, estimated cost in USD,
+ * wall time in ms, hook refusals. Canonical; pr-hint mirrors it in plugins/pr-hint/types/index.d.ts.
+ */
+export type PrStat = { tokens: number; cost: number; ms: number; refusals: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'agent-monitor': {
@@ -113,6 +120,8 @@ declare module 'claude-code' {
       sessionPlacement: 'top' | 'right' | null
       /** The main loop's recent file edits, for conflicts with a running subagent. */
       mainEdits: MainEdit[]
+      /** Published (pr-hint reads it): subagent totals per PR, keyed by the PR number as a string. Never written yet: absent. */
+      prStats: Record<string, PrStat>
     }
   }
 }

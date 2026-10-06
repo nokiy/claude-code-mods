@@ -1,0 +1,32 @@
+# 0001 · Cross-mod state: agent-monitor publishes, pr-hint reads
+
+Status: accepted · Spec #36 · Ticket #40
+
+## Context
+
+The pr-hint card is to show what a PR's subagents spent (tokens, cost, time, hook refusals). agent-monitor already sees every subagent; pr-hint knows which PR is open. Each mod must keep installing, validating and testing on its own.
+
+## Decision
+
+agent-monitor owns one published value in `$.state`; pr-hint reads it with a literal reference and never writes it.
+
+- **Key:** `PluginState['agent-monitor'].prStats`.
+- **Type:** `Record<string, PrStat>`, keyed by the PR number as a string (`$.state` holds JSON, so object keys are strings).
+- **Fields:** `PrStat = { tokens: number; cost: number; ms: number; refusals: number }`: the PR's subagent tokens, estimated cost in USD, wall time in ms, and hook-refused tool calls. Subagents only; the main session is not counted.
+- **Owner:** agent-monitor alone writes it (the engine refuses a write from any other plugin). Its contract `plugins/agent-monitor/types/index.d.ts` holds the canonical `PrStat`.
+- **Reader:** pr-hint, in its AbovePrompt hook (`plugins/pr-hint/hooks/register.tsx`): `$.state.get({ plugin: 'agent-monitor', key: 'prStats' } as const)`, and it hands this PR's entry to `cardLines` as `extra.stats`. The read happens while the card draws, so a later write by agent-monitor redraws the card.
+- **One-way dependency:** pr-hint lists no `dependencies` in `plugin.json`, so installing pr-hint never pulls agent-monitor in. To type-check the read anyway, pr-hint's own contract mirrors the one key (`'agent-monitor': { prStats: Record<string, PrStat> }`). A mirror is valid only while agent-monitor's contract is not laid beside pr-hint's. If pr-hint ever adds a `dependencies` entry, delete the mirror: two declarations of the `'agent-monitor'` property would no longer merge (TS2717). Change `PrStat` in agent-monitor first, then copy it to the mirror.
+- **Absent value:** with agent-monitor not installed, or installed but not yet written for this PR, the read gives `undefined`, and pr-hint draws the card exactly as it does without the value. There is no placeholder, zero or error. agent-monitor publishes only PRs it has data for, so a missing entry means "unknown", never "zero".
+
+## Evidence (spike, Claude Code 2.1.291)
+
+- `claude plugin validate --strict plugins/pr-hint` passes with the literal read and no agent-monitor dependency. It lists the read and states it does not check it: `state of other plugins, not checked (run validate in a session with them enabled): agent-monitor.prStats`.
+- The same validate and `claude plugin test plugins/pr-hint` stay green with an empty `CLAUDE_CONFIG_DIR` and no `CLAUDE_CODE_PLUGIN_DIRS`: only pr-hint, no agent-monitor, no login, which is the CI case.
+- `tsc` over pr-hint with only its own laid types (no agent-monitor contract) fails on the read without the mirror (`'"agent-monitor"' is not assignable to type '"pr-hint"'`) and passes with it.
+- pr-hint tests answer the read by hooking `state.get` (`injectPrStats` in `plugins/pr-hint/tests/testkit.ts`). A test cannot `set` another plugin's value.
+
+## Consequences
+
+- agent-monitor writes `prStats` from its own events. pr-hint never asks agent-monitor for anything.
+- A shape change is a contract change: update agent-monitor's `PrStat`, pr-hint's mirror and this ADR together.
+- A third mod may read `prStats` the same way, under the same absent-value rule.

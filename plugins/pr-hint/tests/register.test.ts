@@ -1,6 +1,6 @@
 // Renders PromptHint and AbovePrompt through the plugin with gh and git output mocked beneath it, on synthetic data; the location (directory, branch) and agents-pill cases live in location.test.ts.
 import { expect, mock, test } from 'claude-code/testing';
-import { BAND_PROPS, ISSUE, PR, PROPS, VIEWPORT, done, engineLines, mountBand, mountHint, quiet, reply, st, tally, wire } from './testkit';
+import { BAND_PROPS, ISSUE, PR, PROPS, VIEWPORT, done, engineLines, injectPrStats, mountBand, mountHint, quiet, reply, st, tally, wire } from './testkit';
 
 for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
   test(`PromptHint ${name}`, async ($, on) => {
@@ -236,6 +236,29 @@ for (const pin of [false, true]) {
     await hint.unmount();
   });
 }
+
+test("the card reads agent-monitor's prStats: absent or present, the card is drawn as before", async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  wire(on);
+  engineLines(on);
+  const stats = injectPrStats(on);
+  await $.session.start({ cwd: '/tmp/x' } as never);
+  await clock.settle();
+  const draw = async () => {
+    const band = await mountBand($);
+    const lines = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '');
+    await band.unmount();
+    return lines;
+  };
+  const absent = await draw();
+  expect(stats.reads).toBeGreaterThan(0);
+  expect(absent.filter(l => /^PR #10 /.test(l))).toHaveLength(1);
+  const seen = stats.reads;
+  stats.value = { '10': { tokens: 86_200, cost: 1.25, ms: 754_000, refusals: 2 } };
+  const present = await draw();
+  expect(stats.reads).toBeGreaterThan(seen);
+  expect(present).toEqual(absent);
+});
 
 test('with a PR and an empty rest of the chain, the band shows the card alone', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });

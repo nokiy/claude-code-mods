@@ -1,5 +1,5 @@
 // Pure text for the AbovePrompt detail card (two header lines, then every ticket, no row cap) and the hint row's spans and layout.
-import type { PrData, PrTicket, TicketStatus } from '../types';
+import type { PrData, PrStat, PrTicket, TicketStatus } from '../types';
 import { prState, relTime, shortTitle, sortTickets, truncate, width } from './parse';
 import type { PrState } from './parse';
 import type { Strings } from './strings';
@@ -124,8 +124,12 @@ export const statusParts = (pr: PrData, s: Strings): CardPart[] => [
 /**
  * The card, top to bottom: two header lines (line 1 fits `titleInner`, the width the refresh button
  * leaves; line 2 is `statusParts`), then one line per ticket, `inner` cells wide. `footer` follows the link.
+ * `extra.stats` is this PR's subagent totals read from agent-monitor (undefined when absent); not drawn.
  */
-export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings, titleInner = inner): { lines: CardLine[]; footer: string } {
+export function cardLines(
+  pr: PrData, nowMs: number, inner: number, s: Strings, titleInner = inner, extra: { stats?: PrStat } = {},
+): { lines: CardLine[]; footer: string } {
+  void extra;
   const subjects = ticketSubjects(pr.tickets);
   return {
     lines: [
