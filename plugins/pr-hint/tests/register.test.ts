@@ -1,6 +1,6 @@
 // Renders PromptHint and AbovePrompt through the plugin with gh and git output mocked beneath it, on synthetic data; the location (directory, branch) and agents-pill cases live in location.test.ts.
 import { expect, mock, test } from 'claude-code/testing';
-import { BAND_PROPS, ISSUE, PR, PROPS, VIEWPORT, done, quiet, reply, st, tally, wire } from './testkit';
+import { BAND_PROPS, ISSUE, PR, PROPS, VIEWPORT, done, engineLines, quiet, reply, st, tally, wire } from './testkit';
 
 for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
   test(`PromptHint ${name}`, async ($, on) => {
@@ -107,10 +107,17 @@ test('hint is drawn as spans (no nested engine element) and a minute of timers a
   expect(tally.gql).toBe(1);
 });
 
-for (const state of ['MERGED', 'CLOSED']) {
-  test(state === 'MERGED' ? 'a MERGED PR stays on its branch as a green Merged chip' : 'a CLOSED PR reads as no PR: the engine line is untouched', async ($, on) => {
+for (const [state, sha] of [['MERGED', 'aaa'], ['MERGED', 'bbb'], ['CLOSED', 'aaa']] as const) {
+  const name = state === 'CLOSED'
+    ? 'a CLOSED PR reads as no PR: the engine line is untouched'
+    : sha === 'aaa'
+      ? 'a MERGED PR shows a green Merged chip while the branch sits on its merged commit'
+      : 'a MERGED PR of a branch that moved on (dev after a release) reads as no PR';
+  test(name, async ($, on) => {
     const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
     quiet(on);
+    st.branch = 'dev';
+    st.refs = `refs/heads/dev ${sha}\n`;
     on('session.start', async (_$, e) => ({ cwd: e.cwd }));
     on('process.run', async (_$, e) => ({ value: { ...reply(e.argv), stderr: '', ...done } }));
     on('ui.render', { component: 'PromptHint' }, async (_$, e) => ({ type: 'Text', children: [e.props.hint] }) as never);
@@ -123,7 +130,7 @@ for (const state of ['MERGED', 'CLOSED']) {
     }
     const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: VIEWPORT });
     expect(await ui.find({ type: 'Text', text: /bypass permissions/ })).toBeDefined();
-    if (state === 'MERGED') {
+    if (state === 'MERGED' && sha === 'aaa') {
       expect(await ui.find({ type: 'Button', key: 'pin' })).toBeDefined();
       expect((await ui.find({ type: 'Text', text: /^Merged$/ }))?.props.color).toBe('green');
     } else {
@@ -132,6 +139,27 @@ for (const state of ['MERGED', 'CLOSED']) {
     await ui.unmount();
   });
 }
+
+test('a new commit on the branch drops its Merged PR at the next 20 s tick, with no gh call', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  wire(on);
+  engineLines(on);
+  PR.state = 'MERGED';
+  try {
+    await $.session.start({ cwd: '/tmp/x' } as never);
+    await clock.settle();
+    const ui = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'PromptHint', props: PROPS, viewport: VIEWPORT });
+    expect(await ui.find({ type: 'Text', text: /^Merged$/ })).toBeDefined();
+    const gql = tally.gql;
+    st.refs = 'refs/heads/dev ccc\n';
+    await clock.advance(20_000);
+    expect(tally.gql).toBe(gql);
+    expect(await ui.find({ type: 'Button', key: 'pin' })).toBeUndefined();
+    await ui.unmount();
+  } finally {
+    PR.state = 'OPEN';
+  }
+});
 
 test('the 20s tick: an unchanged ref snapshot recomputes nothing, a changed one recomputes with no gh call', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });

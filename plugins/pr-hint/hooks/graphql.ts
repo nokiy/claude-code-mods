@@ -12,7 +12,7 @@ export const PR_ARGS = [...REPO_ARGS, '-F', 'branch={branch}'];
 const ISSUE_FIELDS = 'number title state body labels(first:10){nodes{name}}';
 export const PR_QUERY =
   'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){pullRequests(headRefName:$branch,states:[OPEN,MERGED],first:10,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{' +
-  'number title state isDraft isCrossRepository baseRefName headRefName url body ' +
+  'number title state isDraft isCrossRepository baseRefName headRefName headRefOid url body ' +
   'commits(first:100){nodes{commit{messageHeadline}}} ' +
   'statusCheckRollup{contexts(first:100){nodes{... on CheckRun{status conclusion} ... on StatusContext{state}}}} ' +
   `closingIssuesReferences(first:50){nodes{${ISSUE_FIELDS}}}}}}}`;
@@ -37,7 +37,8 @@ export type PrAnswer = { ok: false } | { ok: true; pr: PrJson | null };
  * Unwraps the GraphQL answer into the shape the parsers read (what `gh pr view --json` gave):
  * commits, statusCheckRollup, closingIssuesReferences and labels become plain arrays.
  * The PR is the first OPEN one whose head lives in this repository (a fork's PR of the same branch name is skipped),
- * else the first (latest) MERGED one; a CLOSED PR is never shown.
+ * else the first (latest) MERGED one; a CLOSED PR is never shown. Whether a MERGED one is still the branch's is
+ * decided against local git (`isCurrentPr`).
  */
 export function parseGraphql(text: string): PrAnswer {
   const root = parseJson(text) as { data?: { repository?: { pullRequests?: unknown } | null }; errors?: unknown } | null;
@@ -56,6 +57,23 @@ export function parseGraphql(text: string): PrAnswer {
       closingIssuesReferences: nodes(pr.closingIssuesReferences).map(flatIssue),
     },
   };
+}
+
+/** The commit `refs/heads/<branch>` points at in a `git for-each-ref` snapshot (`<refname> <sha>` lines); null when absent. */
+export function branchHead(refs: string | null, branch: string): string | null {
+  const line = (refs ?? '').split('\n').find(l => l.startsWith(`refs/heads/${branch} `));
+  return line ? line.slice(`refs/heads/${branch} `.length).trim() || null : null;
+}
+
+/**
+ * A merged PR belongs to the branch only while the branch still sits on the commit that was merged
+ * (`headRefOid`). Once the branch moves on (a long-lived `dev` after a `dev → main` release, new work
+ * on a reused branch) that PR is history, not this branch's PR. An open PR always counts.
+ */
+export function isCurrentPr(pr: Json, refs: string | null, branch: string): boolean {
+  if (pr.state !== 'MERGED') return true;
+  const head = branchHead(refs, branch);
+  return head !== null && head === pr.headRefOid;
 }
 
 /** The issues of an `issuesQuery` answer (a missing issue is skipped). */
