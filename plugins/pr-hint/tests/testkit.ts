@@ -80,9 +80,10 @@ export const mountHint = ($: Dollar, hint = PROPS.hint) => $.ui.mount({
 export const mountBand = ($: Dollar) => $.ui.mount({
   plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS,
 });
-// Stands for the engine's own band and hint line, which the plugin passes through when there is no PR.
-export const engineLines = (on: On) => {
-  on('ui.render', { component: 'AbovePrompt' }, async () => ({ type: 'Text', children: ['engine band'] }) as never);
+// Stands for the engine's own band and hint line: the plugin passes them through when there is no PR, and draws the band under its card.
+// `bandText` null stands for an engine with nothing to draw above the prompt (an empty Box: `next(e)` always resolves to a tree).
+export const engineLines = (on: On, bandText: string | null = 'engine band') => {
+  on('ui.render', { component: 'AbovePrompt' }, async () => (bandText === null ? { type: 'Box', props: {}, children: [] } : { type: 'Text', children: [bandText] }) as never);
   on('ui.render', { component: 'PromptHint' }, async (_$, e) => ({ type: 'Text', children: [e.props.hint] }) as never);
 };
 

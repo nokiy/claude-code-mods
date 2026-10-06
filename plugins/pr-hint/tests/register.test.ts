@@ -1,6 +1,6 @@
 // Renders PromptHint and AbovePrompt through the plugin with gh and git output mocked beneath it, on synthetic data; the location (directory, branch) and agents-pill cases live in location.test.ts.
 import { expect, mock, test } from 'claude-code/testing';
-import { BAND_PROPS, ISSUE, PR, PROPS, VIEWPORT, done, engineLines, quiet, reply, st, tally, wire } from './testkit';
+import { BAND_PROPS, ISSUE, PR, PROPS, VIEWPORT, done, engineLines, mountBand, mountHint, quiet, reply, st, tally, wire } from './testkit';
 
 for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
   test(`PromptHint ${name}`, async ($, on) => {
@@ -184,9 +184,10 @@ test('the 20s tick: an unchanged ref snapshot recomputes nothing, a changed one 
 test('the 5 min tick makes one GraphQL request and flips a CLOSED ticket to accepted', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
   wire(on);
+  engineLines(on);
   await $.session.start({ cwd: '/tmp/x' } as never);
   await clock.settle();
-  const band = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS });
+  const band = await mountBand($);
   expect(await band.find({ type: 'Text', text: /^● #7 in progress/ })).toBeDefined();
   st.issue7 = { ...ISSUE, state: 'CLOSED' };
   await clock.advance(280_000);
@@ -200,9 +201,58 @@ test('the 5 min tick makes one GraphQL request and flips a CLOSED ticket to acce
   await band.unmount();
 });
 
+// The chain's later drawers (agent-monitor's rows, the engine band) render under the card, never inside its hidden box.
+type Node = { type?: string; props?: { display?: string; borderStyle?: string }; children?: unknown[] };
+const pathTo = (n: unknown, hit: (x: Node) => boolean): Node[] | null => {
+  if (n === null || typeof n !== 'object') return null;
+  if (hit(n as Node)) return [n as Node];
+  for (const p of ((n as Node).children ?? []).map(c => pathTo(c, hit))) if (p) return [n as Node, ...p];
+  return null;
+};
+const isMarker = (x: Node) => x.type === 'Text' && x.children?.[0] === 'engine band';
+
+for (const pin of [false, true]) {
+  test(`with a PR the band draws the card and passes the chain on below it (pinned ${pin})`, async ($, on) => {
+    const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+    wire(on);
+    engineLines(on);
+    await $.session.start({ cwd: '/tmp/x' } as never);
+    await clock.settle();
+    const hint = await mountHint($);
+    if (pin) await hint.press({ key: 'pin' }).then(() => clock.settle());
+    const band = await mountBand($);
+    const tree = await band.drawn();
+    const [toMarker, toCard] = [pathTo(tree, isMarker), pathTo(tree, x => x.props?.borderStyle === 'round')];
+    expect([toMarker, toCard]).not.toContain(null);
+    // Card first, rest below; the marker is not inside the card, and nothing above it is hidden.
+    expect(toMarker!.includes(toCard!.at(-1)!)).toBe(false);
+    expect(toMarker!.some(x => x.props?.display === 'none')).toBe(false);
+    expect(toCard!.at(-1)!.props?.display).toBe(pin ? undefined : 'none');
+    const lines = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '');
+    expect(lines.findIndex(l => /^PR #10 /.test(l))).toBeLessThan(lines.indexOf('engine band'));
+    await band.unmount();
+    await hint.unmount();
+  });
+}
+
+test('with a PR and an empty rest of the chain, the band shows the card alone', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  wire(on);
+  engineLines(on, null);
+  await $.session.start({ cwd: '/tmp/x' } as never);
+  await clock.settle();
+  const band = await mountBand($);
+  const [card, rest] = ((await band.drawn()) as unknown as Node).children as Node[];
+  expect(card?.props?.borderStyle).toBe('round');
+  expect(card?.props?.display).toBe('none');
+  expect(rest?.children).toEqual([]);
+  await band.unmount();
+});
+
 test('a PR GitHub links no issue to (non-default base) reads its Closes #N issues with one more request', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
   wire(on);
+  engineLines(on);
   st.linked = false;
   await $.session.start({ cwd: '/tmp/x' } as never);
   await clock.settle();
