@@ -32,8 +32,6 @@ async function start($: Run[0], on: Run[1], files: Record<string, string>) {
     return next(e)
   })
   on('turn.start', async (_$, e) => e as never)
-  // A main-loop step (no agentId) with large usage, answered beneath the plugins.
-  on('turn.step', async function* () { return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: { input_tokens: 500_000, output_tokens: 50_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } as never })
   await $.session.start({ cwd: ROOT } as never)
   await $.turn.start({ turnId: 't0' } as never)
   await clock.settle()
@@ -52,6 +50,8 @@ test('each PR with subagents gets its tokens, cost, wall time and hook refusals;
 
 test("the main session's usage is not counted: neither its transcript nor its own steps", async ($, on) => {
   const { clock, pub } = await start($, on, MAIN)
+  // A main-loop step (no agentId) with large usage, answered beneath the plugins by testkit's turn.step.
+  st.usage = { input_tokens: 500_000, output_tokens: 50_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
   const step = $.turn.step({ turnId: 't', index: 0, model: 'claude-opus-5-5' } as never)
   for await (const _ of step) { /* drain */ }
   await $.turn.start({ turnId: 't1' } as never)

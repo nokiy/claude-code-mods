@@ -24,6 +24,8 @@ export type View = {
   effort?: string | number
   rounds?: number
   tokens?: number
+  /** Latest step's input + cache tokens: the context fill. */
+  context?: number
   startedAt?: number
   finishedAt?: number
   elapsedMs?: number
@@ -151,6 +153,7 @@ export function buildViews(recs: Record<string, AgentMonitorRec>, list: ListAgen
       effort: r?.effort,
       rounds: r?.watched ? r.steps : undefined,
       tokens,
+      context: r && r.context > 0 ? r.context : undefined,
       startedAt: r?.startedAt,
       finishedAt: r?.finishedAt,
       elapsedMs,

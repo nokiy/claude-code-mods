@@ -2,7 +2,7 @@ import { test, expect } from 'claude-code/testing'
 
 import { ALL_COLUMNS } from './config'
 import { view } from './fixture'
-import { computeLayout, headerCells, headerSegs, isSelected, markLabel, rowCells, rowParts, rowText } from './layout'
+import { computeLayout, costText, ctxBar, headerCells, headerSegs, isSelected, markLabel, rowCells, rowParts, rowText, runningText, statsText } from './layout'
 import { cellWidth } from './logic'
 import { PALETTE } from './palette'
 import type { View } from './views'
@@ -13,28 +13,46 @@ const sample = (over: Partial<View> = {}): View =>
 const kinds = (cells: { kind: string }[]) => [...new Set(cells.map(c => c.kind))]
 const joined = (cells: { text: string }[]) => cells.map(c => c.text).join('')
 
-test('layout: every row and header fits the width; stats and alerts never cut', () => {
+test('figures: `ctx% · tokens · $` for the table, `· m:ss` added for running rows and the band, a dash for each unknown', () => {
+  expect(costText(sample({ context: 82_000, tokens: 86_200, cost: 0.42 }))).toBe('41% · 86.2k · $0.42')
+  expect(statsText(sample({ context: 82_000, tokens: 86_200, cost: 0.42, elapsedMs: 65_000 }))).toBe('41% · 86.2k · $0.42 · 1:05')
+  expect(statsText(sample({ context: undefined, tokens: undefined, cost: undefined, elapsedMs: undefined }))).toBe('— · — · — · —')
+  // a 1M-context model fills a fifth as fast
+  expect(costText(sample({ context: 200_000, model: 'claude-opus-5-5[1m]', tokens: 1, cost: 0 }))).toBe('20% · 1 · $0.00')
+})
+
+test('running row texts: tier-prefixed description; model and effort the steps ran on; the context bar', () => {
+  expect(runningText(sample({ desc: 'op.med · fix  the\nparser' })).desc).toBe('op.med · fix the parser')
+  expect(runningText(sample({ desc: 'fix the parser', task: 'fix the parser' })).desc).toBe('fix the parser')
+  const r = runningText(sample({ model: 'claude-opus-5-5', actualModel: 'claude-sonnet-5-5', actualEffort: 'high' }))
+  expect([r.model, r.effort]).toEqual(['sonnet', 'high'])
+  expect(runningText(sample({ model: undefined, effort: undefined })).effort).toBe('—')
+  expect(ctxBar(sample({ context: 82_000 }))).toEqual({ fill: 4, empty: 6, pct: 41 })
+  expect(ctxBar(sample({ context: undefined }))).toEqual({ fill: 0, empty: 10, pct: undefined })
+})
+
+test('layout: every row and header fits the width; tier, cost and time never cut', () => {
   for (const cols of [60, 79, 80, 100, 160]) {
-    const rows = [sample({ denied: 2 }), sample({ status: 'done', type: 'a-very-long-agent-type-name', rounds: undefined, tokens: undefined, elapsedMs: undefined }), sample({ task: 'x'.repeat(200) })].map(rowText)
+    const rows = [sample({ denied: 2 }), sample({ status: 'done', type: 'a-very-long-agent-type-name', tokens: undefined, elapsedMs: undefined }), sample({ task: 'x'.repeat(200) })].map(rowText)
     const l = computeLayout(cols, rows)
     for (const r of [...rows.map(r => rowCells(l, r)), headerCells(l)]) {
       expect(r.reduce((n, c) => n + cellWidth(c.text), 0)).toBeLessThanOrEqual(cols)
     }
     const text = joined(rowCells(l, rows[0]!))
-    expect(text.trimEnd().endsWith('×2')).toBe(true)
-    expect(text).toContain('2m08s')
+    expect(text.trimEnd().endsWith('2:08  !')).toBe(true)
     expect(text).toContain('67.8k')
-    expect(joined(headerCells(l))).toContain('Alerts')
+    expect(text).toContain('sonnet.med')
+    expect(joined(headerCells(l))).toContain('cost')
   }
 })
 
-test('layout: select mark first, Tier merged, Edits before Rounds, Alerts last', () => {
+test('layout: columns `# desc type tier cost time`, tier one cell of model and effort', () => {
   const rows = [sample()].map(rowText)
   const l = computeLayout(100, rows)
-  expect(kinds(rowCells(l, rows[0]!))).toEqual(['index', 'status', 'type', 'model', 'effort', 'task', 'edits', 'rounds', 'tokens', 'time', 'alerts'])
+  expect(kinds(rowCells(l, rows[0]!))).toEqual(['index', 'status', 'task', 'type', 'model', 'effort', 'cost', 'tokens', 'time'])
   const tier = rowCells(l, rows[0]!).filter(c => c.kind === 'model' || c.kind === 'effort')
   expect(tier.map(c => c.text.trim())).toEqual(['sonnet', '.med'])
-  expect(joined(headerCells(l)).split(/\s+/).filter(Boolean)).toEqual(['Status', 'Type', 'Tier', 'Task', 'Edits', 'Rounds', 'Tokens', 'Time', 'Alerts'])
+  expect(joined(headerCells(l)).split(/\s+/).filter(Boolean)).toEqual(['#', 'desc', 'type', 'tier', 'cost', 'time'])
 })
 
 test('rowText: tier name forms', () => {
@@ -42,32 +60,29 @@ test('rowText: tier name forms', () => {
   expect(rowText(sample({ model: 'claude-opus-4', effort: 'high' })).effort).toBe('.high')
   expect(rowText(sample({ model: 'claude-haiku-4', effort: undefined, desc: 'x' })).effort).toBe('') // unknown effort: just the model
   expect(rowText(sample({ model: undefined, effort: undefined, desc: 'x' })).model).toBe('—')
-  expect(rowText(sample({ editCount: 3 })).edits).toBe('3')
-  expect(rowText(sample()).edits).toBe('—')
 })
 
-test('layout: task column flexes and aligns the stats block', () => {
-  const rows = [sample(), sample({ rounds: 3, tokens: 5100, elapsedMs: 12000, denied: 12 })].map(rowText)
+test('layout: desc flexes; rows are equally wide; the cost cell reads `ctx% · tokens · $`, padded at its end', () => {
+  const rows = [sample({ context: 150_000, tokens: 162_000, cost: 12.5 }), sample({ context: 900, tokens: 940, cost: 0.01, elapsedMs: 9000 }), sample({ tokens: undefined })].map(rowText)
   const l = computeLayout(100, rows)
-  const [r1, r2] = rows.map(r => joined(rowCells(l, r)))
-  expect(cellWidth(r1!)).toBe(cellWidth(r2!))
-  expect(cellWidth(r1!)).toBe(100)
-  expect(rowText(sample({ rounds: undefined, tokens: undefined, elapsedMs: undefined })).rounds).toBe('—')
+  const texts = rows.map(r => joined(rowCells(l, r)))
+  expect(texts.map(cellWidth)).toEqual([100, 100, 100])
+  expect(texts[0]).toContain('75% · 162.0k · $12.50  2:08')
+  expect(texts[1]).toContain('0% · 940 · $0.01       0:09') // 5 cells short of the widest cost, then the gap and the right-aligned time
+  const start = (s: string, part: string) => s.indexOf(part)
+  expect(start(texts[0]!, '75%')).toBe(start(texts[1]!, '0%'))
 })
 
-test('layout: narrow cuts Task first, then Edits, never Alerts or the stats', () => {
-  const rows = [sample({ editCount: 2 })].map(rowText)
+test('layout: narrow cuts desc first, then type shrinks; tier, cost and time stay', () => {
+  const rows = [sample({ type: 'general-purpose' })].map(rowText)
   const at = (cols: number) => kinds(rowCells(computeLayout(cols, rows), rows[0]!))
   expect(at(120)).toContain('task')
-  expect(at(79)).toContain('task')
-  expect(at(79)).toContain('edits')
-  for (const cols of [70, 60]) {
+  for (const cols of [50, 40]) {
     const k = at(cols)
     expect(k).not.toContain('task')
-    for (const must of ['rounds', 'tokens', 'time', 'alerts']) expect(k).toContain(must)
+    for (const must of ['model', 'cost', 'time']) expect(k).toContain(must)
   }
-  expect(at(60)).not.toContain('edits')
-  expect(computeLayout(79, rows).task).toBeGreaterThan(0)
+  expect(computeLayout(40, rows).type).toBeLessThan(computeLayout(120, rows).type)
 })
 
 test('layout: settings hide columns; the rest still fill the width', () => {
@@ -76,24 +91,34 @@ test('layout: settings hide columns; the rest still fill the width', () => {
     const l = computeLayout(100, rows, { ...ALL_COLUMNS, ...over })
     return { l, row: rowCells(l, rows[0]!), head: joined(headerCells(l)) }
   }
-  const noRounds = hide({ rounds: false, time: false })
-  expect(noRounds.head).not.toContain('Rounds')
-  expect(noRounds.head).not.toContain('Time')
-  expect(noRounds.head).toContain('Tokens')
-  expect(cellWidth(joined(noRounds.row))).toBe(100)
-  const noAlerts = hide({ alerts: false })
-  expect(kinds(noAlerts.row).at(-1)).toBe('time')
-  expect(noAlerts.head).not.toContain('Alerts')
-  expect(cellWidth(joined(noAlerts.row))).toBe(100)
+  const noTime = hide({ time: false })
+  expect(noTime.head).not.toContain('time')
+  expect(noTime.head).toContain('cost')
+  expect(cellWidth(joined(noTime.row))).toBe(100)
+  const noCost = hide({ tokens: false })
+  expect(noCost.head).not.toContain('cost')
+  expect(kinds(noCost.row)).not.toContain('tokens')
   const noTier = hide({ tier: false })
   expect(kinds(noTier.row)).not.toContain('model')
-  expect(noTier.head).not.toContain('Tier')
-  const noEdits = hide({ edits: false })
-  expect(noEdits.head).not.toContain('Edits')
-  const bare = hide({ tier: false, edits: false, rounds: false, tokens: false, time: false, alerts: false })
-  expect(kinds(bare.row)).toEqual(['index', 'status', 'type', 'task'])
+  expect(noTier.head).not.toContain('tier')
+  const bare = hide({ tier: false, tokens: false, time: false, alerts: false })
+  expect(kinds(bare.row)).toEqual(['index', 'status', 'task', 'type'])
   expect(cellWidth(joined(bare.row))).toBe(100)
   expect(cellWidth(joined(bare.row))).toBe(cellWidth(joined(headerCells(bare.l))))
+})
+
+test('alert column: a red `!` ends only an alerted row; no column when no row has an alert or the setting hides it', () => {
+  const clean = sample()
+  const alertedRows = [sample({ stall: { level: 1, idleMs: 1 } }), sample({ clashes: [{ path: '/a', other: 'y' }] }), sample({ tier: { want: 'a', got: 'b', model: true, effort: false } }), sample({ denied: 1 })]
+  for (const a of alertedRows) {
+    const rows = [rowText(a), rowText(clean)]
+    const l = computeLayout(100, rows)
+    const [hit, quiet] = rows.map(r => rowCells(l, r).at(-1)!)
+    expect([hit!.text, hit!.color]).toEqual(['!', PALETTE.red])
+    expect(quiet!.text).toBe(' ')
+  }
+  expect(computeLayout(100, [rowText(clean)]).alert).toBe(0)
+  expect(computeLayout(100, [rowText(sample({ denied: 1 }))], { ...ALL_COLUMNS, alerts: false }).alert).toBe(0)
 })
 
 test('headerSegs: counts, totals at the right edge', () => {
@@ -125,10 +150,9 @@ test('row cells carry the keys and colors the drawing looks up', () => {
   expect(cells.find(c => c.kind === 'model')!.key).toBe('sonnet')
   expect(cells.find(c => c.kind === 'effort')!.key).toBe('medium')
   expect(cells.some(c => c.bad)).toBe(false)
-  // a tier mismatch paints the whole Tier cell; alert glyphs carry their own colors
-  const bad = rowCells(l, rowText(sample({ tier: { want: 'ha.low', got: 'sonnet.med', model: true, effort: true }, clashes: [{ path: '/a', other: 'y' }], denied: 3 })))
+  // a tier mismatch paints the whole tier cell
+  const bad = rowCells(l, rowText(sample({ tier: { want: 'ha.low', got: 'sonnet.med', model: true, effort: true } })))
   expect(bad.filter(c => c.kind === 'model' || c.kind === 'effort').every(c => c.bad)).toBe(true)
-  expect(bad.filter(c => c.kind === 'alerts' && c.color && c.text.trim()).map(c => [c.text, c.color])).toEqual([['!', PALETTE.red], ['≠', PALETTE.red], ['×3', PALETTE.red]])
 })
 
 test('headerSegs: narrow line sheds zero counts first and never cuts the totals', () => {
@@ -164,11 +188,10 @@ test('row Button layout: lead + 1-cell mark + the other cells are exactly the ro
   }
 })
 
-test('no `#` column: no number in the header or the rows, the row count never widens the prefix', () => {
+test('the `#` column is the status glyph, never a row number: the row count never widens the prefix', () => {
   const few = [sample()].map(rowText)
   const many = Array.from({ length: 12 }, () => sample()).map(rowText)
-  expect('n' in few[0]!).toBe(false)
-  expect(joined(headerCells(computeLayout(100, many)))).not.toContain('#')
+  expect(joined(headerCells(computeLayout(100, many))).trimStart().startsWith('#  desc')).toBe(true)
   expect(computeLayout(100, many).task).toBe(computeLayout(100, few).task) // 12 rows take no more width than 1
   expect(joined(rowCells(computeLayout(100, many), many[0]!)).trimStart().startsWith('◐')).toBe(true)
 })

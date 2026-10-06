@@ -21,6 +21,8 @@ const EN = {
   stallShort: (idle: string, tool: string | undefined) => (tool ? `~${idle} (${tool} not returned)` : `~${idle} no activity`),
   tierLine: (who: string, want: string, got: string) => `${who} described ${want} · ran ${got}`,
   tierShort: (want: string, got: string) => `≠ described ${want} · ran ${got}`,
+  // a running row's line 2 when the steps did not run the tier the description asked for
+  wanted: (tier: string) => `≠ wanted ${tier}`,
   deniedLine: (who: string, n: number, reason: string, kinds: number) => `${who} refused ${times(n)}: ${reason}${kinds > 1 ? ` (${kinds} kinds)` : ''}`,
   deniedShort: (n: number) => `× refused ${times(n)}`,
   // detail page
@@ -46,8 +48,8 @@ const EN = {
   save: 'Save',
   settingsHint: ' ↑↓ select · Enter change · w save (b goes back without saving)',
   gloss: {
-    tier: 'model.effort column', edits: 'files-edited column', rounds: 'model rounds column', tokens: 'token usage column', time: 'elapsed time column',
-    alerts: 'alert glyph column (also on live rows)', alertsBlock: 'alert sentences block', autoBand: 'show live rows while agents run', toasts: 'pop-up notices',
+    tier: 'model.effort column', tokens: 'ctx% · tokens · $ column', time: 'elapsed time column',
+    alerts: 'red ! on alerted rows (also on live rows)', alertsBlock: 'alert sentences block', autoBand: 'show live rows while agents run', toasts: 'pop-up notices',
     placement: 'default place: last = as before / right / top', stallMinutes: 'stall threshold (minutes)',
   } as Record<string, string>,
   // command, pane, toasts
@@ -75,6 +77,7 @@ const ZH: Strings = {
   stallShort: (idle, tool) => (tool ? `~${idle}（${tool} 未返回）` : `~${idle} 无动作`),
   tierLine: (who, want, got) => `${who} 描述 ${want} · 实际 ${got}`,
   tierShort: (want, got) => `≠ 描述 ${want} · 实际 ${got}`,
+  wanted: tier => `≠ 要求 ${tier}`,
   deniedLine: (who, n, reason, kinds) => `${who} 被拒 ${n} 次：${reason}${kinds > 1 ? ` 等 ${kinds} 种` : ''}`,
   deniedShort: n => `× 拦截 ${n} 次`,
   sec: { prompt: '指令', timeline: '时间线', files: '改过的文件', tools: '工具', skills: '技能', recent: '最近动作', alerts: '告警', result: '结果' },
@@ -97,7 +100,7 @@ const ZH: Strings = {
   save: '保存',
   settingsHint: ' ↑↓ 选择 · Enter 切换 · w 保存（b 返回不保存）',
   gloss: {
-    tier: '模型.档位列', edits: '改动文件数列', rounds: '模型轮次列', tokens: '令牌用量列', time: '用时列', alerts: '告警符号列（含运行条）',
+    tier: '模型.档位列', tokens: 'ctx% · 令牌 · $ 列', time: '用时列', alerts: '告警行末红色 !（含运行条）',
     alertsBlock: '告警说明区', autoBand: '运行时自动显示', toasts: '弹出提示', placement: '默认位置：last 沿用上次 / right / top', stallMinutes: '卡住阈值（分钟）',
   },
   commandDescription: '子代理历史',
