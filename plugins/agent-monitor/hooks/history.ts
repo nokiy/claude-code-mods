@@ -6,7 +6,7 @@ import { addDenial } from './alerts'
 import { plusSpent, spentTotal } from './cost'
 import { parseDescription } from './logic'
 import { clean } from './patches'
-import { emptyRollup, feed } from './transcript'
+import { emptyRollup, feed, utf8Bytes } from './transcript'
 import type { Rollup } from './transcript'
 
 /** One directory entry, as `$.fs.list` gives it. */
@@ -21,8 +21,11 @@ export type TxIo = {
 }
 /** The meta file beside a transcript (`agent-<id>.meta.json`); it has no model. */
 export type TxMeta = { agentType?: string; description?: string }
-/** What is kept per transcript file, in memory and in `$.store` under storeKey(path): never the transcript itself. */
-export type TxEntry = { size: number; mtimeMs: number; offset: number; roll: Rollup; meta?: TxMeta }
+/**
+ * What is kept per transcript file, in memory and in `$.store` under storeKey(path): never the transcript itself. `skip`: the read
+ * position is inside a line longer than one process read, dropped through its newline.
+ */
+export type TxEntry = { size: number; mtimeMs: number; offset: number; roll: Rollup; meta?: TxMeta; skip?: boolean }
 
 /** `$.fs.read` takes files up to 4 MiB; a larger one is read from its position on through a process. */
 export const MAX_WHOLE = 4 * 1024 * 1024
@@ -59,22 +62,37 @@ async function refreshFile(io: TxIo, path: string, f: Listing, cache: Map<string
   let roll: Rollup
   let offset: number
   let caught = true
+  let skip = false
   if (f.size <= MAX_WHOLE) ({ roll, bytes: offset } = feed(emptyRollup(), await io.read(path)))
   else {
     const resume = e && e.offset <= f.size
     roll = resume ? e.roll : emptyRollup()
     offset = resume ? e.offset : 0
+    skip = resume ? e.skip === true : false
     for (let i = 0; i < MAX_TAILS; i++) {
       const chunk = await io.tail(path, offset)
-      const step = feed(roll, chunk.text)
+      let text = chunk.text
+      if (skip) { // inside a line longer than one read: drop it through its newline
+        const nl = text.indexOf('\n')
+        const cut = nl < 0 ? text : text.slice(0, nl + 1)
+        offset += utf8Bytes(cut)
+        text = text.slice(cut.length)
+        skip = nl < 0
+      }
+      const step = feed(roll, text)
       roll = step.roll
       offset += step.bytes
       caught = !chunk.truncated
-      if (caught || step.bytes === 0) break
+      // A whole cut read with no newline: one line longer than a read, never parsed whole. Step over it rather than read it again.
+      if (!caught && step.bytes === 0 && text === chunk.text) {
+        offset += utf8Bytes(text)
+        skip = true
+      }
+      if (caught || chunk.text === '') break
     }
   }
   // Not caught up: no size, so the next refresh reads on.
-  const next: TxEntry = { size: caught ? f.size : -1, mtimeMs: f.mtimeMs, offset, roll, meta: e?.meta ?? (await readMeta(io, path)) }
+  const next: TxEntry = { size: caught ? f.size : -1, mtimeMs: f.mtimeMs, offset, roll, meta: e?.meta ?? (await readMeta(io, path)), ...(skip ? { skip } : {}) }
   cache.set(path, next)
   await io.save(storeKey(path), next).catch(() => {}) // best effort: a full store only costs a re-read in the next load
   return true

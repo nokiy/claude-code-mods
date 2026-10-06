@@ -65,7 +65,8 @@ export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
       return { value: st.gh === null ? { exitCode: 1, stdout: '', stderr: 'HTTP 502', ...done } : { exitCode: 0, stdout: st.gh, stderr: '', ...done } }
     }
     if (cmd !== 'tail' || !path || !from) return { value: { exitCode: 1, stdout: '', stderr: 'unexpected command', ...done } }
-    return { value: { exitCode: 0, stdout: fs.tail(path, Number(from.slice(1)) - 1), stderr: '', ...done } }
+    const out = fs.tail(path, Number(from.slice(1)) - 1)
+    return { value: { exitCode: 0, stdout: out.text, stderr: '', ...done, isStdoutTruncated: out.truncated } }
   })
   return fs
 }

@@ -11,7 +11,7 @@ const PROJECT = '/home/u/.claude/projects/-work-repo'
 const ioOf = (fs: FakeFs, store = new Map<string, unknown>()): TxIo => ({
   list: async dir => fs.list(dir),
   read: async path => fs.read(path),
-  tail: async (path, from) => ({ text: fs.tail(path, from), truncated: false }),
+  tail: async (path, from) => fs.tail(path, from),
   load: async key => store.get(key),
   save: async (key, value) => { store.set(key, value) },
 })

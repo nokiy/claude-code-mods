@@ -2,7 +2,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { OTHER, PROJECT, ROOT, mountPane, rowKeys, shown, st, wire } from './testkit'
-import { agentFiles, agentPaths, assistantLine, fakeFs, jsonl } from './transcripts'
+import { agentFiles, agentMeta, agentPaths, agentTranscript, assistantLine, fakeFs, jsonl, userLine } from './transcripts'
 
 const OLD1 = { sessionId: 'old1', agentId: 'a1', type: 'Explore', desc: 'map the parser', model: 'claude-sonnet-4-5', at: '2026-10-01T09:00:00.000Z' }
 const OLD2 = { sessionId: 'old2', agentId: 'a2', type: 'reviewer', desc: 'review the diff', model: 'claude-opus-4-5', at: '2026-10-02T09:00:00.000Z' }
@@ -77,4 +77,43 @@ test('the 1 s tick reads only this session\'s folder, and no unchanged file agai
   fs.append(agentPaths(PROJECT, live).jsonl, jsonl([assistantLine(live, { id: 'm2', usage: { input_tokens: 5, output_tokens: 1 } })]))
   await clock.advance(1000)
   expect([...fs.tally.reads.keys()]).toEqual([agentPaths(PROJECT, live).jsonl])
+})
+
+// A transcript past 4 MiB is read through `tail`, whose output the engine cuts (isStdoutTruncated): the fake caps it at `tailCap`.
+const BIG = 4 * 1024 * 1024 + 1
+const many = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `m${i}`, model: 'claude-opus-5-5', usage: { input_tokens: 1_000, output_tokens: 100 }, at: '2026-10-01T10:01:00.000Z' }))
+async function bigSetup($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1], text: string) {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-03T09:00:00Z') })
+  mock.store(on)
+  const fs = wire(on, fakeFs({ [agentPaths(PROJECT, BIG_AGENT).meta]: agentMeta(BIG_AGENT) }))
+  fs.write(agentPaths(PROJECT, BIG_AGENT).jsonl, text, BIG)
+  fs.tailCap = 800
+  await $.session.start({ cwd: ROOT } as never)
+  const sub = async () => { await $.command.run({ command: 'sub', args: '' } as never); await clock.settle() }
+  return { fs, sub }
+}
+const BIG_AGENT = { sessionId: 'old1', agentId: 'b1', type: 'worker', desc: 'long haul', at: '2026-10-01T10:00:00.000Z', steps: many(20) }
+const bigRow = async ($: Parameters<Parameters<typeof test>[1]>[0]) => (await (await mountPane($)).findAll({ type: 'Text' })).map(t => t.text).filter(t => t.includes('long haul')).sort((a, b) => b.length - a.length)[0] ?? ''
+
+test('a transcript past 4 MiB is read in cut chunks across refreshes, and its totals come out whole', async ($, on) => {
+  const { fs, sub } = await bigSetup($, on, agentTranscript(BIG_AGENT))
+  await sub()
+  expect(fs.tally.tails.length).toBeGreaterThan(1) // several chunks in one refresh
+  await sub()
+  await sub()
+  // 20 steps of 1,000 in + 100 out: 22,000 tokens.
+  expect(await bigRow($)).toContain('22.0k')
+})
+
+test('a single line longer than one read is skipped once, not read again on every refresh', async ($, on) => {
+  const huge = JSON.stringify({ type: 'user', sessionId: 'old1', agentId: 'b1', timestamp: '2026-10-01T10:00:10.000Z', message: { role: 'user', content: 'x'.repeat(3_000) } })
+  const text = jsonl([userLine(BIG_AGENT), huge, ...many(4).map(s => assistantLine(BIG_AGENT, s))])
+  const { fs, sub } = await bigSetup($, on, text)
+  for (let i = 0; i < 4; i++) await sub()
+  const settled = fs.tally.tails.length
+  await sub()
+  await sub()
+  expect(fs.tally.tails.length).toBe(settled) // the file did not change: no read
+  // The lines after the long one still count: 4 steps of 1,100.
+  expect(await bigRow($)).toContain('4.4k')
 })

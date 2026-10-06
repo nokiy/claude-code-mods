@@ -99,12 +99,15 @@ export function fakeFs(initial: Record<string, string> = {}) {
       if (byteSize(f) > 4 * 1024 * 1024) throw new Error(`too large: ${path}`)
       return f.text
     },
-    /** `tail -c +<from+1>`: the bytes from `from` on (characters: ASCII files only). */
-    tail(path: string, from: number) {
+    /** The most a process read returns, in characters; past it the output is cut and `truncated` (the engine's stdout cap). */
+    tailCap: Infinity,
+    /** `tail -c +<from+1>`: the bytes from `from` on (characters: ASCII files only), at most `tailCap` of them. */
+    tail(path: string, from: number): { text: string; truncated: boolean } {
       tally.tails.push({ path, from })
       const f = files.get(path)
       if (!f) throw new Error(`ENOENT: ${path}`)
-      return f.text.slice(from)
+      const rest = f.text.slice(from)
+      return { text: rest.slice(0, fs.tailCap), truncated: rest.length > fs.tailCap }
     },
   }
   fs.add(initial)
