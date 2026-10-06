@@ -1,7 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 
-import { MAX_FILES, MAX_REASONS, addDenial, addFile, denialReason, editedPath, findClashes, idleText, normPath, reasonOf, shortPath, stallOf, stallText, tierMismatch } from './alerts'
-import { strings } from './strings'
+import { MAX_FILES, MAX_REASONS, addDenial, addFile, denialReason, editedPath, findClashes, idleText, normPath, reasonOf, shortPath, stallOf, tierMismatch } from './alerts'
 
 test('normPath: absolute, relative to cwd, dots and doubled slashes folded', () => {
   expect(normPath('/a/b/c.ts', '/cwd')).toBe('/a/b/c.ts')
@@ -73,11 +72,7 @@ test('stallOf: running agents only, amber at the threshold, red at twice it', ()
   expect(stallOf({ status: 'running' }, 9 * T, T)).toBeUndefined()
 })
 
-test('stall text: a pending tool versus a silent agent', () => {
-  expect(stallText({ level: 1, idleMs: 4 * 60_000 + 5000, tool: 'Bash' }, strings('zh'))).toBe('~4m（Bash 未返回）')
-  expect(stallText({ level: 2, idleMs: 4 * 60_000 }, strings('zh'))).toBe('~4m 无动作')
-  expect(stallText({ level: 1, idleMs: 4 * 60_000, tool: 'Bash' }, strings('en'))).toBe('~4m (Bash not returned)')
-  expect(stallText({ level: 2, idleMs: 4 * 60_000 }, strings('en'))).toBe('~4m no activity')
+test('idle text: seconds, then whole minutes', () => {
   expect(idleText(45_000)).toBe('45s')
   expect(idleText(60_000)).toBe('1m')
   expect(stallOf({ status: 'running', lastEventAt: 0, pendingTool: 'Bash' }, 200_000, 180_000)?.tool).toBe('Bash')

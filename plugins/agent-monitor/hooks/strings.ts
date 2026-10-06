@@ -4,7 +4,6 @@
 export type Lang = 'en' | 'zh'
 
 type Kind = 'conflict' | 'stall' | 'tier' | 'denied'
-const times = (n: number) => (n === 1 ? '1 time' : `${n} times`)
 
 const EN = {
   // tool activity: verb + short target (`Read logic.ts`)
@@ -18,16 +17,13 @@ const EN = {
   conflictLine: (pair: string, path: string) => `${pair} edited ${path} at the same time`,
   stallTool: (who: string, idle: string, tool: string) => `${who} idle for ${idle} (${tool} not returned)`,
   stallSilent: (who: string, idle: string, last: string | undefined) => `${who} idle for ${idle}, no activity${last ? ` (last: ${last})` : ''}`,
-  stallShort: (idle: string, tool: string | undefined) => (tool ? `~${idle} (${tool} not returned)` : `~${idle} no activity`),
   tierLine: (who: string, want: string, got: string) => `${who} described ${want} · ran ${got}`,
-  tierShort: (want: string, got: string) => `≠ described ${want} · ran ${got}`,
   // a running row's line 2 when the steps did not run the tier the description asked for
   wanted: (tier: string) => `≠ wanted ${tier}`,
   // one refusal reason of the alert timeline: its count and its text
   deniedLine: (who: string, n: number, reason: string) => `${who} refused ×${n}: ${reason}`,
-  deniedShort: (n: number) => `× refused ${times(n)}`,
   // detail page
-  sec: { prompt: 'Instruction', timeline: 'Timeline', files: 'Edited files', tools: 'Tools', skills: 'Skills', recent: 'Recent actions', alerts: 'Alerts', result: 'Result' },
+  sec: { prompt: 'Instruction', steps: 'Steps', files: 'Edited files', tools: 'Tools', skills: 'Skills', alerts: 'Alerts', result: 'Result' },
   inProgress: 'in progress',
   took: (d: string) => `took ${d}`,
   roundsN: (n: number) => `rounds ${n}`,
@@ -75,13 +71,10 @@ const ZH: Strings = {
   conflictLine: (pair, path) => `${pair} 同时修改 ${path}`,
   stallTool: (who, idle, tool) => `${who} 已 ${idle}（${tool} 未返回）`,
   stallSilent: (who, idle, last) => `${who} 已 ${idle} 无动作${last ? `（最后：${last}）` : ''}`,
-  stallShort: (idle, tool) => (tool ? `~${idle}（${tool} 未返回）` : `~${idle} 无动作`),
   tierLine: (who, want, got) => `${who} 描述 ${want} · 实际 ${got}`,
-  tierShort: (want, got) => `≠ 描述 ${want} · 实际 ${got}`,
   wanted: tier => `≠ 要求 ${tier}`,
   deniedLine: (who, n, reason) => `${who} 被拒 ×${n}：${reason}`,
-  deniedShort: n => `× 拦截 ${n} 次`,
-  sec: { prompt: '指令', timeline: '时间线', files: '改过的文件', tools: '工具', skills: '技能', recent: '最近动作', alerts: '告警', result: '结果' },
+  sec: { prompt: '指令', steps: '步骤', files: '改过的文件', tools: '工具', skills: '技能', alerts: '告警', result: '结果' },
   inProgress: '进行中',
   took: d => `用时 ${d}`,
   roundsN: n => `轮次 ${n}`,

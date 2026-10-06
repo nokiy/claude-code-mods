@@ -56,6 +56,6 @@ test('settings page: labels follow the language', () => {
 
 test('detail page: section titles follow the language', () => {
   const detail = { ...ctx, page: { kind: 'detail', id: 'a' } as never }
-  expect(textOf(panel(ui, board('en'), detail, 100, acts) as never)).toContain('Timeline')
-  expect(textOf(panel(ui, board('zh'), detail, 100, acts) as never)).toContain('时间线')
+  expect(textOf(panel(ui, board('en'), detail, 100, acts) as never)).toContain('Steps')
+  expect(textOf(panel(ui, board('zh'), detail, 100, acts) as never)).toContain('步骤')
 })

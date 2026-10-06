@@ -1,6 +1,5 @@
 // Detectors for agent-monitor's four alerts: file conflict, stall, tier mismatch, denied/errored calls. Pure; tested in alerts.test.ts.
 import type { Denial, MainEdit } from '../types'
-import type { Strings } from './strings'
 import { collapse, effortName, modelName, parseDescription, resolveTier, tierName, truncate } from './logic'
 
 export const MAX_FILES = 50
@@ -84,9 +83,6 @@ export function stallOf(a: { status: string; lastEventAt?: number; startedAt?: n
 }
 
 export const idleText = (ms: number): string => (ms >= 60_000 ? `${Math.floor(ms / 60_000)}m` : `${Math.max(0, Math.floor(ms / 1000))}s`)
-
-// `~4m (Bash not returned)` while a tool call is pending, `~4m no activity` when the agent is silent.
-export const stallText = (s: Stall, t: Pick<Strings, 'stallShort'>): string => t.stallShort(idleText(s.idleMs), s.tool)
 
 // ---- tier ----
 
