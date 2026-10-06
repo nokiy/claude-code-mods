@@ -2,7 +2,7 @@
 // read, through the whole mod: fake transcripts and a fake `gh pr list` (testkit.ts), the value taken from the mod's own writes.
 import { expect, mock, test } from 'claude-code/testing'
 
-import { PROJECT, ROOT, ghPr, mountPane, st, wire } from './testkit'
+import { PROJECT, ROOT, ghPr, mountPane, st, step, wire } from './testkit'
 import type { Dollar } from './testkit'
 import { agentFiles, assistantLine, fakeFs, jsonl, userLine } from './transcripts'
 
@@ -75,6 +75,30 @@ test('a PR\'s tokens are every step\'s usage added up, not the last step\'s cont
   const { pub } = await start($, on, agentFiles(PROJECT, A4))
   expect(pub.value?.['49']?.tokens).toBe(53_000 + 33_000)
   expect(await groupRow($)).toMatch(/3 agents\s+86\.0k tok/)
+})
+
+test('an agent watched live keeps every step\'s usage when its Agent result arrives with the last turn\'s', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on)
+  wire(on, fakeFs())
+  st.branch = 'dev'
+  st.gh = JSON.stringify(PRS)
+  const pub = { value: undefined as Stats | undefined }
+  on('state.set', async (_$, e, next) => {
+    if (e.plugin === 'agent-monitor' && e.key === 'prStats') pub.value = e.value as Stats
+    return next(e)
+  })
+  on('agent.spawn', async () => ({ agentId: 'L1', model: 'claude-opus-5-5' }))
+  const last = { input_tokens: 10_000, output_tokens: 1_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+  on('tool.call', async () => ({ result: { agentId: 'L1', status: 'completed', totalTokens: 11_000, totalDurationMs: 60_000, usage: last } }) as never)
+  await $.session.start({ cwd: ROOT } as never)
+  await $.agent.spawn({ subagentType: 'worker', description: '#44 tidy the rows', prompt: 'go' } as never)
+  st.agents = [{ id: 'L1', type: 'worker', status: 'running', description: '#44 tidy the rows' }]
+  for (let i = 0; i < 3; i++) await step($, 'L1', 'claude-opus-5-5', { input_tokens: 10_000, output_tokens: 1_000 })
+  await $.tool.call({ tool: 'Agent', subagent_type: 'worker', description: '#44 tidy the rows', prompt: 'go' } as never)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  expect(pub.value?.['49']?.tokens).toBe(33_000)
 })
 
 test('the group row shows the same time as the published value: wall time, not the sum', async ($, on) => {

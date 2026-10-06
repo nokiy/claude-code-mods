@@ -181,7 +181,8 @@ export function onAgentResult(p: Rec, call: { subagent_type?: string; descriptio
       ? {
           tokens: res.totalTokens,
           durationMs: res.totalDurationMs,
-          ...(u ? { spent: { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 } } : {}),
+          // The result's usage is its last turn's: it stands in only for an agent whose steps were not seen.
+          ...(u && !p.spent ? { spent: { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 } } : {}),
           ...(report ? { result: report } : {}),
           ...(res.toolStats ? { editCount: res.toolStats.editFileCount, toolCounts: p.toolCounts ?? countsFromStats(res.toolStats) } : {}),
           ...(p.status === 'running' || p.status === 'unknown' ? { status: 'done' as const, finishedAt: now } : {}),
