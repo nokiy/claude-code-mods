@@ -50,6 +50,18 @@ test('refresh: a file over 4 MiB is read from its byte position on; appended lin
   expect(fs.tally.tails).toEqual([{ path: p.jsonl, from: first }])
   expect(historyRecs(cache).big?.steps).toBe(2)
   expect(historyRecs(cache).big?.spent).toEqual({ input: 30, output: 3, cacheRead: 0, cacheWrite: 0 })
+  // A new load seeded from the stored index reads nothing, then resumes from the stored position.
+  const fresh = new Map<string, TxEntry>()
+  seedCache(fresh, PROJECT, JSON.parse(JSON.stringify(toIndex(cache, PROJECT, 1))))
+  fs.reset()
+  await refreshProject(ioOf(fs), PROJECT, fresh)
+  expect(fs.tally.tails).toHaveLength(0)
+  const second = fs.files.get(p.jsonl)!.text.length
+  fs.append(p.jsonl, jsonl([assistantLine(a, { id: 'm3', usage: { input_tokens: 40, output_tokens: 4 } })]))
+  await refreshProject(ioOf(fs), PROJECT, fresh)
+  expect(fs.tally.tails).toEqual([{ path: p.jsonl, from: second }])
+  expect(historyRecs(fresh).big?.steps).toBe(3)
+  expect(historyRecs(fresh).big?.spent).toEqual({ input: 70, output: 7, cacheRead: 0, cacheWrite: 0 })
 })
 
 const HOOK = 'PreToolUse:Bash hook error: rm -rf is blocked'

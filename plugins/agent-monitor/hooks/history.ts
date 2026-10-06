@@ -99,8 +99,7 @@ const KEPT = 5
 const KEPT_TEXT = 120
 
 const short = (xs: Rollup['refusals']) => xs.slice(-KEPT).map(x => ({ ...x, text: x.text.slice(0, KEPT_TEXT) }))
-const desc = (m: TxMeta | undefined) => (m ? { agentType: m.agentType, description: m.description?.slice(0, KEPT_TEXT) } : undefined)
-const stored = (e: TxEntry): TxEntry => ({ ...e, meta: desc(e.meta), roll: { ...e.roll, refusals: short(e.roll.refusals), errors: short(e.roll.errors) } })
+const stored = (e: TxEntry): TxEntry => ({ ...e, roll: { ...e.roll, refusals: short(e.roll.refusals), errors: short(e.roll.errors) } })
 
 /** The project's cached entries as its stored index: newest first (by mtime), as many as fit in MAX_INDEX_BYTES. */
 export function toIndex(cache: ReadonlyMap<string, TxEntry>, project: string, now: number): TxIndex {
