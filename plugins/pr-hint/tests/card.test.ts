@@ -46,21 +46,26 @@ test('Tickets d/n counts merged and done only', () => {
   expect(texts({ ...base, tickets })[0]).toContain(' Tickets 2/4 ');
 });
 
-test('the bar fills d/n of its cells and takes the width the title leaves; the line fits titleInner', () => {
+test('the bar is 20 cells, fills d/n of them, and Tickets · Spec follow it; the line does not stretch to titleInner', () => {
   const tickets = [t(1, 'todo'), t(2, 'merged')];
-  const l = cardLines({ ...base, tickets }, NOW, 90, en, 80).lines[0]!.text;
-  expect(width(l)).toBe(80);
-  const b = bar(l);
-  // 80 − `PR #15 short title ` (19) − ` Tickets 1/2 · Spec #12` (23) = 38 cells, half of them filled.
-  expect(b.length).toBe(38);
-  expect([...b].filter(c => c === '█').length).toBe(19);
-  expect(BAR.exec(b)?.[0]).toBe(b);
+  for (const room of [80, 144]) {
+    const l = cardLines({ ...base, tickets }, NOW, room + 10, en, room).lines[0]!.text;
+    const b = bar(l);
+    expect(b.length).toBe(20);
+    expect([...b].filter(c => c === '█').length).toBe(10);
+    expect(BAR.exec(b)?.[0]).toBe(b);
+    // `PR #15 short title ` (19) + bar (20) + ` Tickets 1/2 · Spec #12` (23).
+    expect(width(l)).toBe(62);
+  }
 });
 
-test('a long title is cut with … and the bar, Tickets and Spec stay', () => {
-  const l = cardLines({ ...base, title: 'x'.repeat(300), tickets: many(2) }, NOW, 60, en, 50).lines[0]!.text;
-  expect(width(l)).toBeLessThanOrEqual(50);
-  expect(l).toMatch(/^PR #15 x+… █{10} Tickets 2\/2 · Spec #12$/);
+test('a long title is cut with … and the bar, Tickets and Spec stay, wide or narrow', () => {
+  const wide = cardLines({ ...base, title: 'x'.repeat(300), tickets: many(2) }, NOW, 150, en, 144).lines[0]!.text;
+  expect(width(wide)).toBe(144);
+  expect(wide).toMatch(/^PR #15 x+… █{20} Tickets 2\/2 · Spec #12$/);
+  const narrow = cardLines({ ...base, title: 'x'.repeat(300), tickets: many(2) }, NOW, 60, en, 50).lines[0]!.text;
+  expect(width(narrow)).toBeLessThanOrEqual(50);
+  expect(narrow).toMatch(/^PR #15 x+… █{10,20} Tickets 2\/2 · Spec #12$/);
 });
 
 test('no Spec: line 1 ends at Tickets d/n; no tickets reads Tickets 0/0 with an empty bar', () => {

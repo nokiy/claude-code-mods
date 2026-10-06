@@ -227,6 +227,23 @@ for (const withHeadlines of [true, false]) {
   });
 }
 
+// Row 4: the bar has a fixed width and does not span the card. At 160 columns the old bar took all the title left:
+// 144 cells (156 inner − ` ↻ refresh ` − gap) − `PR #10 ` − ` Add dark mode ` − ` Tickets 0/1 · Spec #12` = 100 cells.
+// Now it is at most 2/5 of that and 32 cells, and `Tickets d/n · Spec #n` follows it directly.
+test('at 160 columns the bar is fixed (≤ 2/5 of the old 100 cells, at most 32) and Tickets · Spec follow it', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  wire(on);
+  engineLines(on);
+  await $.session.start({ cwd: '/tmp/x' } as never);
+  await clock.settle();
+  const band = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND_PROPS, bodyColumns: 160 } as never });
+  const head = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '').find(l => l.startsWith('PR #10 ')) ?? '';
+  const m = /^PR #10 Add dark mode ([█░]+) Tickets 0\/1 · Spec #12$/u.exec(head);
+  expect(m).not.toBeNull();
+  expect(m![1]!.length).toBeLessThanOrEqual(32);
+  await band.unmount();
+});
+
 // The chain's later drawers (agent-monitor's rows, the engine band) render under the card, never inside its hidden box.
 type Node = { type?: string; props?: { display?: string; borderStyle?: string }; children?: unknown[] };
 const pathTo = (n: unknown, hit: (x: Node) => boolean): Node[] | null => {

@@ -92,19 +92,20 @@ export function refreshText(prev: PrData | null, next: PrData | null, s: Strings
   return parts.length === 0 ? s.upToDate(next.number) : s.changed(next.number, parts.join(' · '));
 }
 
-// The bar never shrinks below this many cells; the title is cut first.
+// The bar is BAR cells; only when the title would get under 8 cells does it shrink, never below MIN_BAR.
+const BAR = 20;
 const MIN_BAR = 10;
 
-// Header line 1, exactly `room` cells when it fits: `PR #n` · title (cut with …) · bar · `Tickets d/n` · `Spec #n`.
-// d counts merged and done tickets; the bar fills d/n of its cells and takes all the width the title leaves.
+// Header line 1, at most `room` cells when it fits: `PR #n` · title (cut with …) · bar · `Tickets d/n` · `Spec #n`.
+// d counts merged and done tickets; the bar fills d/n of its cells, and the tail follows it directly.
 const headLine = (pr: PrData, s: Strings, room: number): CardLine => {
   const prefix = `PR #${pr.number}`;
   const n = pr.tickets.length;
   const d = pr.tickets.filter(t => t.status === 'merged' || t.status === 'done').length;
   const tail = ` ${s.ticketCount(d, n)}${pr.spec ? ` · Spec #${pr.spec.number}` : ''}`;
   const fixed = width(prefix) + 2 + width(tail);
-  const title = truncate(pr.title, Math.max(8, room - fixed - MIN_BAR));
-  const cells = Math.max(MIN_BAR, room - fixed - width(title));
+  const cells = Math.min(BAR, Math.max(MIN_BAR, room - fixed - 8));
+  const title = truncate(pr.title, Math.max(8, room - fixed - cells));
   const filled = n === 0 ? 0 : Math.round((cells * d) / n);
   return line([
     { text: prefix, color: 'cyan', bold: true },
@@ -140,7 +141,7 @@ export const statusParts = (pr: PrData, s: Strings, stats?: PrStat): CardPart[] 
 ];
 
 /**
- * The card, top to bottom: two header lines (line 1 fits `titleInner`, the width the refresh button
+ * The card, top to bottom: two header lines (line 1 stays within `titleInner`, the width the refresh button
  * leaves; line 2 is `statusParts`), then one line per ticket, `inner` cells wide. `footer` follows the link.
  * `extra.stats` is this PR's subagent totals read from agent-monitor (undefined when absent: line 2 stays `◐ N running`).
  */
