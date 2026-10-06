@@ -1,4 +1,4 @@
-// [POS] Drawing of the /sub PR mode: the `[PR] [Agent]` switch (hotkeys p / a), the groups' `Title` column header and the grouped table
+// [POS] Drawing of the /sub PR mode: the `p: PR  a: Agent` switch, the groups' `Title` column header (PR mode's only header) and the grouped table
 // body (one row per PR group, a toggle Button that opens or closes it, its agents under it drawn by the table's own row). Grouping is
 // groups.ts's; colors come from palette.ts, words from strings.ts.
 import type { EngineInterface, RenderChildren } from 'claude-code'
@@ -20,16 +20,17 @@ const GAP = '  '
 const STATE_COLOR: Record<string, string> = { OPEN: green, MERGED: purple }
 const LEAD = 3 // a blank, the 1-cell toggle Button, the blank before the title
 
-/** Cells of the switch as drawn in the header: `[ PR ] [ Agent ]` plus the gap before it. */
-export const SWITCH_W = 2 + 6 + 1 + 9
+/** Cells of the switch as drawn in the header: `p: PR  a: Agent` plus the gap before it. */
+export const SWITCH_W = 2 + 5 + 2 + 8
 
-// The header's segmented control: the active mode is the primary Button, the other drawn dim.
+// The header's switch, its hotkeys in sight: plain Buttons draw `p: PR  a: Agent` (hotkey in the accent color, as the footer's
+// `b: back`); the inactive mode is dim. Tab never reaches a hooks pane (it moves the focus between Buttons), so p / a are the keys.
 export function modeSwitch(ui: Ui, mode: Mode, acts: Acts, t: Strings) {
   const { Box, Text, Button } = ui
   const seg = (m: Mode, label: string, hotkey: string) => (
-    <Button key={elementKey('mode', m)} hotkey={hotkey} variant={mode === m ? 'primary' : undefined} dimColor={mode === m ? undefined : true} onPress={() => acts.mode(m)}>{label}</Button>
+    <Button key={elementKey('mode', m)} hotkey={hotkey} plain dimColor={mode === m ? undefined : true} onPress={() => acts.mode(m)}>{label}</Button>
   )
-  return <Box flexDirection="row"><Text>{'  '}</Text>{seg('pr', t.modes.pr, 'p')}<Text>{' '}</Text>{seg('agent', t.modes.agent, 'a')}</Box>
+  return <Box flexDirection="row"><Text>{'  '}</Text>{seg('pr', t.modes.pr, 'p')}<Text>{'  '}</Text>{seg('agent', t.modes.agent, 'a')}</Box>
 }
 
 // A group's columns: count, tokens, cost, time; the header names them. Each padded to the widest of the header and all groups.

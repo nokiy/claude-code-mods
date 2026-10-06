@@ -209,7 +209,7 @@ export function historyTable(ui: Ui, board: Board, cols: number, ctx: PageCtx, a
       </Box>
       {cfg.alertsBlock && alertsBlock(ui, board)}
       <Text color={gray}>{rule(cols)}</Text>
-      {mode === 'agent' ? agentBody : [header, ...prRows(ui, board, cols, ctx, acts, row)]}
+      {mode === 'agent' ? agentBody : prRows(ui, board, cols, ctx, acts, row)}
       <Text color={gray}>{rule(cols)}</Text>
       {listFooter(ui, ctx, acts, true, t)}
     </Box>

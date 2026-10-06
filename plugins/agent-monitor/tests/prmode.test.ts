@@ -1,5 +1,5 @@
 // The /sub PR mode through the whole mod: subagents grouped by the PR their first-line branch belongs to (a fake `gh pr list` and
-// fake transcripts, testkit.ts), the Other group, expand / collapse, the [PR] [Agent] switch, and a failed gh keeping the last index.
+// fake transcripts, testkit.ts), the Other group, expand / collapse, the `p: PR  a: Agent` switch, and a failed gh keeping the last index.
 import { expect, mock, test } from 'claude-code/testing'
 
 import { PROJECT, ROOT, ghPr, listKeys, mountPane, shown, st, wire } from './testkit'
@@ -79,27 +79,33 @@ test('Enter on a group shows its agents, Enter again hides them', async ($, on) 
   expect(await listKeys(ui)).toEqual(['group:pr:49', 'group:pr:38', 'group:other'])
 })
 
-test('[PR] [Agent]: a gives the flat list, p the groups again; the active one is highlighted', async ($, on) => {
+test('the header shows `p: PR  a: Agent`; a gives the flat list, p the groups again; the inactive one is dim', async ($, on) => {
   const { ui } = await openSub($, on)
   const seg = async (m: string) => (await ui.find({ type: 'Button', key: `mode:${m}` }))?.props ?? {}
-  expect([(await seg('pr')).hotkey, (await seg('agent')).hotkey]).toEqual(['p', 'a'])
-  expect((await seg('pr')).variant).toBe('primary')
-  expect((await seg('agent')).variant).toBeUndefined()
-  await ui.press({ key: 'mode:agent' })
+  // A plain Button with a hotkey is drawn `<hotkey>: <label>`, the hotkey in the accent color (the footer's `b: back` style).
+  for (const [m, hotkey, label] of [['pr', 'p', 'PR'], ['agent', 'a', 'Agent']] as const) {
+    expect(await seg(m)).toMatchObject({ hotkey, plain: true, label })
+  }
+  expect((await seg('pr')).dimColor).toBeUndefined()
+  expect((await seg('agent')).dimColor).toBe(true)
+  await ui.press({ key: 'mode:agent' }) // what `a` presses
   expect(await listKeys(ui)).toEqual(['row:a1', 'row:a2', 'row:a3', 'row:a4'])
-  expect((await seg('agent')).variant).toBe('primary')
-  expect((await seg('pr')).variant).toBeUndefined()
-  await ui.press({ key: 'mode:pr' })
+  expect((await seg('agent')).dimColor).toBeUndefined()
+  expect((await seg('pr')).dimColor).toBe(true)
+  await ui.press({ key: 'mode:pr' }) // what `p` presses
   expect(await listKeys(ui)).toEqual(['group:pr:49', 'row:a1', 'row:a2', 'group:pr:38', 'group:other'])
-  expect((await seg('pr')).variant).toBe('primary')
+  expect((await seg('pr')).dimColor).toBeUndefined()
 })
 
-test('PR mode heads its groups with a Title column; Agent mode has none', async ($, on) => {
+test('PR mode heads its groups with the Title column alone; Agent mode has the agent columns and no Title', async ($, on) => {
   const { ui } = await openSub($, on)
-  const header = await rowOf(ui, 'Title')
-  expect(header).toMatch(/^\s*Title\s/)
+  // The agent table's header: `#  desc … type  tier  cost  time` (layout.ts headerCells).
+  const agentColumns = async () => (await ui.findAll({ type: 'Text' })).filter(t => /#\s+desc\b.*\btype\s+tier\b/.test(t.text)).length
+  expect(await rowOf(ui, 'Title')).toMatch(/^\s*Title\s/)
+  expect(await agentColumns()).toBe(0)
   await ui.press({ key: 'mode:agent' })
   expect(await rowOf(ui, 'Title')).toBe('')
+  expect(await agentColumns()).toBe(1)
 })
 
 test('the current PR with no agents yet and no other subagents still shows its group', async ($, on) => {

@@ -82,8 +82,9 @@ async function finishedPane($: Dollar, on: On) {
   return mountPane($)
 }
 
-test('/sub: finished subagents form one table `# desc type tier cost time`, every column aligned', async ($, on) => {
+test('/sub Agent mode: finished subagents form one table `# desc type tier cost time`, every column aligned', async ($, on) => {
   const ui = await finishedPane($, on)
+  await ui.press({ key: 'mode:agent' }) // PR mode heads its groups with the Title column alone
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   const header = texts.find(s => /^\s+#\s+desc\s+type\s+tier\s+cost\s+time\s*$/.test(s))
   expect(header).toBeDefined()
