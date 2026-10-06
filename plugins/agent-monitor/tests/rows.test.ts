@@ -1,4 +1,4 @@
-// Row formats through the whole mod: the live band above the prompt and the /sub panel's running rows and finished table (testkit.ts).
+// [POS] Row formats through the whole mod: the live band above the prompt and the /sub panel's running rows and finished table (testkit.ts).
 import { expect, mock, test } from 'claude-code/testing'
 
 import { PROJECT, ROOT, mountBand, mountPane, rowKeys, shown, st, step, wire } from './testkit'
@@ -89,18 +89,15 @@ test('/sub: finished subagents form one table `# desc type tier cost time`, ever
   expect(header).toBeDefined()
   // A row is the Text after its select Button: lead blank + Button = 2 cells left of where the header's own text starts.
   const rows = ['map the parser', 'review the diff', 'run the suite'].map(task => `  ${texts.find(s => s.startsWith('  ●') && s.includes(task))}`)
-  // The widest parts read `75% · 162.0k`; narrower parts are padded to line up (`41% ·  86.2k`, `$0.84` under `<$0.01`).
   const money = String.raw`(?:<\$0\.01|\$\d+\.\d\d)`
-  expect(rows[0]).toMatch(new RegExp(String.raw`●\s+map the parser\s+Explore\s+sonnet\s+41% ·\s+86\.2k ·\s+${money}\s+1:05$`))
-  expect(rows[1]).toMatch(new RegExp(String.raw`●\s+review the diff\s+reviewer\s+opus\s+75% · 162\.0k ·\s+${money}\s+12:30$`))
-  expect(rows[2]).toMatch(new RegExp(String.raw`●\s+run the suite\s+qa\s+haiku\s+0% ·\s+940 ·\s+${money}\s+0:09$`))
-  // Aligned: type and tier start where their headers do, the ` · ` of the cost parts line up, every row ends at the same cell.
-  for (const word of ['type', 'tier']) {
+  expect(rows[0]).toMatch(new RegExp(String.raw`●\s+map the parser\s+Explore\s+sonnet\s+41% · 86\.2k · ${money}\s+1:05$`))
+  expect(rows[1]).toMatch(new RegExp(String.raw`●\s+review the diff\s+reviewer\s+opus\s+75% · 162\.0k · ${money}\s+12:30$`))
+  expect(rows[2]).toMatch(new RegExp(String.raw`●\s+run the suite\s+qa\s+haiku\s+0% · 940 · ${money}\s+0:09$`))
+  // Aligned: type, tier and cost start where their headers do, every row ends at the same cell.
+  for (const word of ['type', 'tier', 'cost']) {
     const col = header!.indexOf(` ${word}`) + 1
     expect(rows.map(r => r[col - 1] === ' ' && r[col] !== ' ')).toEqual([true, true, true])
   }
-  const dots = (r: string) => [...r.matchAll(/ · /g)].map(m => m.index)
-  expect(new Set(rows.map(r => dots(r).join(','))).size).toBe(1)
   expect(new Set(rows.map(r => r.length)).size).toBe(1)
 })
 

@@ -55,7 +55,7 @@ const TYPE_CAP = 14
 const DOT = ' · '
 
 // `model` and `effort` are the two halves of the tier cell (`sonnet` + `.med`), each colored by its own key; `bad` paints both red.
-// `ctx`, `tokens`, `money`: the three parts of the cost cell, each aligned within its part.
+// `ctx`, `tokens`, `money`: the three parts of the cost cell, written `41% · 86.2k · $0.42`.
 export type RowText = {
   status: Status; glyph: string; type: string
   model: string; modelKey?: string; effort: string; effortKey?: string
@@ -85,9 +85,9 @@ export function rowText(v: View): RowText {
   }
 }
 
-// Widths in cells; 0 = the column is off (hidden by the settings, or no room). `cost` is the whole cell, `ctx`/`tokens`/`money` its parts.
-// `alert`: 1 when some row has an alert (its red `!` ends the row), else 0.
-export type Layout = { status: number; task: number; type: number; tier: number; ctx: number; tokens: number; money: number; cost: number; time: number; alert: number }
+// Widths in cells; 0 = the column is off (hidden by the settings, or no room). `alert`: 1 when some row has an alert (its red `!` ends
+// the row), else 0.
+export type Layout = { status: number; task: number; type: number; tier: number; cost: number; time: number; alert: number }
 export type Cell = { text: string; kind: 'index' | 'status' | 'task' | 'type' | 'model' | 'effort' | 'cost' | 'tokens' | 'time' | 'alert'; status?: Status; key?: string; n?: number; bad?: boolean; color?: string }
 
 const maxW = (min: number, items: string[]) => items.reduce((m, s) => Math.max(m, cellWidth(s)), min)
@@ -96,17 +96,14 @@ const maxW = (min: number, items: string[]) => items.reduce((m, s) => Math.max(m
 // fit, type shrinks. Tier, cost and time are never cut for width; only the settings hide them (`tokens` hides the cost column).
 export function computeLayout(cols: number, rows: RowText[], on: Columns = ALL_COLUMNS): Layout {
   const tier = on.tier ? maxW(4, rows.map(r => r.model + r.effort)) : 0
-  const ctx = on.tokens ? maxW(0, rows.map(r => r.ctx)) : 0
-  const tokens = on.tokens ? maxW(0, rows.map(r => r.tokens)) : 0
-  const money = on.tokens ? maxW(0, rows.map(r => r.money)) : 0
-  const cost = on.tokens ? Math.max(4, ctx + tokens + money + 2 * DOT.length) : 0
+  const cost = on.tokens ? maxW(4, rows.map(r => r.ctx + DOT + r.tokens + DOT + r.money)) : 0
   const time = on.time ? maxW(4, rows.map(r => r.time)) : 0
   let type = Math.min(TYPE_CAP, maxW(4, rows.map(r => r.type)))
   // Everything but desc: the select mark, status and type are always there; a gap sits between neighbours and none after the last.
   const alert = on.alerts && rows.some(r => r.alert) ? 1 : 0
   const rest = (t: number) => LEAD + MARK_W + STATUS_W + t + tier + cost + time + alert + GAP * ([tier, cost, time, alert].filter(x => x > 0).length + 2)
   while (type > 4 && rest(type) > cols) type--
-  return { status: STATUS_W, task: Math.max(0, cols - rest(type) - GAP), type, tier, ctx, tokens, money, cost, time, alert }
+  return { status: STATUS_W, task: Math.max(0, cols - rest(type) - GAP), type, tier, cost, time, alert }
 }
 
 // The cells of a row (or, `header`, of the column header), each column padded to its width; a gap follows every column but the last.
@@ -122,9 +119,9 @@ function cells(l: Layout, r: RowText, header?: { cost: string }): Cell[] {
     columns.push(header
       ? [{ text: padEnd(header.cost, l.cost), kind: 'cost' }]
       : [
-          { text: padStart(r.ctx, l.ctx) + DOT, kind: 'cost' },
-          { text: padStart(r.tokens, l.tokens), kind: 'tokens', n: r.tokN },
-          { text: padEnd(DOT + padStart(r.money, l.money), l.cost - l.ctx - DOT.length - l.tokens), kind: 'cost' },
+          { text: r.ctx + DOT, kind: 'cost' },
+          { text: r.tokens, kind: 'tokens', n: r.tokN },
+          { text: padEnd(DOT + r.money, l.cost - cellWidth(r.ctx + DOT) - cellWidth(r.tokens)), kind: 'cost' },
         ])
   }
   if (l.time > 0) columns.push([{ text: padStart(r.time, l.time), kind: 'time' }])

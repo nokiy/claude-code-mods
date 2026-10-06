@@ -62,14 +62,15 @@ test('rowText: tier name forms', () => {
   expect(rowText(sample({ model: undefined, effort: undefined, desc: 'x' })).model).toBe('—')
 })
 
-test('layout: desc flexes; rows are equally wide and the parts of the cost cell line up', () => {
+test('layout: desc flexes; rows are equally wide; the cost cell reads `ctx% · tokens · $`, padded at its end', () => {
   const rows = [sample({ context: 150_000, tokens: 162_000, cost: 12.5 }), sample({ context: 900, tokens: 940, cost: 0.01, elapsedMs: 9000 }), sample({ tokens: undefined })].map(rowText)
   const l = computeLayout(100, rows)
   const texts = rows.map(r => joined(rowCells(l, r)))
   expect(texts.map(cellWidth)).toEqual([100, 100, 100])
-  const dots = (s: string) => [...s.matchAll(/ · /g)].map(m => m.index).join(',')
-  expect(new Set(texts.map(dots)).size).toBe(1)
-  expect(texts[0]).toContain('75% · 162.0k · $12.50')
+  expect(texts[0]).toContain('75% · 162.0k · $12.50  2:08')
+  expect(texts[1]).toContain('0% · 940 · $0.01       0:09') // 5 cells short of the widest cost, then the gap and the right-aligned time
+  const start = (s: string, part: string) => s.indexOf(part)
+  expect(start(texts[0]!, '75%')).toBe(start(texts[1]!, '0%'))
 })
 
 test('layout: narrow cuts desc first, then type shrinks; tier, cost and time stay', () => {
