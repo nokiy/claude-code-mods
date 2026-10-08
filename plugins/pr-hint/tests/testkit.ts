@@ -1,4 +1,6 @@
 // Shared fixtures and mocks for the register, refresh and location test suites: synthetic `gh api graphql` and git answers, the session directory, mount helpers and a call tally.
+// Harness rules: every ui.render mount needs a test hook beneath the plugin (`engineLines`), or the mount throws; a ui.render
+// hook must return a tree, never null (`next(e)` always resolves to one, see `RenderResultOf` in .claude-plugin/types/claude-code/index.d.ts).
 import { mock, test } from 'claude-code/testing';
 
 // The PR as the card reads it; `gql` wraps it into GraphQL's nodes shape. `linked` is the closing issues GitHub links.

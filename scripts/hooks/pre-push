@@ -2,7 +2,7 @@
 # Local release gate (rules: docs/release-packaging.md). Install once per clone: scripts/hooks/install.sh.
 #   · a push to `release` is refused: only .github/workflows/release.yml writes that branch;
 #   · a push to `main` must pass `scripts/build-release.sh <sha> --check` (installs read release, no test code).
-# Pushes to dev and feature branches are untouched: they carry tests by design.
+# Pushes to other branches are untouched: they carry tests by design.
 set -uo pipefail
 
 root=$(git rev-parse --show-toplevel)
@@ -12,7 +12,7 @@ while read -r _local_ref local_sha remote_ref _remote_sha; do
   [ "$local_sha" = "$zero" ] && continue   # a delete
   case "$remote_ref" in
     refs/heads/release)
-      echo "pre-push: refusing a push to release — only the release-branch workflow builds it (docs/release-packaging.md)" >&2
+      echo "pre-push: refusing a push to release — only the release workflow builds it (docs/release-packaging.md)" >&2
       status=1 ;;
     refs/heads/main)
       "$root/scripts/build-release.sh" "$local_sha" --check || status=1 ;;

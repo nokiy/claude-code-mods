@@ -5,8 +5,6 @@
 | Mod | What it does |
 | --- | --- |
 | [paste-peek](plugins/paste-peek) | See the images you paste into the prompt, in real pixels, right above it. Switch with ⌥←/⌥→, zoom with ⌥↑, side pane with ⌥↓. **Terminal: Ghostty or kitty** (macOS). |
-| [agent-monitor](plugins/agent-monitor) | Watch your subagents: a live band above the prompt, and `/sub` with history, alerts (file conflicts, stalls, tier mismatches, denied calls), per-agent detail and a cost estimate. English UI, Chinese optional. |
-| [pr-hint](plugins/pr-hint) | See your branch's open PR on the prompt hint row; hover the hint row to preview a card of the spec, integration branch, CI and every ticket's progress, click the ▸ before the PR number to keep it open. Needs `gh`. English UI, Chinese optional. |
 
 ### Zoom — ⌥↑
 
@@ -33,7 +31,7 @@ The first command adds this repository as a plugin marketplace (once); the secon
 
 ## Releasing
 
-Every release bumps only the last digit of a mod's version. Steps: [docs/releasing.md](docs/releasing.md).
+A changesets bot versions, tags (`<mod>@X.Y.Z`) and changelogs each release; every release bumps only the last digit. Steps: [docs/releasing.md](docs/releasing.md).
 
 ## License
 

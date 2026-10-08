@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The release-packaging gate and builder (rules: docs/release-packaging.md). From one commit it makes the tree
-# marketplace installs read: the same tree without any test file. Every mode first enforces both rules:
+# marketplace installs read: the same tree without any test file, holding only the mods marketplace.json lists.
+# Every mode first enforces both rules:
 #   1. every marketplace.json entry installs from git-subdir plugins/<name> at ref `release`;
 #   2. the stripped tree holds no test code (by name, or any file importing `claude-code/testing`) and every
 #      mod in it passes `claude plugin validate --strict`.
@@ -9,7 +10,11 @@
 #   scripts/build-release.sh [<rev>]           also build the release commit locally and print it
 #   scripts/build-release.sh [<rev>] --push    also push it to `release`   (.github/workflows/release.yml only)
 #
-# Stripped: plugins/*/tests/, every *.test.ts / *.test.tsx under plugins/, plugins/*/tsconfig.json.
+# Stripped: plugins/*/tests/, every *.test.ts / *.test.tsx under plugins/, plugins/*/tsconfig.json,
+# plugins/*/package.json (the release bot's version source), and every plugins/<mod>/ not in marketplace.json.
+# Root files (package.json, .changeset/, scripts/) stay: installs copy only plugins/<mod>.
+# While <rev> holds a pending changeset (.changeset/*.md other than README.md) its versions are not final yet:
+# the build passes the gate and stops without pushing; the release bot's Version PR merge builds it.
 # The release commit's parents are the previous release tip and <rev>, so the branch only grows (never
 # force-pushed); a tree equal to the current tip's makes no new commit. <rev> defaults to main.
 set -euo pipefail
@@ -40,7 +45,10 @@ out=$(mktemp -d)
 trap 'rm -rf "$index" "$out"' EXIT
 export GIT_INDEX_FILE=$index
 git read-tree "$src"
-git ls-files -- plugins | { grep -E '^plugins/[^/]+/(tests/|tsconfig\.json$)|\.test\.tsx?$' || true; } | git update-index --force-remove --stdin
+listed=$(git show "$src:.claude-plugin/marketplace.json" | jq -r '.plugins[].name' | paste -sd'|' -)
+files=$(git ls-files -- plugins)
+{ grep -E '^plugins/[^/]+/(tests/|tsconfig\.json$|package\.json$)|\.test\.tsx?$' <<<"$files" || true
+  grep -vE "^plugins/($listed)/" <<<"$files" || true; } | sort -u | git update-index --force-remove --stdin
 tree=$(git write-tree)
 unset GIT_INDEX_FILE
 
@@ -55,6 +63,12 @@ done
 
 if [ "$mode" = check ]; then
   echo "build-release: $short passes the release gate"
+  exit 0
+fi
+
+pending=$(git ls-tree --name-only "$src" .changeset/ 2>/dev/null | grep -E '\.md$' | grep -v '/README\.md$' || true)
+if [ -n "$pending" ]; then
+  echo "build-release: $short holds pending changesets; release waits for the Version PR: ${pending//$'\n'/ }"
   exit 0
 fi
 
