@@ -1,22 +1,49 @@
-# Builds the `release` branch (main without test files) on every push to main; marketplace installs read only that branch.
+# Two jobs on every push to main (rules: docs/releasing.md, docs/release-packaging.md).
+#   version: the release bot. Pending changesets: open or refresh the "chore: version plugins" PR (branch
+#            changeset-release/main). That PR merged: `changeset tag` tags each bumped mod as name@version;
+#            the action pushes the tags and opens one GitHub Release per tag from the mod's CHANGELOG.
+#   build:   builds the `release` branch (main without test files, listed mods only); it waits while
+#            changesets are pending, so `release` moves only with final versions. Installs read only `release`.
 # Runs with no Claude login: plugin validate needs none. Never add Claude credentials here.
-name: release-branch
+# changesets/action@v1 matches @changesets/cli 2.x (v2 of the action requires cli 3).
+name: release
 
 on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
-
 concurrency:
-  group: release-branch
+  group: release
   cancel-in-progress: false
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Open the Version PR or tag releases
+        uses: changesets/action@v1
+        with:
+          version: npm run version
+          publish: npx changeset tag
+          commit: "chore: version plugins"
+          title: "chore: version plugins"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:

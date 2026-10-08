@@ -8,3 +8,6 @@ screenshots/
 
 # Local agent workflow conventions (loki-pm setup)
 docs/agents/
+
+# Release bot dependencies
+node_modules/

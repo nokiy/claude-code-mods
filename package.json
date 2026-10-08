@@ -1,0 +1,16 @@
+{
+  "name": "claude-code-mods",
+  "private": true,
+  "workspaces": [
+    "plugins/paste-peek"
+  ],
+  "scripts": {
+    "changeset": "changeset",
+    "version": "node scripts/sync-plugin-versions.mjs --check && changeset version && node scripts/sync-plugin-versions.mjs",
+    "check-plugin-versions": "node scripts/sync-plugin-versions.mjs --check"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^1.0.1",
+    "@changesets/cli": "^2.30.0"
+  }
+}

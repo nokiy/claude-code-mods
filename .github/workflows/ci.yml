@@ -1,11 +1,12 @@
-# Checks every mod on PRs into dev/main once they are ready (drafts skip), plus the release gate
-# (docs/release-packaging.md): installs read the release branch and no test code ships.
+# Checks every mod on PRs into main once they are ready (drafts skip), the release gate
+# (docs/release-packaging.md: installs read the release branch, no test code ships) and the version sync.
+# The bot's "chore: version plugins" PR is opened with GITHUB_TOKEN, so this does not run on it.
 # Runs with no Claude login: plugin validate/test need none. Never add Claude credentials here.
 name: plugin-check
 
 on:
   pull_request:
-    branches: [dev, main]
+    branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
@@ -30,6 +31,8 @@ jobs:
       - run: claude --version
       - name: Validate marketplace
         run: claude plugin validate --strict .
+      - name: Versions in sync (workspaces = marketplace entries)
+        run: node scripts/sync-plugin-versions.mjs --check
       - name: Release gate (installs read release; no test code ships)
         run: scripts/build-release.sh HEAD --check
       - name: Validate and test each mod
