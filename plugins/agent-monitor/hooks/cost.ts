@@ -3,6 +3,13 @@
 // no batch / fast-mode / data-residency modifiers.
 import type { AgentSpent } from '../types'
 
+/** `a + sign · b`, part by part. */
+export const plusSpent = (a: AgentSpent, b: AgentSpent, sign = 1): AgentSpent => ({
+  input: a.input + sign * b.input, output: a.output + sign * b.output, cacheRead: a.cacheRead + sign * b.cacheRead, cacheWrite: a.cacheWrite + sign * b.cacheWrite,
+})
+/** Every token spent: input, output and both cache parts (what the price table charges for). */
+export const spentTotal = (s: AgentSpent): number => s.input + s.output + s.cacheRead + s.cacheWrite
+
 export type Price = readonly [number, number, number, number]
 export type Prices = Readonly<Record<string, Price>>
 

@@ -1,10 +1,10 @@
 // UI strings of agent-monitor, English and Chinese; English unless the session's language says Chinese. Called by every drawing and text module.
 // Column names (Tier, Edits, ...) and the table's other headers stay English in both languages. Pure; tested in strings.test.ts.
+import type { PrState } from './prindex'
 
 export type Lang = 'en' | 'zh'
 
-type Kind = 'conflict' | 'stall' | 'tier' | 'denied'
-const times = (n: number) => (n === 1 ? '1 time' : `${n} times`)
+type Kind = 'conflict' | 'stall' | 'tier' | 'denied' | 'failed'
 
 const EN = {
   // tool activity: verb + short target (`Read logic.ts`)
@@ -13,18 +13,19 @@ const EN = {
   // an agent named in a sentence: type + quoted task
   quote: (s: string) => `"${s}"`,
   // alerts
-  tag: { conflict: 'conflict', stall: 'stalled', tier: 'tier', denied: 'denied' } as Record<Kind, string>,
+  tag: { conflict: 'conflict', stall: 'stalled', tier: 'tier', denied: 'denied', failed: 'error' } as Record<Kind, string>,
   and: (a: string, b: string) => `${a} and ${b}`,
   conflictLine: (pair: string, path: string) => `${pair} edited ${path} at the same time`,
   stallTool: (who: string, idle: string, tool: string) => `${who} idle for ${idle} (${tool} not returned)`,
   stallSilent: (who: string, idle: string, last: string | undefined) => `${who} idle for ${idle}, no activity${last ? ` (last: ${last})` : ''}`,
-  stallShort: (idle: string, tool: string | undefined) => (tool ? `~${idle} (${tool} not returned)` : `~${idle} no activity`),
   tierLine: (who: string, want: string, got: string) => `${who} described ${want} · ran ${got}`,
-  tierShort: (want: string, got: string) => `≠ described ${want} · ran ${got}`,
-  deniedLine: (who: string, n: number, reason: string, kinds: number) => `${who} refused ${times(n)}: ${reason}${kinds > 1 ? ` (${kinds} kinds)` : ''}`,
-  deniedShort: (n: number) => `× refused ${times(n)}`,
+  // a running row's line 2 when the steps did not run the tier the description asked for
+  wanted: (tier: string) => `≠ wanted ${tier}`,
+  // one refusal reason of the alert timeline: its count and its text
+  deniedLine: (who: string, n: number, reason: string) => `${who} refused ×${n}: ${reason}`,
+  failedLine: (who: string, n: number, reason: string) => `${who} errored ×${n}: ${reason}`,
   // detail page
-  sec: { prompt: 'Instruction', timeline: 'Timeline', files: 'Edited files', tools: 'Tools', skills: 'Skills', recent: 'Recent actions', alerts: 'Alerts', result: 'Result' },
+  sec: { prompt: 'Instruction', steps: 'Steps', files: 'Edited files', tools: 'Tools', skills: 'Skills', alerts: 'Alerts', result: 'Result' },
   inProgress: 'in progress',
   took: (d: string) => `took ${d}`,
   roundsN: (n: number) => `rounds ${n}`,
@@ -46,8 +47,8 @@ const EN = {
   save: 'Save',
   settingsHint: ' ↑↓ select · Enter change · w save (b goes back without saving)',
   gloss: {
-    tier: 'model.effort column', edits: 'files-edited column', rounds: 'model rounds column', tokens: 'token usage column', time: 'elapsed time column',
-    alerts: 'alert glyph column (also on live rows)', alertsBlock: 'alert sentences block', autoBand: 'show live rows while agents run', toasts: 'pop-up notices',
+    tier: 'model.effort column', cost: 'ctx% · tokens · $ column', time: 'elapsed time column',
+    alerts: 'red ! on alerted rows (also on live rows)', alertsBlock: 'alert sentences block', autoBand: 'show live rows while agents run', toasts: 'pop-up notices',
     placement: 'default place: last = as before / right / top', stallMinutes: 'stall threshold (minutes)',
   } as Record<string, string>,
   // command, pane, toasts
@@ -55,7 +56,21 @@ const EN = {
   paneTitle: 'Subagents',
   notSaved: (why: string) => `Settings not saved: ${why}`,
   pricesBad: 'The prices setting is invalid; costs are estimated with the default prices',
+  // PR mode: the group of agents on no PR, a group's agent count, the footer's mode keys
+  otherGroup: 'Other',
+  agentsN: (n: number) => (n === 1 ? '1 agent' : `${n} agents`),
+  modeHint: ' · p/a PR/Agent',
+  // PR mode, English in both languages: the mode switch, the group header's columns, a group's tokens, the PR state words
+  modes: { pr: 'PR', agent: 'Agent' },
+  prColumns: { title: 'Title', agents: 'agents', tokens: 'tokens', cost: 'cost', time: 'time', state: 'state' },
+  tok: (n: string) => `${n} tok`,
+  prState: { draft: 'Draft', ready: 'Ready', merged: 'Merged' } as Record<PrState, string>, // pr-hint's PR_STATE words
+  // an alert timeline refusal with no reason text
+  noReason: '(no reason)',
 }
+
+// The PR mode's words are the same in both languages.
+const PR_WORDS = { modes: EN.modes, prColumns: EN.prColumns, tok: EN.tok, prState: EN.prState }
 
 export type Strings = typeof EN
 
@@ -63,17 +78,16 @@ const ZH: Strings = {
   verb: { Read: '读取', Edit: '修改', Write: '写入', Grep: '搜索', Glob: '查找', Bash: '运行', WebFetch: '抓取', WebSearch: '搜索网页', Skill: '技能', Agent: '派发', LSP: '代码导航' },
   starting: '启动中',
   quote: s => `「${s}」`,
-  tag: { conflict: '冲突', stall: '卡住', tier: '档位', denied: '拦截' },
+  tag: { conflict: '冲突', stall: '卡住', tier: '档位', denied: '拦截', failed: '出错' },
   and: (a, b) => `${a} 与 ${b}`,
   conflictLine: (pair, path) => `${pair} 同时修改 ${path}`,
   stallTool: (who, idle, tool) => `${who} 已 ${idle}（${tool} 未返回）`,
   stallSilent: (who, idle, last) => `${who} 已 ${idle} 无动作${last ? `（最后：${last}）` : ''}`,
-  stallShort: (idle, tool) => (tool ? `~${idle}（${tool} 未返回）` : `~${idle} 无动作`),
   tierLine: (who, want, got) => `${who} 描述 ${want} · 实际 ${got}`,
-  tierShort: (want, got) => `≠ 描述 ${want} · 实际 ${got}`,
-  deniedLine: (who, n, reason, kinds) => `${who} 被拒 ${n} 次：${reason}${kinds > 1 ? ` 等 ${kinds} 种` : ''}`,
-  deniedShort: n => `× 拦截 ${n} 次`,
-  sec: { prompt: '指令', timeline: '时间线', files: '改过的文件', tools: '工具', skills: '技能', recent: '最近动作', alerts: '告警', result: '结果' },
+  wanted: tier => `≠ 要求 ${tier}`,
+  deniedLine: (who, n, reason) => `${who} 被拒 ×${n}：${reason}`,
+  failedLine: (who, n, reason) => `${who} 出错 ×${n}：${reason}`,
+  sec: { prompt: '指令', steps: '步骤', files: '改过的文件', tools: '工具', skills: '技能', alerts: '告警', result: '结果' },
   inProgress: '进行中',
   took: d => `用时 ${d}`,
   roundsN: n => `轮次 ${n}`,
@@ -93,13 +107,18 @@ const ZH: Strings = {
   save: '保存',
   settingsHint: ' ↑↓ 选择 · Enter 切换 · w 保存（b 返回不保存）',
   gloss: {
-    tier: '模型.档位列', edits: '改动文件数列', rounds: '模型轮次列', tokens: '令牌用量列', time: '用时列', alerts: '告警符号列（含运行条）',
+    tier: '模型.档位列', cost: 'ctx% · 令牌 · $ 列', time: '用时列', alerts: '告警行末红色 !（含运行条）',
     alertsBlock: '告警说明区', autoBand: '运行时自动显示', toasts: '弹出提示', placement: '默认位置：last 沿用上次 / right / top', stallMinutes: '卡住阈值（分钟）',
   },
   commandDescription: '子代理历史',
   paneTitle: 'Subagents',
   notSaved: why => `设置未保存：${why}`,
   pricesBad: 'prices 设置无效，已按默认价格估算',
+  otherGroup: '其他',
+  agentsN: n => `${n} 个子代理`,
+  modeHint: ' · p/a 切换 PR/Agent',
+  ...PR_WORDS,
+  noReason: '（无原因）',
 }
 
 export const strings = (lang: Lang): Strings => (lang === 'zh' ? ZH : EN)

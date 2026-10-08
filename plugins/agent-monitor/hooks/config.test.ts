@@ -8,12 +8,12 @@ test('readConfig: defaults when nothing is set', () => {
   expect(DEFAULTS.stallMs).toBe(180_000)
   expect(DEFAULTS.scope).toBe('')
   expect(DEFAULTS.placement).toBe('last')
-  expect(DEFAULTS.columns).toEqual({ tier: true, edits: true, rounds: true, tokens: true, time: true, alerts: true })
+  expect(DEFAULTS.columns).toEqual({ tier: true, cost: true, time: true, alerts: true })
 })
 
 test('readConfig: values map to the settings', () => {
-  const c = readConfig({ stallMinutes: 5, autoBand: false, alertsBlock: false, toasts: false, defaultPlacement: 'top', colTier: false, colEdits: false, colRounds: false, colTokens: false, colTime: false, colAlerts: false })
-  expect(c).toEqual({ scope: '', stallMs: 300_000, autoBand: false, alertsBlock: false, toasts: false, placement: 'top', columns: { tier: false, edits: false, rounds: false, tokens: false, time: false, alerts: false }, prices: DEFAULT_PRICES, pricesBad: false })
+  const c = readConfig({ stallMinutes: 5, autoBand: false, alertsBlock: false, toasts: false, defaultPlacement: 'top', colTier: false, colTokens: false, colTime: false, colAlerts: false })
+  expect(c).toEqual({ scope: '', stallMs: 300_000, autoBand: false, alertsBlock: false, toasts: false, placement: 'top', columns: { tier: false, cost: false, time: false, alerts: false }, prices: DEFAULT_PRICES, pricesBad: false })
   expect(readConfig({ stallMinutes: 0.5 }).stallMs).toBe(30_000)
 })
 

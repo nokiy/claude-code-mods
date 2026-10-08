@@ -1,4 +1,4 @@
-// Tests the AbovePrompt card text (hierarchy, ordered full ticket lines), the hint layout and the hint spans, on synthetic data.
+// Tests the AbovePrompt card text (two-line header with its bar, ordered full ticket lines), the hint layout and the hint spans, on synthetic data.
 import { expect, test } from 'claude-code/testing';
 import type { PrData, PrTicket } from '../types';
 import { cardLines, hintLayout, hintSpans, refreshText, ticketSubjects, withoutAgents } from '../hooks/card';
@@ -20,61 +20,70 @@ const t = (number: number, status: PrTicket['status'], over: Partial<PrTicket> =
 const many = (n: number, status: PrTicket['status'] = 'merged') => Array.from({ length: n }, (_, i) => t(i + 1, status));
 const texts = (pr: PrData, inner = 90, s = en) => cardLines(pr, NOW, inner, s).lines.map(l => l.text);
 
-test('hierarchy: title, Spec with base ← head, CI + PR state, then tickets', () => {
+// The bar run: filled cells then empty cells, nothing else.
+const BAR = /█*░*/u;
+const bar = (l: string) => / (█*░+|█+) Tickets /u.exec(l)?.[1] ?? '';
+
+test('header is two lines: PR #n, title, bar, Tickets d/n, Spec #n; then ◐ N running; tickets follow', () => {
   const out = texts({ ...base, tickets: many(10) });
-  expect(out[0]).toBe('PR #15 short title');
-  expect(out[1]).toMatch(/^Spec #12 Dark mode .* · integration branch main ← spec\/12-dark-mode$/);
-  expect(out[2]).toBe('CI ✓1/1 · Ready');
-  expect(out.slice(3)).toHaveLength(10);
+  expect(out[0]).toMatch(/^PR #15 short title █+ Tickets 10\/10 · Spec #12$/);
+  expect(out[1]).toBe('◐ 0 running');
+  expect(out.slice(2)).toHaveLength(10);
+  expect(out.slice(2).every(l => l.startsWith('●'))).toBe(true);
 });
 
-test('PR state chip: Draft yellow, Ready magenta, Merged green, the same words in both languages', () => {
-  const chip = (pr: PrData, s = en) => cardLines(pr, NOW, 90, s).lines[2]?.parts.filter(p => p.bold).map(p => [p.text, p.color]);
-  expect(chip({ ...base, isDraft: true })).toEqual([['Draft', 'yellow']]);
-  expect(chip(base)).toEqual([['Ready', 'magenta']]);
-  expect(chip({ ...base, state: 'MERGED' })).toEqual([['Merged', 'green']]);
-  expect(chip({ ...base, isDraft: true }, zh)).toEqual([['Draft', 'yellow']]);
-  // Single- and multi-ticket deliveries read the same: no merged / accepted counts anywhere.
-  expect(texts({ ...base, tickets: many(1) })[2]).toBe('CI ✓1/1 · Ready');
-  expect(texts({ ...base, tickets: many(3) }, 90, zh)[2]).toBe('CI ✓1/1 · Ready');
+test('header has no Draft / Ready word and no percent, Draft or Ready, in both languages', () => {
+  for (const s of [en, zh]) {
+    for (const isDraft of [true, false]) {
+      const head = texts({ ...base, isDraft, tickets: [t(1, 'doing'), t(2, 'done')] }, 90, s).slice(0, 2).join('\n');
+      expect(head).not.toMatch(/Draft|Ready|%/);
+    }
+  }
 });
 
-test('colours: PR number cyan bold, Spec magenta', () => {
-  const { lines } = cardLines({ ...base, tickets: many(2) }, NOW, 90, en);
+test('Tickets d/n counts merged and done only', () => {
+  const tickets = [t(1, 'todo'), t(2, 'doing'), t(3, 'merged'), t(4, 'done')];
+  expect(texts({ ...base, tickets })[0]).toContain(' Tickets 2/4 ');
+});
+
+test('the bar is 20 cells, fills d/n of them, and Tickets · Spec follow it; the line does not stretch to titleInner', () => {
+  const tickets = [t(1, 'todo'), t(2, 'merged')];
+  for (const room of [80, 144]) {
+    const l = cardLines({ ...base, tickets }, NOW, room + 10, en, room).lines[0]!.text;
+    const b = bar(l);
+    expect(b.length).toBe(20);
+    expect([...b].filter(c => c === '█').length).toBe(10);
+    expect(BAR.exec(b)?.[0]).toBe(b);
+    // `PR #15 short title ` (19) + bar (20) + ` Tickets 1/2 · Spec #12` (23).
+    expect(width(l)).toBe(62);
+  }
+});
+
+test('a long title is cut with … and the bar, Tickets and Spec stay, wide or narrow', () => {
+  const wide = cardLines({ ...base, title: 'x'.repeat(300), tickets: many(2) }, NOW, 150, en, 144).lines[0]!.text;
+  expect(width(wide)).toBe(144);
+  expect(wide).toMatch(/^PR #15 x+… █{20} Tickets 2\/2 · Spec #12$/);
+  const narrow = cardLines({ ...base, title: 'x'.repeat(300), tickets: many(2) }, NOW, 60, en, 50).lines[0]!.text;
+  expect(width(narrow)).toBeLessThanOrEqual(50);
+  expect(narrow).toMatch(/^PR #15 x+… █{10,20} Tickets 2\/2 · Spec #12$/);
+});
+
+test('no Spec: line 1 ends at Tickets d/n; no tickets reads Tickets 0/0 with an empty bar', () => {
+  const l = texts({ ...base, spec: null })[0]!;
+  expect(l).toMatch(/^PR #15 short title ░+ Tickets 0\/0$/);
+});
+
+test('◐ N running counts tickets in progress; colours: PR number cyan bold, ◐ yellow', () => {
+  const { lines } = cardLines({ ...base, tickets: [t(1, 'doing'), t(2, 'doing'), t(3, 'todo')] }, NOW, 90, zh);
+  expect(lines[1]?.text).toBe('◐ 2 running');
+  expect(lines[1]?.parts[0]).toEqual({ text: '◐', color: 'yellow' });
   expect(lines[0]?.parts[0]).toEqual({ text: 'PR #15', color: 'cyan', bold: true });
-  expect(lines[1]?.parts[0]?.color).toBe('magenta');
-});
-
-test('without a Spec the second row is base ← head (the state lives in the chip); no tickets reads as unlinked', () => {
-  const out = texts({ ...base, spec: null });
-  expect(out[1]).toBe('integration branch main ← spec/12-dark-mode');
-  expect(out[2]).toBe('CI ✓1/1 · Ready · no linked tickets');
-  expect(texts({ ...base, spec: null, isDraft: true })[2]).toBe('CI ✓1/1 · Draft · no linked tickets');
-});
-
-test('without a Spec, one ticket takes the Spec row: magenta Ticket #N · title · base ← head, no state', () => {
-  const title = '[pr-hint] 提示行只显示当前目录的 PR；「← N agents」始终隐藏';
-  const pr = { ...base, spec: null, isDraft: true, tickets: [t(22, 'doing', { title })] };
-  const { lines } = cardLines(pr, NOW, 120, zh);
-  expect(lines[1]?.text).toBe('Ticket #22 · 提示行只显示当前目录的 PR；「← N agents」始终隐藏 · 集成分支 main ← spec/12-dark-mode');
-  expect(lines[1]?.parts[0]?.color).toBe('magenta');
-  expect(lines[3]?.text).toBe('● #22 进行中 提示行只显示当前目录的 PR；「← N agents」始终隐藏');
-  expect(texts(pr, 60)[1]).toMatch(/^Ticket #22 · .+… · integration branch main ← spec\/12-dark-mode$/);
-});
-
-test('without a Spec, two or more tickets show only the branches, magenta', () => {
-  const { lines } = cardLines({ ...base, spec: null, tickets: many(2) }, NOW, 90, zh);
-  expect(lines[1]?.parts).toEqual([{ text: '集成分支 main ← spec/12-dark-mode', color: 'magenta' }]);
-});
-
-test('the integration branch label follows the language', () => {
-  expect(texts({ ...base, spec: null }, 90, zh)[1]).toBe('集成分支 main ← spec/12-dark-mode');
 });
 
 test('every ticket gets a full line, none dropped: 30 tickets, 30 lines', () => {
   const out = texts({ ...base, tickets: many(30) }).filter(l => l.startsWith('●'));
   expect(out).toHaveLength(30);
-  expect(out[0]).toBe('● #1 merged title 1');
+  expect(out[0]).toBe('● #1 Merged title 1');
 });
 
 test('ticket line: status, short title, dim branch, N commits behind (no per-row counts)', () => {
@@ -83,22 +92,35 @@ test('ticket line: status, short title, dim branch, N commits behind (no per-row
   });
   const { lines } = cardLines({ ...base, tickets: [doing] }, NOW, 90, en);
   const l = lines.at(-1);
-  expect(l?.text).toBe('● #16 in progress 保存设置 · fix/16-save-settings · 3 commits behind');
+  expect(l?.text).toBe('● #16 running 保存设置 · fix/16-save-settings · 3 commits behind');
   expect(l?.parts.find(p => p.text.includes('fix/16'))?.dim).toBe(true);
-  expect(l?.parts.filter(p => p.color).map(p => [p.text, p.color]).slice(0, 2)).toEqual([['●', 'yellow'], ['in progress', 'yellow']]);
+  expect(l?.parts.filter(p => p.color).map(p => [p.text, p.color]).slice(0, 2)).toEqual([['●', 'yellow'], ['running', 'yellow']]);
   // Merged with a branch but nothing ahead: branch shown, no "behind".
   const merged = cardLines({ ...base, tickets: [t(9, 'merged', { branch: 'feat/9-x' })] }, NOW, 90, en).lines.at(-1);
-  expect(merged?.text).toBe('● #9 merged title 9 · feat/9-x');
+  expect(merged?.text).toBe('● #9 Merged title 9 · feat/9-x');
 });
 
 test('Chinese strings: the same card in Chinese', () => {
   const doing = t(16, 'doing', { branch: 'fix/16-save-settings', ahead: 3, progress: { done: 1, total: 3, maxRounds: 0 } });
   const out = texts({ ...base, tickets: [doing, t(9, 'todo')] }, 90, zh);
-  expect(out[1]).toMatch(/· 集成分支 main ← spec\/12-dark-mode$/);
-  expect(out[2]).toBe('CI ✓1/1 · Ready');
-  expect(out[3]).toBe('● #16 进行中 title 16 · fix/16-save-settings · 还差 3 个提交');
-  expect(out[4]).toBe('● #9 未开始 title 9');
+  expect(out[1]).toBe('◐ 1 running');
+  expect(out[2]).toBe('● #16 running title 16 · fix/16-save-settings · 还差 3 个提交');
+  expect(out[3]).toBe('● #9 not started title 9');
   expect(cardLines(base, NOW, 90, zh).footer).toBe(' · 拉取于 刚刚');
+});
+
+test('ticket status words are English in both languages, colours unchanged', () => {
+  const tickets = [t(1, 'todo'), t(2, 'doing'), t(3, 'merged'), t(4, 'done')];
+  for (const s of [en, zh]) {
+    const rows = cardLines({ ...base, tickets }, NOW, 90, s).lines.filter(l => l.text.startsWith('●'));
+    const words = rows.map(l => [l.parts[2]?.text, l.parts[2]?.color, l.parts[0]?.color]);
+    expect(words).toEqual([
+      ['running', 'yellow', 'yellow'],
+      ['not started', 'gray', 'gray'],
+      ['Merged', 'blueBright', 'blueBright'],
+      ['accepted', 'green', 'green'],
+    ]);
+  }
 });
 
 test('ticket order: in progress, not started, merged, done', () => {
@@ -107,22 +129,10 @@ test('ticket order: in progress, not started, merged, done', () => {
   expect(nums).toEqual(['4', '3', '2', '1']);
 });
 
-test('a long title wraps to at most 3 rows', () => {
-  const out = cardLines({ ...base, title: 'x'.repeat(300) }, NOW, 40, en).lines;
-  expect(out.slice(0, 3).every(l => width(l.text) <= 40)).toBe(true);
-  expect(out[2]?.text.endsWith('…')).toBe(true);
-  expect(out[3]?.text).toMatch(/^Spec #12/);
-});
-
 test('footer reads only the fetch time', () => {
   expect(cardLines(base, NOW, 90, en).footer).toBe(' · fetched just now');
   expect(cardLines({ ...base, fetchedAt: NOW - 5 * 60_000 }, NOW, 90, en).footer).toBe(' · fetched 5 min ago');
   expect(cardLines({ ...base, fetchedAt: NOW - 5 * 60_000 }, NOW, 90, zh).footer).toBe(' · 拉取于 5 分钟前');
-});
-
-test('the title wraps within titleInner while the other rows keep inner', () => {
-  const out = cardLines({ ...base, title: 'x'.repeat(60) }, NOW, 40, en, 30).lines;
-  expect(width(out[0]!.text)).toBeLessThanOrEqual(30);
 });
 
 test('refreshText: lists only what changed, in both languages', () => {
@@ -197,6 +207,25 @@ test('ticketSubjects drops a leading [mod] tag, before the shared lead is looked
   const shared = ticketSubjects([mk(1, '[pr-hint] 深色模式 ① · 骨架'), mk(2, '[pr-hint] 深色模式 ② · 配色')]);
   expect(shared.get(1)).toBe('① 骨架');
   expect(shared.get(2)).toBe('② 配色');
+});
+
+// agent-monitor's published totals for this PR (docs/adr/0001-cross-mod-state.md): 86.2k tokens, $1.25, 12 min 34 s, 2 refusals.
+const STATS = { tokens: 86_200, cost: 1.25, ms: 754_000, refusals: 2 };
+const line2 = (s = en, stats?: typeof STATS | Omit<typeof STATS, 'cost'>) =>
+  cardLines({ ...base, tickets: [t(1, 'doing')] }, NOW, 90, s, 90, { stats }).lines[1]!;
+
+test('line 2 carries the subagents\' cost, tokens and time, marked subagents only, then the refusals', () => {
+  expect(line2(zh, STATS).text).toBe('◐ 1 running · ≈$1.25 · 86.2k tokens · 12m34s (仅子代理) · 拦截 ×2');
+  expect(line2(en, STATS).text).toBe('◐ 1 running · ≈$1.25 · 86.2k tokens · 12m34s (subagents only) · blocked ×2');
+  const parts = line2(en, STATS).parts;
+  expect(parts.find(p => p.text.includes('subagents only'))?.dim).toBe(true);
+  expect(parts.find(p => p.text.includes('blocked'))?.color).toBe('red');
+});
+
+test('line 2 without agent-monitor\'s value is only ◐ N running; no refusals or no price drops that segment alone', () => {
+  expect(line2(en).text).toBe('◐ 1 running');
+  expect(line2(en, { ...STATS, refusals: 0 }).text).toBe('◐ 1 running · ≈$1.25 · 86.2k tokens · 12m34s (subagents only)');
+  expect(line2(en, { tokens: 900, ms: 5_000, refusals: 0 }).text).toBe('◐ 1 running · 900 tokens · 5s (subagents only)');
 });
 
 test('withoutAgents drops the agents pill so the row keeps one length while typing', () => {

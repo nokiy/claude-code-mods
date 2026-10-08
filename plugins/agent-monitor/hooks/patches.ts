@@ -129,9 +129,9 @@ export function agentLaunched(e: { tool: unknown }, r: { result?: unknown; isErr
   return e.tool === 'Agent' && res && !r.isError && res.agentId ? { res: { ...res, agentId: res.agentId }, call: e as { subagent_type?: string; description?: string } } : undefined
 }
 
-// A `tool` call's result is back; `refusal` is why it was denied or errored (undefined when it went through); `edit` the lines an
-// edit changed in `path`. Whatever call is still out stays pending, named by the oldest.
-export function onToolEnd(p: Rec, tool: string, refusal: string | undefined, now: number, edit?: { path: string; add: number; del: number }): Rec {
+// A `tool` call's result is back; `refusal` is why it was denied or errored (undefined when it went through), `hookDenied` whether a
+// hook's deny refused it (otherwise the refusal is an errored result, a `failed` reason); `edit` the lines an edit changed in `path`. Whatever call is still out stays pending, named by the oldest.
+export function onToolEnd(p: Rec, tool: string, refusal: string | undefined, now: number, edit?: { path: string; add: number; del: number }, hookDenied = false): Rec {
   const out = { ...p.pendingCalls }
   if ((out[tool] ?? 0) > 1) out[tool]!--
   else delete out[tool]
@@ -143,7 +143,8 @@ export function onToolEnd(p: Rec, tool: string, refusal: string | undefined, now
     lastEventAt: now,
     pendingTool: open,
     pendingCalls: open ? out : undefined,
-    ...(refusal === undefined ? {} : addDenial(p, refusal)),
+    ...(refusal === undefined ? {} : addDenial(p, refusal, now, !hookDenied)),
+    ...(hookDenied ? { refusals: (p.refusals ?? 0) + 1 } : {}),
     ...(edit && (old || room) ? { lines: { ...p.lines, [edit.path]: { add: (old?.add ?? 0) + edit.add, del: (old?.del ?? 0) + edit.del } } } : {}),
   }
 }
@@ -181,7 +182,8 @@ export function onAgentResult(p: Rec, call: { subagent_type?: string; descriptio
       ? {
           tokens: res.totalTokens,
           durationMs: res.totalDurationMs,
-          ...(u ? { spent: { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 } } : {}),
+          // The result's usage is its last turn's: it stands in only for an agent whose steps were not seen.
+          ...(u && !p.spent ? { spent: { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 } } : {}),
           ...(report ? { result: report } : {}),
           ...(res.toolStats ? { editCount: res.toolStats.editFileCount, toolCounts: p.toolCounts ?? countsFromStats(res.toolStats) } : {}),
           ...(p.status === 'running' || p.status === 'unknown' ? { status: 'done' as const, finishedAt: now } : {}),

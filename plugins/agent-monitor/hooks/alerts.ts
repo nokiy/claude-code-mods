@@ -1,6 +1,5 @@
 // Detectors for agent-monitor's four alerts: file conflict, stall, tier mismatch, denied/errored calls. Pure; tested in alerts.test.ts.
 import type { Denial, MainEdit } from '../types'
-import type { Strings } from './strings'
 import { collapse, effortName, modelName, parseDescription, resolveTier, tierName, truncate } from './logic'
 
 export const MAX_FILES = 50
@@ -43,7 +42,7 @@ export function addFile(files: readonly string[] | undefined, path: string): str
 }
 
 export type Span = { id: string; files: readonly string[]; start?: number; end?: number }
-export type Clash = { path: string; other: string } // other: the partner's agentId, or 'main'
+export type Clash = { path: string; other: string; at?: number } // other: the partner's agentId, or 'main'; at: the main edit, or the later start
 
 // Per agent: the paths it shares with another participant that was running at the same time. Two agents clash when their run intervals
 // overlap and both touched the path (sequential reuse does not); the main loop clashes with an agent that touched the path when the
@@ -57,11 +56,12 @@ export function findClashes(spans: readonly Span[], main: readonly MainEdit[]): 
   const live = spans.filter(s => s.start !== undefined && s.end !== undefined && s.files.length > 0)
   for (let i = 0; i < live.length; i++) {
     const a = live[i]!
-    for (const m of main) if (a.files.includes(m.path) && m.at >= a.start! && m.at <= a.end!) add(a.id, { path: m.path, other: 'main' })
+    for (const m of main) if (a.files.includes(m.path) && m.at >= a.start! && m.at <= a.end!) add(a.id, { path: m.path, other: 'main', at: m.at })
     for (let j = i + 1; j < live.length; j++) {
       const b = live[j]!
       if (a.start! > b.end! || b.start! > a.end!) continue
-      for (const path of a.files) if (b.files.includes(path)) { add(a.id, { path, other: b.id }); add(b.id, { path, other: a.id }) }
+      const at = Math.max(a.start!, b.start!)
+      for (const path of a.files) if (b.files.includes(path)) { add(a.id, { path, other: b.id, at }); add(b.id, { path, other: a.id, at }) }
     }
   }
   return out
@@ -83,9 +83,6 @@ export function stallOf(a: { status: string; lastEventAt?: number; startedAt?: n
 }
 
 export const idleText = (ms: number): string => (ms >= 60_000 ? `${Math.floor(ms / 60_000)}m` : `${Math.max(0, Math.floor(ms / 1000))}s`)
-
-// `~4m (Bash not returned)` while a tool call is pending, `~4m no activity` when the agent is silent.
-export const stallText = (s: Stall, t: Pick<Strings, 'stallShort'>): string => t.stallShort(idleText(s.idleMs), s.tool)
 
 // ---- tier ----
 
@@ -114,13 +111,14 @@ export function denialReason(text: string | undefined): string {
   return truncate(collapse(line), 80) || '(no reason)'
 }
 
-// One more denied result: counted, its reason deduped by first line; a new reason past MAX_REASONS counts but is not listed.
-export function addDenial(p: { denied?: number; reasons?: readonly Denial[] }, text: string | undefined): { denied: number; reasons: Denial[] } {
+// One more denied (or, `failed`, errored) result at `at`: counted, its reason deduped by first line and kind (keeping the time it was
+// first seen); a new reason past MAX_REASONS counts but is not listed.
+export function addDenial(p: { denied?: number; reasons?: readonly Denial[] }, text: string | undefined, at?: number, failed = false): { denied: number; reasons: Denial[] } {
   const reason = denialReason(text)
   const reasons = (p.reasons ?? []).map(r => ({ ...r }))
-  const hit = reasons.find(r => r.text === reason)
+  const hit = reasons.find(r => r.text === reason && !r.failed === !failed)
   if (hit) hit.n++
-  else if (reasons.length < MAX_REASONS) reasons.push({ text: reason, n: 1 })
+  else if (reasons.length < MAX_REASONS) reasons.push({ text: reason, n: 1, ...(at === undefined ? {} : { at }), ...(failed ? { failed: true as const } : {}) })
   return { denied: (p.denied ?? 0) + 1, reasons }
 }
 

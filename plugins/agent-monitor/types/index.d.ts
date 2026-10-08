@@ -1,8 +1,12 @@
 // Session state contract of agent-monitor: one record per subagent, the panel's page and focus, the settings draft, the session's
-// placement override and the main loop's recent edits, kept in `$.state` so a hot reload keeps them.
+// placement override, the main loop's recent edits and the per-PR totals published to other mods (`prStats`), kept in `$.state` so a
+// hot reload keeps them.
 
-/** One distinct denied / errored tool result, deduped by its first line. */
-export type Denial = { text: string; n: number }
+/**
+ * One distinct denied / errored tool result, deduped by its first line and kind; `at`: when that reason was first seen (absent when
+ * unknown); `failed`: the tool ran and its result is an error (absent: a hook refused the call).
+ */
+export type Denial = { text: string; n: number; at?: number; failed?: true }
 
 /** A file the main loop (no agentId) edited; kept only while some subagent was running. */
 export type MainEdit = { path: string; at: number }
@@ -10,9 +14,7 @@ export type MainEdit = { path: string; at: number }
 /** The settings page's unsaved copy of the options: a column per flag, the other switches, the placement mode, the stall threshold in minutes. */
 export type AgentMonitorDraft = {
   tier: boolean
-  edits: boolean
-  rounds: boolean
-  tokens: boolean
+  cost: boolean
   time: boolean
   alerts: boolean
   alertsBlock: boolean
@@ -86,11 +88,22 @@ export type AgentMonitorRec = {
   pendingCalls?: Record<string, number>
   /** Tool calls per tool name; a backfilled agent gets Read / Search / Bash / Edit / Other from toolStats. */
   toolCounts?: Record<string, number>
-  /** Denied or errored tool results. */
+  /** Refused (a hook's deny) or errored tool results: the alert's ×N, from the hook events, else the transcript's `toolDenialKind` lines. */
   denied?: number
+  /** Hook denials only (a hook's deny live, `toolDenialKind` lines in the transcript): what the PR's published `refusals` adds up. */
+  refusals?: number
   /** Their reasons, deduped by first line (at most 10 distinct). */
   reasons?: Denial[]
+  /** The branch on the agent's transcript's first line: what the attribution rule (hooks/attribution.ts) reads. */
+  branch?: string
 }
+
+/**
+ * One PR's subagent totals, published for other mods (docs/adr/0001-cross-mod-state.md): tokens, estimated cost in USD (absent when
+ * no agent's model has a price), wall time in ms (the union of the agents' spans), tool calls a hook refused. Canonical;
+ * pr-hint mirrors it in plugins/pr-hint/types/index.d.ts.
+ */
+export type PrStat = { tokens: number; cost?: number; ms: number; refusals: number }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -113,6 +126,12 @@ declare module 'claude-code' {
       sessionPlacement: 'top' | 'right' | null
       /** The main loop's recent file edits, for conflicts with a running subagent. */
       mainEdits: MainEdit[]
+      /** Published (pr-hint reads it): subagent totals per PR, keyed by the PR number as a string; only PRs with subagents (hooks/groups.ts `statsByPr`). */
+      prStats: Record<string, PrStat>
+      /** The table's mode: `pr` (grouped by PR, the default) or `agent` (one flat list). */
+      mode: 'pr' | 'agent'
+      /** PR-mode groups opened or closed by hand (`pr:<n>` / `other` -> open); a group not named here follows the default (the first group open). */
+      expanded: Record<string, boolean>
     }
   }
 }
