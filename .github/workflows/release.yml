@@ -1,9 +1,13 @@
-# Two jobs on every push to main (rules: docs/releasing.md, docs/release-packaging.md).
-#   version: the release bot. Pending changesets: open or refresh the "chore: version plugins" PR (branch
-#            changeset-release/main). That PR merged: `changeset tag` tags each bumped mod as name@version;
-#            the action pushes the tags and opens one GitHub Release per tag from the mod's CHANGELOG.
+# The release bot (rules: docs/releasing.md, docs/release-packaging.md). Runs on every push to main, and on
+# demand (`gh workflow run release.yml`, the one command behind "可以发版了").
+#   ship:    on demand only. Squash-merges the open "chore: version plugins" PR, if any. That merge is pushed
+#            with GITHUB_TOKEN, which starts no new run, so the jobs below publish it in this same run.
+#   version: pending changesets: open or refresh the "chore: version plugins" PR (branch changeset-release/main).
+#            None pending: `changeset tag` tags each bumped mod as name@version; the action pushes the tags and
+#            opens one GitHub Release per tag from the mod's CHANGELOG.
 #   build:   builds the `release` branch (main without test files, listed mods only); it waits while
 #            changesets are pending, so `release` moves only with final versions. Installs read only `release`.
+# On demand, version and build check out main after ship's merge; on a push, the pushed commit.
 # Runs with no Claude login: plugin validate needs none. Never add Claude credentials here.
 # changesets/action@v1 matches @changesets/cli 2.x (v2 of the action requires cli 3).
 name: release
@@ -11,13 +15,34 @@ name: release
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
+  ship:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Merge the Version PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          pr=$(gh pr list --head changeset-release/main --base main --state open --json number -q '.[0].number')
+          if [ -z "$pr" ]; then echo "No Version PR open: nothing to merge, publishing main as it is."; exit 0; fi
+          gh pr merge "$pr" --squash
+          echo "Merged Version PR #$pr"
+
   version:
+    needs: ship
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -25,6 +50,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -40,6 +67,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build:
+    needs: ship
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -47,6 +76,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -57,4 +87,4 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          scripts/build-release.sh "$GITHUB_SHA" --push
+          scripts/build-release.sh HEAD --push

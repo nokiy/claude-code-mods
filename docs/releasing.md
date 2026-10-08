@@ -24,7 +24,7 @@ How a mod in this marketplace goes from a merged PR to an installable release. A
 
 1. **Changeset with the change**: a PR that changes a public mod carries `.changeset/<mod>-<what>.md` (format: `.changeset/README.md`). `npx changeset` writes one interactively.
 2. **Merge the PR** into `main`. CI ran on it. The `version` job opens or refreshes the PR **chore: version plugins**, which bumps versions and writes `CHANGELOG.md`. The `build` job leaves `release` alone while changesets are pending.
-3. **Release**: when ready, merge **chore: version plugins** (squash). The `version` job then tags each bumped mod `<mod>@X.Y.Z` and opens its GitHub Release; the `build` job rebuilds `release`. Check both: `gh run list --workflow release.yml`.
+3. **Release**: when the owner says "可以发版了", run one command: `gh workflow run release.yml`. The machine does the rest in that run: job `ship` squash-merges **chore: version plugins**, job `version` tags each bumped mod `<mod>@X.Y.Z` and opens its GitHub Release, job `build` rebuilds `release`. Watch it: `gh run watch $(gh run list --workflow release.yml -L 1 --json databaseId -q '.[0].databaseId')`. Merging the Version PR by hand on GitHub does the same.
 4. **Verify the install** in a throwaway config, never your own: `CLAUDE_CONFIG_DIR=$(mktemp -d) claude plugin marketplace add nokiy/claude-code-mods`, then `claude plugin install <mod>@nokiy-mods` with the same `CLAUDE_CONFIG_DIR`; it must install the new version, and the installed folder must hold none of the files `release-packaging.md` strips.
 
 Several changes may wait in one Version PR; merging it releases them all. Tickets close when their `Closes #n` reaches `main`.
