@@ -164,7 +164,7 @@ async function ensureCommand($: EngineInterface): Promise<void> {
     return
   }
   await registerAgents($, cfg).catch(() => {}) // agents never block the command
-  $.ui.toast(`/${got.name} 已就绪：/${got.name} [agent] <task> [xN] · /${got.name} set`)
+  // A normal start is silent; only a failure or a fallback (above) toasts.
 }
 
 /** This plugin's `commandName` row in /config, by the key `$.config.list()` gives it; undefined when not listed. */

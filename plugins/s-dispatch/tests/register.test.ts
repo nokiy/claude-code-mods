@@ -375,10 +375,11 @@ test('a refused command name falls back to /s and says why', { options: { comman
   expect((await $.command.run({ command: 'taken', args: 'ui draw', ...RUN })).text).toBe('engine')
 })
 
-test('the userConfig name is registered and answered', { options: { commandName: 'd' } }, async ($, on) => {
-  const { commands, agents, spawned } = world(on)
+test('the userConfig name is registered and answered; a normal start toasts nothing', { options: { commandName: 'd' } }, async ($, on) => {
+  const { commands, agents, spawned, toasts } = world(on)
   await $.session.start({ cwd: '/tmp', surface: null, isInteractive: false } as any)
   expect(commands).toEqual(['d'])
+  expect(toasts).toEqual([])
   expect(agents[0]).toEqual({ name: 'quick', effort: 'low', model: 'sonnet' })
   await $.command.run({ command: 'd', args: 'ui draw', ...RUN })
   expect(spawned.length).toBe(1)
