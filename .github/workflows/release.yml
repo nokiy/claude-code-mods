@@ -82,7 +82,7 @@ jobs:
         with:
           node-version: 22
       - name: Install Claude Code
-        run: npm i -g @anthropic-ai/claude-code@2.1.288
+        run: npm i -g @anthropic-ai/claude-code@latest
       - name: Build and push release
         run: |
           git config user.name "github-actions[bot]"
