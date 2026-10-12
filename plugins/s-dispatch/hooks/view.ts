@@ -99,7 +99,7 @@ export function pickerRows(
 }
 
 export type Chip = { value: string; label: string }
-export type ChipField = 'ttl' | 'quickModel' | 'quickEffort' | 'maxCount' | 'routeMode' | 'routeEffort' | 'extra' | 'visible'
+export type ChipField = 'ttl' | 'dispatchMode' | 'quickModel' | 'quickEffort' | 'maxCount' | 'routeMode' | 'routeEffort' | 'extra' | 'visible'
 
 const plain = (values: readonly string[], labels: Record<string, string> = {}): Chip[] => values.map(v => ({ value: v, label: labels[v] ?? v }))
 
@@ -107,6 +107,7 @@ export const ROUTE_LABELS: Record<string, string> = { keyword: '仅关键词', m
 
 const CHIPS: Record<ChipField, Chip[]> = {
   ttl: plain(['5m', '1h']),
+  dispatchMode: plain(['main', 'direct'], { main: '交给主会话', direct: '直接派' }),
   quickModel: plain(['haiku', 'sonnet', 'opus']),
   quickEffort: plain(EFFORTS),
   maxCount: plain(['1', '2', '3', '4', '5']),
@@ -124,6 +125,10 @@ export function chipOptions(field: ChipField, current: string | undefined): Chip
 
 const EXPLAIN: Record<ChipField, Record<string, string>> = {
   ttl: { '5m': '便宜但易过期', '1h': '适合长任务' },
+  dispatchMode: {
+    main: '主会话结合对话写说明、挑代理并派发，完成时叫醒它；不走路由',
+    direct: '插件按路由规则直接派，子代理看不到对话，完成后结果追加到会话',
+  },
   quickModel: { haiku: '最快最省，适合简单活', sonnet: '均衡，多数任务够用', opus: '最强也最贵，适合难题', inherit: '跟随主会话的模型' },
   quickEffort: { low: '思考最少，最快最省', medium: '适中', high: '多想一些，更慢', xhigh: '深度思考，更慢更贵', max: '思考预算拉满，最慢最贵' },
   maxCount: {},

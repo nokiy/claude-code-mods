@@ -1,5 +1,5 @@
-// Pure helpers for /s settings: defaults and normalisation, command names,
-// visibility, aliases, keyword rules, the cache-TTL key, and effort clones of agent files.
+// Pure helpers for /s settings: defaults (dispatch mode `main`, the 直接派 `direct` a switch) and
+// normalisation, command names, visibility, aliases, keyword rules, the cache-TTL key, and effort clones.
 
 import type { SDispatchAgentForm, SDispatchConfig, SDispatchRouteMode, SDispatchRule } from '../types'
 import { RESERVED } from './logic'
@@ -13,6 +13,7 @@ export const DEFAULT_RULES: readonly SDispatchRule[] = [
 
 export const DEFAULT_CONFIG: SDispatchConfig = {
   commandName: null,
+  dispatchMode: 'main',
   defaultAgent: 's-dispatch:quick',
   quick: { model: 'sonnet', effort: 'low' },
   routeMode: 'hybrid',
@@ -57,6 +58,7 @@ export function normalizeConfig(raw: unknown): SDispatchConfig {
     : {}
   return {
     commandName: typeof raw.commandName === 'string' && isValidCommandName(raw.commandName) ? raw.commandName : null,
+    dispatchMode: raw.dispatchMode === 'direct' ? 'direct' : 'main',
     defaultAgent: typeof raw.defaultAgent === 'string' && raw.defaultAgent !== '' ? raw.defaultAgent : d.defaultAgent,
     quick: {
       model: typeof quick.model === 'string' && quick.model !== '' ? quick.model : d.quick.model,
@@ -128,9 +130,7 @@ export function aliasError(aliases: Readonly<Record<string, string>>, names: rea
   return undefined
 }
 
-export function formatRule(rule: SDispatchRule): string {
-  return `${rule.keywords.join('/')} → ${rule.agent}`
-}
+export const formatRule = (rule: SDispatchRule): string => `${rule.keywords.join('/')} → ${rule.agent}`
 
 /** `关键词1/关键词2 → agent` (also `->`); agent must be one of `names`. */
 export function parseRule(line: string, names: readonly string[]): { rule: SDispatchRule } | { error: string } {

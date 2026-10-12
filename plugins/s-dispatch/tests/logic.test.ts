@@ -6,6 +6,7 @@ import {
   HIDDEN_AGENTS,
   agentFromAnswer,
   composePrompt,
+  handOffHint,
   defaultsLabel,
   defaultsParts,
   effortsFor,
@@ -182,4 +183,15 @@ test('imageRoots: CLAUDE_CODE_TMPDIR and its claude-<uid> child, else /tmp/claud
   expect(imageRoots('/x/tmp/', '501')).toEqual(['/x/tmp/claude-501', '/x/tmp'])
   expect(imageRoots('/x/tmp', '')).toEqual(['/x/tmp'])
   expect(imageRoots(undefined, '')).toEqual([])
+})
+
+test('handOffHint: ahead (hidden, before the task) or under it; count and 附加提示词 (one line, trailing 。 dropped) only when there', () => {
+  expect(handOffHint(undefined, 1, undefined, false)).toBe('请在后台派遣一个合适的子代理完成上面的任务；由你判断用哪个代理，并结合前面的对话编排说明后再派。')
+  expect(handOffHint(undefined, 2, undefined, true)).toBe(
+    '接下来这条消息是用户用 /s 交来的任务：请在后台派遣一个合适的子代理完成它，派 2 份；由你判断用哪个代理，并结合前面的对话编排说明后再派，不要自己动手做。',
+  )
+  expect(handOffHint('ui', 1, '  ', false)).toBe('请在后台派遣 ui 子代理完成上面的任务；由你结合前面的对话编排说明后再派。')
+  expect(handOffHint('ui', 3, '先读\n规范。', true)).toBe(
+    '接下来这条消息是用户用 /s 交来的任务：请在后台派遣 ui 子代理完成它，派 3 份，要求：先读 规范；由你结合前面的对话编排说明后再派，不要自己动手做。',
+  )
 })

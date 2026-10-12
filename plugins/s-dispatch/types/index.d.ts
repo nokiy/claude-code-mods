@@ -22,6 +22,8 @@ export type SDispatchRule = { keywords: string[]; agent: string }
 export type SDispatchConfig = {
   /** Slash command name; null follows the plugin's userConfig `commandName`. */
   commandName: string | null
+  /** `main`: /s hands the task to the main session, which dispatches it; `direct`: /s routes and spawns itself. */
+  dispatchMode: 'main' | 'direct'
   defaultAgent: string
   quick: { model: string; effort: string }
   routeMode: SDispatchRouteMode

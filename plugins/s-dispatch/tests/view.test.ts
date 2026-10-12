@@ -127,3 +127,9 @@ test('renameNote and draftHome', () => {
   expect(renameNote('s', 'su', false)).toBe('已改名为 /su；旧名字 /s 要重载或下次会话才消失')
   expect([draftHome(null), draftHome({}), draftHome({ index: 2 })]).toEqual(['ruleAdd', 'ruleAdd', 'rule:2'])
 })
+
+test('dispatchMode chips: 交给主会话 / 直接派, each explained', () => {
+  expect(chipOptions('dispatchMode', 'main').map(c => c.label)).toEqual(['交给主会话', '直接派'])
+  expect(chipHint('dispatchMode', 'main')).toMatch(/^交给主会话：.*不走路由$/)
+  expect(chipHint('dispatchMode', 'direct')).toMatch(/^直接派：.*路由/)
+})

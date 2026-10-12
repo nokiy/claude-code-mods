@@ -1,5 +1,5 @@
-// Pure helpers for /s: argument grammar, agent resolution, routing, roster
-// merge, spawn arguments, pasted-image paths and job settlement. No `$` here, so every rule is testable.
+// Pure helpers for /s: argument grammar, agent resolution, the main-mode hand-off text, routing,
+// roster merge, spawn arguments, pasted-image paths and job settlement. No `$` here, so every rule is testable.
 
 import type { SDispatchAgent, SDispatchConfig, SDispatchJob, SDispatchRule } from '../types'
 
@@ -72,6 +72,21 @@ export function planCommand(args: string, roster: readonly SDispatchAgent[], con
   const counted = parseCount(trimmed, config.maxCount)
   if (counted.task === '') return { action: 'pick', picked: '', note: '没有任务内容，先选代理再写任务。' }
   return { action: 'route', ...counted }
+}
+
+/**
+ * Main mode: the one-line hint asking the main session to dispatch the task in the background (`agent`
+ * undefined: it picks one). `ahead`: hidden context recorded before the task's message (/s); else a
+ * visible line under the task (picker). `prompt`, the agent's 附加提示词, is kept on one line.
+ */
+export function handOffHint(agent: string | undefined, count: number, prompt: string | undefined, ahead: boolean): string {
+  const extra = (prompt ?? '').replace(/\s+/g, ' ').trim().replace(/[。.；;，,]+$/, '')
+  const who = agent === undefined ? '一个合适的子代理' : ` ${agent} 子代理`
+  const asks = `${count > 1 ? `，派 ${count} 份` : ''}${agent === undefined || extra === '' ? '' : `，要求：${extra}`}`
+  const how = `${agent === undefined ? '由你判断用哪个代理，并' : '由你'}结合前面的对话编排说明后再派`
+  return ahead
+    ? `接下来这条消息是用户用 /s 交来的任务：请在后台派遣${who}完成它${asks}；${how}，不要自己动手做。`
+    : `请在后台派遣${who}完成上面的任务${asks}；${how}。`
 }
 
 export type Route =

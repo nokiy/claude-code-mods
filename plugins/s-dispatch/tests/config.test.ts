@@ -157,3 +157,10 @@ test('routeEffort: a store without it reads low; only low/medium/high survive', 
   expect(normalizeConfig({ routeEffort: 'medium' }).routeEffort).toBe('medium')
   expect(normalizeConfig({ routeEffort: 'max' }).routeEffort).toBe('low')
 })
+
+test('dispatchMode: main by default; only direct switches it', () => {
+  expect(DEFAULT_CONFIG.dispatchMode).toBe('main')
+  expect(normalizeConfig({}).dispatchMode).toBe('main')
+  expect(normalizeConfig({ dispatchMode: 'direct' }).dispatchMode).toBe('direct')
+  expect(normalizeConfig({ dispatchMode: 'spawn' }).dispatchMode).toBe('main')
+})

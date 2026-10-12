@@ -16,10 +16,23 @@ const RUN_OUT = { stderr: '', exitCode: 0, isStdoutTruncated: false, isStderrTru
 
 type Spawned = { subagentType: string; prompt: string; description: string }
 
+
 /** Bottoms for everything /s reaches beneath the plugin; returns what it captured. */
 function world(
   on: On,
-  opts: { store?: Record<string, unknown>; router?: string; refuse?: string; denySpawn?: RegExp; config?: 'ok' | 'deny'; provider?: string; images?: number[] } = {},
+  opts: {
+    store?: Record<string, unknown>
+    router?: string
+    refuse?: string
+    denySpawn?: RegExp
+    config?: 'ok' | 'deny'
+    provider?: string
+    images?: number[]
+    /** The stored dispatch mode; 'direct' unless a test asks for 'main'. */
+    mode?: 'main' | 'direct'
+    /** How the bottom answers the plugin's $.prompt.submit: entered (default), a drop, or a throw. */
+    submit?: 'drop' | 'throw'
+  } = {},
 ) {
   const spawned: Spawned[] = []
   const toasts: string[] = []
@@ -42,7 +55,18 @@ function world(
         : (configSets.push({ key: e.key, value: e.value, stored: (store.config as any)?.commandName }), { value: e.value })) as any,
     )
   }
-  const store: Record<string, unknown> = { ...(opts.store ?? {}) }
+  const store: Record<string, unknown> = {
+    ...(opts.store ?? {}),
+    config: { dispatchMode: opts.mode ?? 'direct', ...(opts.store?.config as object | undefined) },
+  }
+  // The main session beneath: what /s hands it, as the person's prompt.
+  const submitted: { text: string; asUser: unknown }[] = []
+  on('prompt.submit', async (_$, e) => {
+    if (opts.submit === 'throw') throw new Error('engine gone')
+    if (opts.submit === 'drop') return { drop: 'blocked by a hook' } as any
+    submitted.push({ text: e.text, asUser: (e.origin as any).asUser })
+    return { text: e.text } as any
+  })
   on('store.get', async (_$, e) => ({ value: store[e.key] }) as any)
   on('store.set', async (_$, e) => ((store[e.key] = JSON.parse(JSON.stringify(e.value))), { value: undefined }) as any)
   // The kit raises a plugin's $.agent.spawn as the Agent tool's input
@@ -88,8 +112,101 @@ function world(
   on('turn.complete', async () => ({ text: '' }))
   on('session.start', async (_$, e) => e as any)
   on('command.run', async () => ({ text: 'engine' }))
-  return { spawned, toasts, opened, commands, agents, writes, store, focused, closed, configSets, completes, probes }
+  // The hand-off submits on a $.clock.after timer, past the command.run hook; `settle` lets it run.
+  const { settle } = mock.clock(on)
+  return { spawned, toasts, opened, commands, agents, writes, store, focused, closed, configSets, completes, probes, submitted, settle }
 }
+
+test('交给主会话: /s ui <task> xN submits the bare task as the person, the hint (count, 附加提示词) as the command context; spawns nothing', async ($, on) => {
+  const { spawned, submitted, completes, settle } = world(on, { mode: 'main', store: { config: { prompts: { ui: '先看设计规范。' }, extraEffort: { ui: 'high' } } } })
+  const ran = await $.command.run({ command: 's', args: 'ui 画个页面 x2', ...RUN })
+  await settle()
+  expect(submitted).toEqual([
+    { text: '画个页面', asUser: true },
+  ])
+  expect(ran.text).toBe('已交给主会话派发 ui\n额外档位只在直接派时生效')
+  expect(ran.context).toEqual(['接下来这条消息是用户用 /s 交来的任务：请在后台派遣 ui 子代理完成它，派 2 份，要求：先看设计规范；由你结合前面的对话编排说明后再派，不要自己动手做。'])
+  expect(spawned).toEqual([])
+  expect(completes).toEqual([])
+})
+
+test('交给主会话: a bare task runs no routing (no keyword, no model call); the main session picks; the clamp is said', async ($, on) => {
+  const { spawned, submitted, completes, settle } = world(on, { mode: 'main' })
+  const ran = await $.command.run({ command: 's', args: '去生成这个吧', ...RUN })
+  await settle()
+  expect(submitted).toEqual([{ text: '去生成这个吧', asUser: true }])
+  expect(ran.context).toEqual(['接下来这条消息是用户用 /s 交来的任务：请在后台派遣一个合适的子代理完成它；由你判断用哪个代理，并结合前面的对话编排说明后再派，不要自己动手做。'])
+  expect(ran.text).toBe('已交给主会话派发（由主会话挑代理）')
+  const many = await $.command.run({ command: 's', args: '帮我画个页面 x5', ...RUN })
+  await settle()
+  expect(submitted[1]).toEqual({ text: '帮我画个页面', asUser: true })
+  expect(many.context).toEqual(['接下来这条消息是用户用 /s 交来的任务：请在后台派遣一个合适的子代理完成它，派 3 份；由你判断用哪个代理，并结合前面的对话编排说明后再派，不要自己动手做。'])
+  expect(many.text).toBe('已交给主会话派发（由主会话挑代理）\n数量 5 超过上限 3，按 3 个派发')
+  expect(completes).toEqual([])
+  expect(spawned).toEqual([])
+})
+
+test('交给主会话: [Image #N] goes out as its saved file; a missing one is noted', async ($, on) => {
+  const { submitted, settle } = world(on, { mode: 'main', images: [1] })
+  const ran = await $.command.run({ command: 's', args: 'ui 照 [Image #1] 改，别管 [Image #2]', ...RUN })
+  await settle()
+  expect(submitted[0]).toEqual({
+    text: `照 [Image #1: ${IMAGES}/1.png] 改，别管 [Image #2]\n\n用 Read 工具打开上面的图片路径查看图片。`,
+    asUser: true,
+  })
+  expect(ran.text).toBe('已交给主会话派发 ui\n[Image #2] 没找到图片文件，子代理看不到这张图')
+  expect(ran.context).toEqual(['接下来这条消息是用户用 /s 交来的任务：请在后台派遣 ui 子代理完成它；由你结合前面的对话编排说明后再派，不要自己动手做。'])
+})
+
+test('交给主会话: a dropped submit is toasted, never a silent spawn', async ($, on) => {
+  const { spawned, toasts, settle } = world(on, { mode: 'main', submit: 'drop' })
+  expect((await $.command.run({ command: 's', args: 'worker fix it', ...RUN })).text).toBe('已交给主会话派发 worker')
+  await settle()
+  expect(toasts).toContain('交给主会话失败：blocked by a hook')
+  expect(spawned).toEqual([])
+})
+
+test('交给主会话: a submit that throws is toasted', async ($, on) => {
+  const { spawned, toasts, settle } = world(on, { mode: 'main', submit: 'throw' })
+  await $.command.run({ command: 's', args: 'worker fix it', ...RUN })
+  await settle()
+  expect(toasts.some(t => t.startsWith('交给主会话失败：'))).toBe(true)
+  expect(spawned).toEqual([])
+})
+
+test('交给主会话: the picker 自动路由 hands the bare task over unrouted and toasts the receipt', async ($, on) => {
+  const { spawned, submitted, toasts, completes, settle } = world(on, { mode: 'main' })
+  await $.command.run({ command: 's', args: '', ...RUN })
+  const ui = await $.ui.mount({ plugin: 's-dispatch', surface: 'terminal', component: 'Pane', props: PANE, requestId: 's-dispatch' })
+  expect(await textOf(ui, 'pick:*auto')).toBe('▸ 自动路由  交给主会话挑代理')
+  await ui.input({ key: 'agent', text: '' })
+  await ui.input({ key: 'task', text: '帮我画个页面' })
+  await settle()
+  expect(submitted).toEqual([{ text: '帮我画个页面\n\n请在后台派遣一个合适的子代理完成上面的任务；由你判断用哪个代理，并结合前面的对话编排说明后再派。', asUser: true }])
+  expect(toasts).toContain('已交给主会话派发（由主会话挑代理）')
+  expect(spawned).toEqual([])
+  expect(completes).toEqual([])
+})
+
+test('通用 派发方式 switches the mode and persists; 路由 notes its rules apply only to 直接派', async ($, on) => {
+  const { store, spawned, submitted, settle } = world(on)
+  await $.command.run({ command: 's', args: 'set', ...RUN })
+  const ui = await $.ui.mount(SET_PANE)
+  expect(await textOf(ui, 'field:dispatchMode')).toBe('派发方式：直接派 ▾')
+  await ui.press({ key: 'tab:route' })
+  expect(await ui.find({ type: 'Text', text: /只在「直接派」时生效/ })).toBeUndefined()
+  await ui.press({ key: 'tab:general' })
+  await choose(ui, 'dispatchMode', 'main')
+  expect((store.config as any).dispatchMode).toBe('main')
+  expect(await textOf(ui, 'field:dispatchMode')).toBe('派发方式：交给主会话 ▾')
+  expect(await ui.find({ type: 'Text', text: /交给主会话：主会话结合对话/ })).toBeDefined()
+  await ui.press({ key: 'tab:route' })
+  expect(await ui.find({ type: 'Text', text: /只在「直接派」时生效/ })).toBeDefined()
+  await $.command.run({ command: 's', args: 'worker fix it', ...RUN })
+  await settle()
+  expect(submitted.length).toBe(1)
+  expect(spawned).toEqual([])
+})
 
 test('/s Worker <task> spawns worker by exact name and routes the answer back', async ($, on) => {
   const { spawned, toasts } = world(on)
