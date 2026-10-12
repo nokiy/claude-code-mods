@@ -22,6 +22,11 @@ export function isListed(name: string): boolean {
 /** First tokens that open the settings pane and never name an agent; `set` is the one shown. */
 export const RESERVED: readonly string[] = ['set', 'setting', 'settings']
 
+/** One of this plugin's own agents (quick, effort clones): hidden from the model, so only $.agent.spawn can start it. */
+export function isOwnAgent(name: string): boolean {
+  return name.startsWith('s-dispatch:')
+}
+
 /** An effort clone this plugin registers (`s-dispatch:worker-high`): hidden from model and picker. */
 export function isClone(name: string): boolean {
   return /^s-dispatch:.+-(low|medium|high|xhigh|max)$/.test(name)

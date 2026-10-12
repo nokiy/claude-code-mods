@@ -42,6 +42,7 @@ import {
   imageFile,
   imageRoots,
   isClone,
+  isOwnAgent,
   isListed,
   keywordRoute,
   mergeRoster,
@@ -386,6 +387,24 @@ async function handOff(
   const head = `已交给主会话派发 ${agent}（${routeLabel(via)}）`
   const text = [head, extra, imaged.note, effort].filter(line => line !== '').join('\n')
   return hidden ? { text, context: [hint] } : { text }
+}
+
+/**
+ * The last step for a routed task: main mode hands it off (`hidden`: the hint as command context), direct
+ * mode spawns. This plugin's own agents are hidden from the main session, so they are spawned in either mode.
+ */
+async function send(
+  $: EngineInterface,
+  cfg: SDispatchConfig,
+  via: Route,
+  task: string,
+  count: number,
+  extra: string,
+  hidden: boolean,
+): Promise<{ text: string; context?: string[] }> {
+  if (cfg.dispatchMode === 'main' && !isOwnAgent(via.agent)) return handOff($, via, task, count, extra, hidden)
+  const said = await dispatch($, via.agent, task, count, via, extra)
+  return { text: cfg.dispatchMode === 'main' ? `${said}\n${via.agent} 只能由插件直接派` : said }
 }
 
 /**
@@ -936,8 +955,7 @@ export const register: Register = (on, given) => {
     if (plan.action === 'dispatch' || plan.action === 'route') {
       // Routed first either way; only the last step differs by mode.
       const via: Route = plan.action === 'dispatch' ? { agent: plan.agent, via: 'named' } : await route($, plan.task, cfg, agents)
-      if (cfg.dispatchMode === 'main') return handOff($, via, plan.task, plan.count, plan.note, true)
-      return { text: await dispatch($, via.agent, plan.task, plan.count, via, plan.note) }
+      return send($, cfg, via, plan.task, plan.count, plan.note, true)
     }
     await update($, picked, () => plan.picked)
     // `/s u`: the 代理 field shows what was typed, the ring starts in 任务 (its autoFocus).
@@ -996,10 +1014,7 @@ export const register: Register = (on, given) => {
       }
       // 自动路由: the route rules pick, and the result line says why (keyword/model/default).
       const via: Route = agent === AUTO ? await route($, counted.task, current, all) : { agent, via: 'named' }
-      const said =
-        current.dispatchMode === 'main'
-          ? (await handOff($, via, counted.task, counted.count, counted.note, false)).text
-          : await dispatch($, via.agent, counted.task, counted.count, via, counted.note)
+      const said = (await send($, current, via, counted.task, counted.count, counted.note, false)).text
       await update($, note, () => '')
       await update($, picked, () => '')
       await update($, query, () => '')
