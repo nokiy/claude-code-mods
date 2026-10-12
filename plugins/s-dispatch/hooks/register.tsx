@@ -1,8 +1,8 @@
 // /s: get any subagent dispatched in the background, pick from a pane, and edit the settings (/s set).
-// Two modes (通用 → 派发方式): `main` (default) hands the task to the main session as the person's
-// prompt with a one-line hint (/s: hidden command context ahead of it; picker: a line under it), so it writes the brief from the conversation, picks the agent for
-// a bare task (no routing here) and is woken when it ends; `direct` routes a bare task and spawns
-// itself, tracking jobs. A pasted [Image #N] goes out as the path of the file Claude Code saved for
+// A bare task is routed first in either mode (通用 → 派发方式); only the last step differs. `main`
+// (default) hands the task to the main session as the person's prompt, naming the agent in a one-line
+// hint (/s: hidden command context ahead of it; picker: a line under it), so it writes the brief from
+// the conversation and is woken when it ends; `direct` spawns itself, tracking jobs. A pasted [Image #N] goes out as the path of the file Claude Code saved for
 // it. Every function taking `$` lives in this
 // file (the engine follows `$` only into functions declared here); as are the
 // state atoms and pane ids the scan reads; pure rules are in hooks/logic.ts and hooks/config.ts, drawing data in hooks/view.ts.
@@ -370,19 +370,20 @@ async function submitToMain($: EngineInterface, text: string): Promise<void> {
  */
 async function handOff(
   $: EngineInterface,
-  agent: string | undefined,
+  via: Route,
   task: string,
   count: number,
   extra: string,
   hidden: boolean,
 ): Promise<{ text: string; context?: string[] }> {
   const cfg = await read($, config)
+  const agent = via.agent
   const imaged = await taskWithImages($, task)
-  const hint = handOffHint(agent, count, agent === undefined ? undefined : cfg.prompts[agent], hidden)
+  const hint = handOffHint(agent, count, cfg.prompts[agent], hidden)
   // Past this hook: a command.run hook's own submit would wait on the turn the hook holds (the host refuses it).
   $.clock.after(0, () => void submitToMain($, hidden ? imaged.text : `${imaged.text}\n\n${hint}`))
-  const effort = agent !== undefined && count > 1 && cfg.extraEffort[agent] !== undefined ? '额外档位只在直接派时生效' : ''
-  const head = `已交给主会话派发${agent === undefined ? '（由主会话挑代理）' : ` ${agent}`}`
+  const effort = count > 1 && cfg.extraEffort[agent] !== undefined ? '额外档位只在直接派时生效' : ''
+  const head = `已交给主会话派发 ${agent}（${routeLabel(via)}）`
   const text = [head, extra, imaged.note, effort].filter(line => line !== '').join('\n')
   return hidden ? { text, context: [hint] } : { text }
 }
@@ -756,7 +757,6 @@ async function settingsTree($: EngineInterface, e: RenderInput<'Pane', 'terminal
 
   const routeTab = (
     <Box flexDirection="column">
-      {cfg.dispatchMode === 'main' && <Text dimColor>  派发方式是「交给主会话」：主会话自己挑代理，这里的路由只在「直接派」时生效。</Text>}
       {enumRow('routeMode', 'routeMode', '路由模式', cfg.routeMode, v => save(c => ({ ...c, routeMode: v as SDispatchConfig['routeMode'] })))}
       {(cfg.routeMode === 'model' || cfg.routeMode === 'hybrid') &&
         enumRow('routeEffort', 'routeEffort', '路由模型档位', cfg.routeEffort, v => save(c => ({ ...c, routeEffort: v as SDispatchConfig['routeEffort'] })))}
@@ -933,14 +933,11 @@ export const register: Register = (on, given) => {
     const { agents, cfg } = await loadRoster($, await loadConfig($))
     const plan = planCommand(e.args, agents, cfg)
     if (plan.action === 'settings') return { text: await openSettings($, cmd) }
-    // 交给主会话: a named agent goes as named, a bare task unrouted (the main session picks).
-    if ((plan.action === 'dispatch' || plan.action === 'route') && cfg.dispatchMode === 'main') {
-      return handOff($, plan.action === 'dispatch' ? plan.agent : undefined, plan.task, plan.count, plan.note, true)
-    }
-    if (plan.action === 'dispatch') return { text: await dispatch($, plan.agent, plan.task, plan.count, { agent: plan.agent, via: 'named' }, plan.note) }
-    if (plan.action === 'route') {
-      const chosen = await route($, plan.task, cfg, agents)
-      return { text: await dispatch($, chosen.agent, plan.task, plan.count, chosen, plan.note) }
+    if (plan.action === 'dispatch' || plan.action === 'route') {
+      // Routed first either way; only the last step differs by mode.
+      const via: Route = plan.action === 'dispatch' ? { agent: plan.agent, via: 'named' } : await route($, plan.task, cfg, agents)
+      if (cfg.dispatchMode === 'main') return handOff($, via, plan.task, plan.count, plan.note, true)
+      return { text: await dispatch($, via.agent, plan.task, plan.count, via, plan.note) }
     }
     await update($, picked, () => plan.picked)
     // `/s u`: the 代理 field shows what was typed, the ring starts in 任务 (its autoFocus).
@@ -997,15 +994,12 @@ export const register: Register = (on, given) => {
         await update($, note, () => (agent === '' ? '先选一个代理。' : '写一下任务。'))
         return
       }
-      let said: string
-      if (current.dispatchMode === 'main') {
-        // 交给主会话: 自动路由 runs no rules; the main session picks the agent.
-        said = (await handOff($, agent === AUTO ? undefined : agent, counted.task, counted.count, counted.note, false)).text
-      } else {
-        // 自动路由: the route rules pick, and the result line says why (keyword/model/default).
-        const via: Route = agent === AUTO ? await route($, counted.task, current, all) : { agent, via: 'named' }
-        said = await dispatch($, via.agent, counted.task, counted.count, via, counted.note)
-      }
+      // 自动路由: the route rules pick, and the result line says why (keyword/model/default).
+      const via: Route = agent === AUTO ? await route($, counted.task, current, all) : { agent, via: 'named' }
+      const said =
+        current.dispatchMode === 'main'
+          ? (await handOff($, via, counted.task, counted.count, counted.note, false)).text
+          : await dispatch($, via.agent, counted.task, counted.count, via, counted.note)
       await update($, note, () => '')
       await update($, picked, () => '')
       await update($, query, () => '')
@@ -1036,7 +1030,7 @@ export const register: Register = (on, given) => {
         <Button key={`pick:${AUTO}`} plain onPress={() => pick(AUTO)}>
           {marked === AUTO ? <Text color={ACCENT} bold>▸ </Text> : '  '}
           <Text color={ACCENT} bold>自动路由</Text>
-          <Text dimColor>{cfg.dispatchMode === 'main' ? '  交给主会话挑代理' : '  按路由规则自动挑代理'}</Text>
+          <Text dimColor>  按路由规则自动挑代理</Text>
         </Button>
         {visible.length === 0 && <Text dimColor>没有可见的代理（/{cmd} set → 代理）。</Text>}
         {visible.length > 0 && rows.length === 0 && <Text dimColor>没有匹配的代理</Text>}

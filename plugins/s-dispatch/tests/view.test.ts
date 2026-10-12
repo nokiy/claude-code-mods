@@ -130,6 +130,6 @@ test('renameNote and draftHome', () => {
 
 test('dispatchMode chips: 交给主会话 / 直接派, each explained', () => {
   expect(chipOptions('dispatchMode', 'main').map(c => c.label)).toEqual(['交给主会话', '直接派'])
-  expect(chipHint('dispatchMode', 'main')).toMatch(/^交给主会话：.*不走路由$/)
+  expect(chipHint('dispatchMode', 'main')).toMatch(/^交给主会话：路由选定代理后/)
   expect(chipHint('dispatchMode', 'direct')).toMatch(/^直接派：.*路由/)
 })

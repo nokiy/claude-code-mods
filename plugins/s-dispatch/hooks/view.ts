@@ -126,7 +126,7 @@ export function chipOptions(field: ChipField, current: string | undefined): Chip
 const EXPLAIN: Record<ChipField, Record<string, string>> = {
   ttl: { '5m': '便宜但易过期', '1h': '适合长任务' },
   dispatchMode: {
-    main: '主会话结合对话写说明、挑代理并派发，完成时叫醒它；不走路由',
+    main: '路由选定代理后交给主会话，它结合对话写说明并派发，完成时叫醒它',
     direct: '插件按路由规则直接派，子代理看不到对话，完成后结果追加到会话',
   },
   quickModel: { haiku: '最快最省，适合简单活', sonnet: '均衡，多数任务够用', opus: '最强也最贵，适合难题', inherit: '跟随主会话的模型' },
