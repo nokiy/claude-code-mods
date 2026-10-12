@@ -3,3 +3,4 @@
 plugins/agent-monitor/hooks/register.tsx
 plugins/paste-peek/hooks/register.tsx
 plugins/pr-hint/hooks/register.tsx
+plugins/s-dispatch/hooks/register.tsx

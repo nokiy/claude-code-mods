@@ -1,0 +1,28 @@
+{
+  "name": "s-dispatch",
+  "version": "0.3.0",
+  "description": "/s [agent|alias] <task> [xN]: dispatch any subagent in the background, route bare tasks by keyword or haiku; /s picks, /s set edits settings",
+  "author": {
+    "name": "nokiy",
+    "url": "https://github.com/nokiy"
+  },
+  "homepage": "https://github.com/nokiy/claude-code-mods/tree/main/plugins/s-dispatch",
+  "repository": "https://github.com/nokiy/claude-code-mods",
+  "license": "MIT",
+  "keywords": [
+    "subagents",
+    "dispatch",
+    "background",
+    "router",
+    "mod"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "commandName": {
+      "type": "string",
+      "title": "Command name",
+      "description": "Slash command name for s-dispatch (default s); /s set can override it",
+      "default": "s"
+    }
+  }
+}
