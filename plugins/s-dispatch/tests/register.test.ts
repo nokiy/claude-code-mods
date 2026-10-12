@@ -11,13 +11,15 @@ const FILES: Record<string, string> = {
 }
 const SETTINGS = '{\n  "model": "opus",\n  "subagentPromptCacheTtl": "1h"\n}\n'
 const USAGE = { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
+const IMAGES = '/tmp/claude-501/-Users-me-proj/sess-1/images'
+const RUN_OUT = { stderr: '', exitCode: 0, isStdoutTruncated: false, isStderrTruncated: false }
 
 type Spawned = { subagentType: string; prompt: string; description: string }
 
 /** Bottoms for everything /s reaches beneath the plugin; returns what it captured. */
 function world(
   on: On,
-  opts: { store?: Record<string, unknown>; router?: string; refuse?: string; denySpawn?: RegExp; config?: 'ok' | 'deny'; provider?: string } = {},
+  opts: { store?: Record<string, unknown>; router?: string; refuse?: string; denySpawn?: RegExp; config?: 'ok' | 'deny'; provider?: string; images?: number[] } = {},
 ) {
   const spawned: Spawned[] = []
   const toasts: string[] = []
@@ -61,7 +63,18 @@ function world(
   const completes: { effort?: string; maxTokens?: number }[] = []
   on('model.complete', async (_$, e) => (completes.push({ effort: e.effort, maxTokens: e.maxTokens }), { value: { isAnswered: true, text: opts.router ?? 'nobody', usage: USAGE } }) as any)
   on('env.get', async (_$, e) => ({ value: e.name === 'CLAUDE_CODE_SUBAGENT_MODEL' ? 'sonnet' : undefined }) as any)
-  on('fs.list', async () => ({ value: Object.keys(FILES).map(name => ({ name, kind: 'file', size: 1, mtimeMs: 0, isLink: false })) }) as any)
+  // Claude Code's saved pictures: `opts.images` are the N.png files in this session's images dir.
+  // Every call of the image lookup lands in `probes`, so a dispatch without placeholders can prove it made none.
+  const probes: string[] = []
+  const saved = new Set([IMAGES, ...(opts.images ?? []).map(n => `${IMAGES}/${n}.png`)])
+  on('session.id', async () => (probes.push('session.id'), { value: 'sess-1' }) as any)
+  on('process.run', async (_$, e) => (probes.push(`process.run ${e.argv.join(' ')}`), { value: { ...RUN_OUT, stdout: e.argv[0] === 'id' ? '501\n' : '' } }) as any)
+  on('fs.exists', async (_$, e) => (probes.push(`fs.exists ${e.path}`), { value: saved.has(e.path) }) as any)
+  on('fs.list', async (_$, e) => {
+    if (!e.path.startsWith('/tmp')) return { value: Object.keys(FILES).map(name => ({ name, kind: 'file', size: 1, mtimeMs: 0, isLink: false })) } as any
+    probes.push(`fs.list ${e.path}`)
+    return { value: e.path === '/tmp/claude-501' ? [{ name: '-Users-me-proj', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }] : [] } as any
+  })
   on('fs.read', async (_$, e) => {
     if (e.path.endsWith('/settings.json')) return { value: writes.at(-1)?.text ?? SETTINGS } as any
     const text = FILES[e.path.split('/').pop() ?? '']
@@ -75,7 +88,7 @@ function world(
   on('turn.complete', async () => ({ text: '' }))
   on('session.start', async (_$, e) => e as any)
   on('command.run', async () => ({ text: 'engine' }))
-  return { spawned, toasts, opened, commands, agents, writes, store, focused, closed, configSets, completes }
+  return { spawned, toasts, opened, commands, agents, writes, store, focused, closed, configSets, completes, probes }
 }
 
 test('/s Worker <task> spawns worker by exact name and routes the answer back', async ($, on) => {
@@ -656,4 +669,26 @@ test('a stored routeEffort medium reaches the router; the row shows only for 仅
   expect((store.config as any).routeEffort).toBe('high')
   await choose(ui, 'routeMode', 'keyword')
   expect(await ui.find({ key: 'field:routeEffort' })).toBeUndefined()
+})
+
+test('[Image #N] reaches the prompt as its saved file plus a Read line; a missing one is noted; description and Task stay raw', async ($, on) => {
+  const { spawned, probes } = world(on, { images: [1] })
+  const session = mock.session(on)
+  const task = '看 [Image #1] 和 [Image #4] 再看 [Image #1]'
+  const ran = await $.command.run({ command: 's', args: `ui ${task}`, ...RUN })
+  expect(ran.text).toBe('已派发 ui（指定）\na1\n[Image #4] 没找到图片文件，子代理看不到这张图')
+  const file = `${IMAGES}/1.png`
+  expect(spawned[0]?.prompt).toBe(`看 [Image #1: ${file}] 和 [Image #4] 再看 [Image #1: ${file}]\n\n用 Read 工具打开上面的图片路径查看图片。`)
+  expect(spawned[0]?.description).toBe(task)
+  expect(probes).toContain(`fs.exists ${IMAGES}/4.png`)
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 't', agentId: 'a1', reason: 'aborted' })
+  expect(JSON.stringify(session.appended()[0]?.message.content)).toContain(`Task: ${task}`)
+})
+
+test('a task without [Image #N] goes out as typed and never looks for images', async ($, on) => {
+  const { spawned, probes } = world(on, { images: [1] })
+  const ran = await $.command.run({ command: 's', args: 'ui draw the login page', ...RUN })
+  expect(ran.text).toBe('已派发 ui（指定）\na1')
+  expect(spawned[0]?.prompt).toBe('draw the login page')
+  expect(probes).toEqual([])
 })

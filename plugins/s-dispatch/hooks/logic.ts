@@ -1,5 +1,5 @@
 // Pure helpers for /s: argument grammar, agent resolution, routing, roster
-// merge, spawn arguments and job settlement. No `$` here, so every rule is testable.
+// merge, spawn arguments, pasted-image paths and job settlement. No `$` here, so every rule is testable.
 
 import type { SDispatchAgent, SDispatchConfig, SDispatchJob, SDispatchRule } from '../types'
 
@@ -130,6 +130,42 @@ export function effortsFor(count: number, extra: string | undefined): (string | 
 export function composePrompt(extra: string | undefined, task: string): string {
   const head = (extra ?? '').trim()
   return head === '' ? task : `${head}\n\n任务：${task}`
+}
+
+const IMAGE = /\[Image #(\d+)\]/g
+
+/** Every N of `[Image #N]` in a task, unique, in order of first appearance. */
+export function placeholders(text: string): number[] {
+  return [...new Set([...text.matchAll(IMAGE)].map(m => Number(m[1])))]
+}
+
+/** Where Claude Code keeps its per-user temp: $CLAUDE_CODE_TMPDIR (itself, or its claude-<uid> child), else /tmp/claude-<uid>; no uid, no claude-<uid> root. */
+export function imageRoots(tmpDir: string | undefined, uid: string): string[] {
+  const base = tmpDir?.replace(/\/+$/, '')
+  const own = uid ? [`${base ?? '/tmp'}/claude-${uid}`] : []
+  return base ? [...own, base] : own
+}
+
+/** The saved picture of [Image #n] in a session's images dir. */
+export function imageFile(dir: string, n: number): string {
+  return `${dir}/${n}.png`
+}
+
+/**
+ * The task with each found `[Image #N]` spelled with its file plus one Read line; a missing one
+ * stays as typed and is named in `note` ('' when none is missing).
+ */
+export function withImagePaths(task: string, found: ReadonlyMap<number, string | undefined>): { text: string; note: string } {
+  const missing = [...found].filter(([, file]) => file === undefined).map(([n]) => `[Image #${n}]`)
+  const text = task.replace(IMAGE, (whole, n: string) => {
+    const file = found.get(Number(n))
+    return file === undefined ? whole : `[Image #${n}: ${file}]`
+  })
+  const isAnyFound = missing.length < found.size
+  return {
+    text: isAnyFound ? `${text}\n\n用 Read 工具打开上面的图片路径查看图片。` : text,
+    note: missing.length === 0 ? '' : `${missing.join(' ')} 没找到图片文件，子代理看不到${missing.length > 1 ? '这些图' : '这张图'}`,
+  }
 }
 
 /** One single-line field of a markdown agent file's frontmatter, unquoted; '' when absent. */

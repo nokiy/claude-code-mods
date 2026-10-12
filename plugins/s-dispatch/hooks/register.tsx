@@ -1,5 +1,6 @@
 // /s: dispatch any subagent in the background, route a bare task, pick from a
-// pane, and edit the settings (/s set). Every function taking `$` lives in this
+// pane, and edit the settings (/s set). A pasted [Image #N] reaches the subagent
+// as the path of the file Claude Code saved for it. Every function taking `$` lives in this
 // file (the engine follows `$` only into functions declared here); as are the
 // state atoms and pane ids the scan reads; pure rules are in hooks/logic.ts and hooks/config.ts, drawing data in hooks/view.ts.
 
@@ -34,18 +35,22 @@ import {
   defaultsParts,
   effortsFor,
   frontmatterField,
+  imageFile,
+  imageRoots,
   isClone,
   isListed,
   keywordRoute,
   mergeRoster,
   padCells,
   parseCount,
+  placeholders,
   planCommand,
   routeLabel,
   routePrompt,
   settleJob,
   shorten,
   spawnArgs,
+  withImagePaths,
   withOffered,
 } from './logic'
 import type { Route } from './logic'
@@ -277,12 +282,48 @@ async function effortVariant($: EngineInterface, agent: string, effort: string |
   return (await registerAgent($, spec)) ? { type: `s-dispatch:${spec.name}`, note: '' } : { type: agent, note: `${spec.name} 注册失败，按原档派发` }
 }
 
+const imageDirs = new Map<string, string>() // session id -> its images dir; only a found dir is kept
+let uid = ''
+
+/**
+ * <tmp root>/<project folder>/<session id>/images. The project folder encodes a cwd that may
+ * have moved, so scan the root's folders for the session id; undefined when not found.
+ */
+async function imagesDir($: EngineInterface): Promise<string | undefined> {
+  const session = await $.session.id().catch(() => '')
+  if (session === '' || imageDirs.has(session)) return imageDirs.get(session)
+  uid ||= await $.process.run(['id', '-u']).then(r => r.stdout.trim(), () => '')
+  for (const root of imageRoots(await $.env.get('CLAUDE_CODE_TMPDIR').catch(() => undefined), uid)) {
+    const dirs = (await $.fs.list(root).catch(() => [])).filter(d => d.kind === 'dir').map(d => `${root}/${d.name}/${session}/images`)
+    for (const dir of dirs) {
+      if (!(await $.fs.exists(dir).catch(() => false))) continue
+      imageDirs.set(session, dir)
+      return dir
+    }
+  }
+}
+
+/** The task with each pasted `[Image #N]` spelled with the file Claude Code saved; a failed lookup counts as missing. */
+async function taskWithImages($: EngineInterface, task: string): Promise<{ text: string; note: string }> {
+  const wanted = placeholders(task)
+  if (wanted.length === 0) return { text: task, note: '' } // no placeholder, no engine call
+  const dir = await imagesDir($)
+  const found = new Map<number, string | undefined>()
+  for (const n of wanted) {
+    const file = dir === undefined ? undefined : imageFile(dir, n)
+    found.set(n, file !== undefined && (await $.fs.exists(file).catch(() => false)) ? file : undefined)
+  }
+  return withImagePaths(task, found)
+}
+
 /** Spawns `count` copies in the background and remembers the jobs; answers the lines shown to the person. */
 async function dispatch($: EngineInterface, agent: string, task: string, count: number, via: Route, extra: string): Promise<string> {
   const cfg = await read($, config)
-  const prompt = composePrompt(cfg.prompts[agent], task)
+  // Routing already ran on the raw task; only the prompt sees the image paths.
+  const imaged = await taskWithImages($, task)
+  const prompt = composePrompt(cfg.prompts[agent], imaged.text)
   const started: string[] = []
-  const notes = extra === '' ? [] : [extra]
+  const notes = [extra, imaged.note].filter((line, i, all) => line !== '' && all.indexOf(line) === i)
   let effortLost = false
   for (const effort of effortsFor(count, cfg.extraEffort[agent])) {
     const variant = await effortVariant($, agent, effort, cfg)

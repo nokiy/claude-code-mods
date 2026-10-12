@@ -10,16 +10,20 @@ import {
   defaultsParts,
   effortsFor,
   frontmatterDescription,
+  imageFile,
+  imageRoots,
   isClone,
   isListed,
   keywordRoute,
   mergeRoster,
   parseCount,
+  placeholders,
   planCommand,
   resolveExact,
   routeLabel,
   settleJob,
   spawnArgs,
+  withImagePaths,
   withOffered,
 } from '../hooks/logic'
 
@@ -154,4 +158,28 @@ test('settleJob: answered, aborted, empty, error', () => {
 test('isListed hides claude and claude-code-guide only', () => {
   expect(HIDDEN_AGENTS).toEqual(['claude', 'claude-code-guide'])
   expect(['claude', 'claude-code-guide', 'ui', 'Explore'].map(isListed)).toEqual([false, false, true, true])
+})
+
+test('withImagePaths: found, missing, repeated, none', () => {
+  const P = '/tmp/claude-501/p/s/images/1.png'
+  const READ = '\n\n用 Read 工具打开上面的图片路径查看图片。'
+  const task = '看 [Image #1] 和 [Image #4] 再看 [Image #1]'
+  expect(placeholders(task)).toEqual([1, 4])
+  expect(withImagePaths(task, new Map([[1, P], [4, undefined]]))).toEqual({
+    text: `看 [Image #1: ${P}] 和 [Image #4] 再看 [Image #1: ${P}]${READ}`,
+    note: '[Image #4] 没找到图片文件，子代理看不到这张图',
+  })
+  expect(withImagePaths('[Image #2] [Image #3]', new Map([[2, undefined], [3, undefined]]))).toEqual({
+    text: '[Image #2] [Image #3]',
+    note: '[Image #2] [Image #3] 没找到图片文件，子代理看不到这些图',
+  })
+  expect(withImagePaths('draw', new Map())).toEqual({ text: 'draw', note: '' })
+  expect(imageFile('/d', 7)).toBe('/d/7.png')
+})
+
+test('imageRoots: CLAUDE_CODE_TMPDIR and its claude-<uid> child, else /tmp/claude-<uid>', () => {
+  expect(imageRoots(undefined, '501')).toEqual(['/tmp/claude-501'])
+  expect(imageRoots('/x/tmp/', '501')).toEqual(['/x/tmp/claude-501', '/x/tmp'])
+  expect(imageRoots('/x/tmp', '')).toEqual(['/x/tmp'])
+  expect(imageRoots(undefined, '')).toEqual([])
 })
