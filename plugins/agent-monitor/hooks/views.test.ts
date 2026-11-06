@@ -106,11 +106,11 @@ test('buildViews: conflicts need overlapping runs; the main loop joins while an 
   const listed = ['first', 'second', 'later'].map(id => ({ id, type: 'worker', status: id === 'first' ? 'completed' : 'running', description: 'x' }))
   const views = buildViews(recs, listed, 3000)
   const by = (id: string) => views.find(x => x.id === id)!
-  expect(by('first').clashes).toEqual([{ path: '/p/x.ts', other: 'second' }])
-  expect(by('second').clashes).toEqual([{ path: '/p/x.ts', other: 'later' }, { path: '/p/x.ts', other: 'first' }]) // views run newest first
-  expect(by('later').clashes).toEqual([{ path: '/p/x.ts', other: 'second' }])
+  expect(by('first').clashes).toMatchObject([{ path: '/p/x.ts', other: 'second' }])
+  expect(by('second').clashes).toMatchObject([{ path: '/p/x.ts', other: 'later' }, { path: '/p/x.ts', other: 'first' }]) // views run newest first
+  expect(by('later').clashes).toMatchObject([{ path: '/p/x.ts', other: 'second' }])
   const withMain = buildViews({ solo: run({ files: ['/p/y.ts'], startedAt: 1000 }) }, [{ id: 'solo', type: 'worker', status: 'running', description: 'x' }], 3000, { main: [{ path: '/p/y.ts', at: 2000 }, { path: '/p/z.ts', at: 2000 }] })
-  expect(withMain[0]!.clashes).toEqual([{ path: '/p/y.ts', other: 'main' }])
+  expect(withMain[0]!.clashes).toEqual([{ path: '/p/y.ts', other: 'main', at: 2000 }])
 })
 
 test('buildViews: stall counts only running agents and uses the setting', () => {

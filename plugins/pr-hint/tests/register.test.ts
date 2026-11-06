@@ -1,6 +1,6 @@
 // Renders PromptHint and AbovePrompt through the plugin with gh and git output mocked beneath it, on synthetic data; the location (directory, branch) and agents-pill cases live in location.test.ts.
 import { expect, mock, test } from 'claude-code/testing';
-import { BAND_PROPS, ISSUE, PR, PROPS, VIEWPORT, done, engineLines, mountBand, mountHint, quiet, reply, st, tally, wire } from './testkit';
+import { BAND_PROPS, ISSUE, PR, PROPS, VIEWPORT, done, engineLines, injectPrStats, mountBand, mountHint, quiet, reply, st, tally, wire } from './testkit';
 
 for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
   test(`PromptHint ${name}`, async ($, on) => {
@@ -66,12 +66,14 @@ for (const [name, hasPr] of [['with PR', true], ['no PR', false]] as const) {
       expect(hidden((await band.drawn()) as unknown as typeof root)).toContain('"display":"none"');
       const lines = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '');
       const idx = (re: RegExp) => lines.findIndex(l => re.test(l));
-      // Order: title, Spec, CI + PR state, ticket lines, link row (the Spec is not a ticket line).
-      expect(idx(/^PR #10 Add dark mode/)).toBeGreaterThanOrEqual(0);
-      expect(idx(/^PR #10 /)).toBeLessThan(idx(/^Spec #12 Dark mode · 深色模式贯穿设置页与编辑器 · integration branch dev ← spec\/12-dark-mode/));
-      expect(idx(/^Spec #12/)).toBeLessThan(idx(/^CI ✓1\/1 · Ready$/));
-      expect(idx(/^CI ✓1/)).toBeLessThan(idx(/^● #7 in progress Theme toggle · feat\/7-theme-toggle · 2 commits behind/));
-      expect(idx(/^● #7/)).toBeLessThan(idx(/^Open PR · fetched just now$/));
+      // Exactly two header rows (PR #n, title, bar, Tickets d/n, Spec #n; then ◐ N running), ticket lines, link row.
+      const rows = lines.filter(l => /^(PR #10 .+ Tickets|◐ \d+ running|● #\d+ |Open PR)/.test(l));
+      expect(rows).toHaveLength(4);
+      expect(rows[0]).toMatch(/^PR #10 Add dark mode █*░+ Tickets 0\/1 · Spec #12$/);
+      expect(rows[1]).toBe('◐ 1 running');
+      expect(rows[2]).toBe('● #7 running Theme toggle · feat/7-theme-toggle · 2 commits behind');
+      expect(rows[3]).toBe('Open PR · fetched just now');
+      expect(idx(/^PR #10 /)).toBeLessThan(idx(/^◐/));
       expect(lines.some(l => l.startsWith('● #12'))).toBe(false);
       await band.unmount();
     } else {
@@ -188,16 +190,57 @@ test('the 5 min tick makes one GraphQL request and flips a CLOSED ticket to acce
   await $.session.start({ cwd: '/tmp/x' } as never);
   await clock.settle();
   const band = await mountBand($);
-  expect(await band.find({ type: 'Text', text: /^● #7 in progress/ })).toBeDefined();
+  expect(await band.find({ type: 'Text', text: /^● #7 running/ })).toBeDefined();
   st.issue7 = { ...ISSUE, state: 'CLOSED' };
   await clock.advance(280_000);
   // Nothing asks gh before the 5 min mark (the 20 s ticks are local git only).
   expect(tally.gql).toBe(1);
-  expect(await band.find({ type: 'Text', text: /^● #7 in progress/ })).toBeDefined();
+  expect(await band.find({ type: 'Text', text: /^● #7 running/ })).toBeDefined();
   await clock.advance(20_000);
   expect(tally.gql).toBe(2);
   expect(tally.issues).toBe(0);
   expect(await band.find({ type: 'Text', text: /^● #7 accepted/ })).toBeDefined();
+  await band.unmount();
+});
+
+// Spec story 3: tickets fast-forward merged into the integration branch count as merged. Their branches sit inside
+// the head (`rev-list head..branch` = 0) and leave no merge commit; their headlines end in `(#N)`.
+// A ticket branch inside the head whose number no headline carries stays not started (a branch alone is no progress).
+const SEVEN = [40, 41, 42, 43, 44, 45, 46];
+for (const withHeadlines of [true, false]) {
+  test(`fast-forward merged tickets: headlines ending (#N) read Merged, Tickets 7/7 (headlines ${withHeadlines})`, async ($, on) => {
+    const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+    wire(on);
+    engineLines(on);
+    st.closing = [...SEVEN, 12];
+    st.issues = Object.fromEntries(SEVEN.map(n => [n, { number: n, title: `t${n}`, state: 'OPEN', body: '' }]));
+    st.branches = ['dev', 'spec/12-dark-mode', ...SEVEN.flatMap(n => [`feature/${n}-x`, `origin/feature/${n}-x`])].join('\n');
+    st.headlines = withHeadlines ? SEVEN.map(n => `feat(x): y (#${n})`) : ['chore: draft PR'];
+    await $.session.start({ cwd: '/tmp/x' } as never);
+    await clock.settle();
+    const band = await mountBand($);
+    const lines = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '');
+    const word = withHeadlines ? 'Merged' : 'not started';
+    for (const n of SEVEN) expect(lines.some(l => l.startsWith(`● #${n} ${word} t${n}`))).toBe(true);
+    expect(lines.some(l => /^PR #10 .+ Tickets (\d)\/7 · Spec #12$/.test(l) && l.includes(withHeadlines ? 'Tickets 7/7' : 'Tickets 0/7'))).toBe(true);
+    await band.unmount();
+  });
+}
+
+// Row 4: the bar has a fixed width and does not span the card. At 160 columns the old bar took all the title left:
+// 144 cells (156 inner − ` ↻ refresh ` − gap) − `PR #10 ` − ` Add dark mode ` − ` Tickets 0/1 · Spec #12` = 100 cells.
+// Now it is at most 2/5 of that and 32 cells, and `Tickets d/n · Spec #n` follows it directly.
+test('at 160 columns the bar is fixed (≤ 2/5 of the old 100 cells, at most 32) and Tickets · Spec follow it', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  wire(on);
+  engineLines(on);
+  await $.session.start({ cwd: '/tmp/x' } as never);
+  await clock.settle();
+  const band = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND_PROPS, bodyColumns: 160 } as never });
+  const head = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '').find(l => l.startsWith('PR #10 ')) ?? '';
+  const m = /^PR #10 Add dark mode ([█░]+) Tickets 0\/1 · Spec #12$/u.exec(head);
+  expect(m).not.toBeNull();
+  expect(m![1]!.length).toBeLessThanOrEqual(32);
   await band.unmount();
 });
 
@@ -235,6 +278,29 @@ for (const pin of [false, true]) {
   });
 }
 
+test("the card reads agent-monitor's prStats: absent, line 2 is ◐ N running alone; present, it gains cost and refusals", async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+  wire(on);
+  engineLines(on);
+  const stats = injectPrStats(on);
+  await $.session.start({ cwd: '/tmp/x' } as never);
+  await clock.settle();
+  const draw = async () => {
+    const band = await mountBand($);
+    const lines = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '');
+    await band.unmount();
+    return lines;
+  };
+  const absent = await draw();
+  expect(stats.reads).toBeGreaterThan(0);
+  expect(absent.filter(l => /^◐ \d+ running$/.test(l))).toHaveLength(1);
+  const seen = stats.reads;
+  stats.value = { '10': { tokens: 86_200, cost: 1.25, ms: 754_000, refusals: 2 } };
+  const present = await draw();
+  expect(stats.reads).toBeGreaterThan(seen);
+  expect(present.filter(l => /^◐ \d+ running · ≈\$1\.25 · 86\.2k tokens · 12m34s \(subagents only\) · blocked ×2$/.test(l))).toHaveLength(1);
+});
+
 test('with a PR and an empty rest of the chain, the band shows the card alone', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
   wire(on);
@@ -259,10 +325,36 @@ test('a PR GitHub links no issue to (non-default base) reads its Closes #N issue
   expect(tally.gql).toBe(1);
   expect(tally.issues).toBe(1);
   const band = await $.ui.mount({ plugin: 'pr-hint', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS });
-  expect(await band.find({ type: 'Text', text: /^● #7 in progress Theme toggle/ })).toBeDefined();
-  expect(await band.find({ type: 'Text', text: /^Spec #12 / })).toBeDefined();
+  expect(await band.find({ type: 'Text', text: /^● #7 running Theme toggle/ })).toBeDefined();
+  expect(await band.find({ type: 'Text', text: /^PR #10 .+ · Spec #12$/ })).toBeDefined();
   await band.unmount();
 });
+
+// The card header reads the same for a Draft and a Ready PR, in either language: no state word, no percent;
+// ticket status words stay English.
+for (const lang of ['en', 'zh'] as const) {
+  for (const isDraft of [true, false]) {
+    test(`card header: no Draft / Ready, no %, English status words (${lang}, draft ${isDraft})`, { options: { language: lang } }, async ($, on) => {
+      const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });
+      wire(on);
+      engineLines(on);
+      PR.isDraft = isDraft;
+      try {
+        await $.session.start({ cwd: '/tmp/x' } as never);
+        await clock.settle();
+        const band = await mountBand($);
+        const lines = (await band.findAll({ type: 'Text' })).map(x => x.text ?? '');
+        const head = lines.filter(l => /^(PR #10 .+ Tickets|◐ \d+ running)/.test(l));
+        expect(head).toHaveLength(2);
+        expect(head.join('\n')).not.toMatch(/Draft|Ready|%/);
+        expect(lines).toContain('● #7 running Theme toggle · feat/7-theme-toggle · ' + (lang === 'zh' ? '还差 2 个提交' : '2 commits behind'));
+        await band.unmount();
+      } finally {
+        PR.isDraft = false;
+      }
+    });
+  }
+}
 
 test('two session.start events leave one timer per tier', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-01-10T11:00:00Z') });

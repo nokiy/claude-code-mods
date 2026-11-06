@@ -75,31 +75,19 @@
     "colTier": {
       "type": "boolean",
       "title": "Column: Tier",
-      "description": "Show the Tier column (model.effort) in the history table",
-      "default": true
-    },
-    "colEdits": {
-      "type": "boolean",
-      "title": "Column: Edits",
-      "description": "Show the Edits column (files the agent edited) in the history table",
-      "default": true
-    },
-    "colRounds": {
-      "type": "boolean",
-      "title": "Column: Rounds",
-      "description": "Show the Rounds column in the history table",
+      "description": "Show the tier column (model.effort) in the finished table",
       "default": true
     },
     "colTokens": {
       "type": "boolean",
-      "title": "Column: Tokens",
-      "description": "Show the Tokens column in the history table",
+      "title": "Column: Cost",
+      "description": "Show the cost column (ctx% · tokens · $) in the finished table",
       "default": true
     },
     "colTime": {
       "type": "boolean",
       "title": "Column: Time",
-      "description": "Show the Time column in the history table",
+      "description": "Show the time column (m:ss) in the finished table",
       "default": true
     },
     "prices": {
@@ -110,8 +98,8 @@
     },
     "colAlerts": {
       "type": "boolean",
-      "title": "Column: Alerts",
-      "description": "Show the Alerts glyph column in the history table and at the end of the live rows",
+      "title": "Alert mark",
+      "description": "End a row with a red ! when its subagent has an alert, in the panel and on the live rows",
       "default": true
     }
   }

@@ -1,6 +1,6 @@
 # pr-hint
 
-把当前分支的 PR 直接显示在输入框下方的提示行上，悬停提示行即可预览一张卡片（点 `PR #N` 前面的 `▸` 固定），显示 Spec、集成分支，以及每张 ticket 的进度。
+把当前分支的 PR 直接显示在输入框下方的提示行上，悬停提示行即可预览一张卡片（点 `PR #N` 前面的 `▸` 固定），显示交付进度（进度条、`Tickets d/n`、Spec）以及每张 ticket 的状态。
 
 [English](README.md)
 
@@ -20,24 +20,23 @@
 
 ```
 ╭──────────────────────────────────────────────────────────────────────────╮
-│ PR #15 添加深色模式——设置页与编辑器                               ↻ 刷新 │
-│ Spec #12 深色模式 · 集成分支 dev ← spec/12-dark-mode                     │
-│ CI ✓3/3 · Ready                                                          │
-│ ● #14 进行中 主题开关 · feat/14-theme-toggle · 还差 2 个提交             │
-│ ● #16 未开始 保存设置                                                    │
-│ ● #13 已合入 颜色命名 · feat/13-color-names                               │
-│ ● #11 已验收 深色调色板                                                  │
+│ PR #15 添加深色模式 ██████████░░░░░░░░░░ Tickets 2/4 · Spec #12  ↻ 刷新  │
+│ ◐ 1 running                                                              │
+│ ● #14 running 主题开关 · feat/14-theme-toggle · 还差 2 个提交            │
+│ ● #16 not started 保存设置                                               │
+│ ● #13 Merged 颜色命名 · feat/13-color-names                              │
+│ ● #11 accepted 深色调色板                                                │
 │ 打开 PR · 拉取于 2 分钟前                                                │
 ╰──────────────────────────────────────────────────────────────────────────╯
 ```
 
-自上而下：PR 标题、Spec 与集成分支（`base ← head`；没有 Spec 时，单张 ticket 顶替 Spec 显示为 `Ticket #N · 标题`，多张 ticket 只显示分支）、CI 与 PR 状态、每张 ticket 一行（一张不漏）、PR 链接，以及 pr-hint 上次从 GitHub 拉取的时间（`拉取于`，页脚只留这一个时间）。卡片右上角的 `↻ 刷新` 按钮可手动刷新（见「刷新」）。ticket 按 进行中、未开始、已合入、已验收 排序。ticket 标题开头的 `[mod]` 范围标签（如 `[pr-hint] 编辑表单`）在卡片上不显示。CI 后面的 `↻N` 是还在运行的检查数。
+自上而下：两行头部、每张 ticket 一行（一张不漏）、PR 链接，以及 pr-hint 上次从 GitHub 拉取的时间（`拉取于`，页脚只留这一个时间）。头部第一行是 `PR #N`、PR 标题原文（放不下用 `…` 截断）、20 格宽的进度条（卡片窄时才缩，最少 10 格），紧跟其后的 `Tickets d/n`（`d` 是 Merged 或 accepted 的票数），PR 有 Spec 时再加 `Spec #N`；不显示 PR 状态词，也不显示百分比。第二行是进行中的票数：`◐ N running`。同时装了 [agent-monitor](../agent-monitor) 时，后面接上这个 PR 的子代理消耗 `≈$1.25 · 86.2k tokens · 12m34s (仅子代理)`（不含主会话；价格未知时不显示 `≈$`），hook 拒绝过它们的工具调用时再加 `拦截 ×N`；没装 agent-monitor，或它还没见过这个 PR 的子代理时，这一行只有 `◐ N running`。卡片右上角的 `↻ 刷新` 按钮可手动刷新（见「刷新」）。ticket 状态词中英文界面都用英文：`not started`、`running`、`Merged`、`accepted`。ticket 按 running、not started、Merged、accepted 排序。ticket 标题开头的 `[mod]` 范围标签（如 `[pr-hint] 编辑表单`）在卡片上不显示。
 
 显示的 PR 始终属于会话所在的位置：**仓库根目录加分支**。在同一仓库内 `cd` 进子目录不受影响；`cd` 到别的仓库、`git checkout` 到别的分支，或在别处 `/clear`，旧 PR 立即隐藏并改读新位置的 PR（见「刷新」）。只认头分支在本仓库的 PR，同名分支的 fork PR 会被忽略。没有 PR，或只有已关闭（未合并）的 PR 时，面板和提示行保持 Claude Code 原样，唯独出现「← N agents」时例外：该标记被去掉，当帧提示行由文本重绘（有 PR 时是为腾位置而隐藏）。
 
 ## Spec 与 ticket
 
-读取 PR 会关闭的 issue（GitHub 关联到它的那些，没有则取 PR 描述里的 `Closes #N`）。带 `spec` 标签的是 **Spec**，单独一行显示，不算 ticket；其余都是 **ticket**。
+读取 PR 会关闭的 issue（GitHub 关联到它的那些，没有则取 PR 描述里的 `Closes #N`）。带 `spec` 标签的是 **Spec**，票号显示在卡片第一行末尾，不算 ticket；其余都是 **ticket**。
 
 ## ticket 状态怎么判定
 
@@ -45,10 +44,10 @@
 
 | 状态 | 规则 |
 | --- | --- |
-| 已验收（绿点） | issue 已关闭，或其验收表（表头含 `State` 与 `Rounds`）全部为 ✓ |
-| 进行中 | 该 ticket 的某个分支（`*/<N>-*` 或 `<N>-*`）就是 PR 的 head，或领先于它 |
-| 已合入 | PR 里有提交标题点名该 ticket：`<type>(#N): …`、`<type>（<scope>）：… #N`（票号在标题末尾），或点名 `/N-` 分支的 `Merge …` 标题。仅分支已合入不算，`chore: 吸收 #N` 这类顺带提及也不算 |
-| 未开始 | 以上都不是 |
+| accepted（绿点） | issue 已关闭，或其验收表（表头含 `State` 与 `Rounds`）全部为 ✓ |
+| running | 该 ticket 的某个分支（`*/<N>-*` 或 `<N>-*`）就是 PR 的 head，或领先于它 |
+| Merged | PR 里有提交标题点名该 ticket：`<type>(#N): …`、`<type>(<scope>): … (#N)`（快进合入只留下这种标题）、`<type>（<scope>）：… #N`（票号在标题末尾），或点名 `/N-` 分支的 `Merge …` 标题。仅分支已合入不算，`chore: 吸收 #N` 这类顺带提及也不算 |
+| not started | 以上都不是 |
 
 ticket 状态只给卡片上它自己那一行上色，提示行不再计数。`还差 N 个提交` 表示该 ticket 的分支比 PR head 多出的提交数。
 

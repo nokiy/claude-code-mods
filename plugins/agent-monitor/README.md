@@ -1,6 +1,6 @@
 # agent-monitor
 
-See what your Claude Code subagents are doing: a live band above the prompt while they run, and a `/sub` panel with this session's subagent history, alerts, a detail page per agent and a cost estimate.
+See what your Claude Code subagents are doing: a live band above the prompt while they run, and a `/sub` panel with this project's subagent history, alerts, a detail page per agent and a cost estimate.
 
 [中文说明](README.zh-CN.md)
 
@@ -8,14 +8,17 @@ See what your Claude Code subagents are doing: a live band above the prompt whil
 
 ## What it does
 
-- **Live band** — one row per running subagent above the prompt: type, model and effort, task, current activity, tokens, elapsed time, alert glyphs.
-- **`/sub` history** — a table of every subagent this session (newest first): `#`, status, type, tier (model.effort), task, edits, rounds, tokens, time, alerts. Running agents carry their current activity on a second line. Pick a row with ↑/↓.
-- **Detail page** — Enter on a row opens it: instruction, timeline, tokens (cache hit / miss / output) with an **estimated cost**, edited files with `+/−` line counts, tool counts, skills, recent actions, alerts and the result. `b` goes back.
-- **Alerts** — shown as glyphs in the table and as sentences above it:
-  - `!` **file conflict** — two agents (or an agent and the main loop) edited the same file while both were running.
-  - `~` **stall** — a running agent has had no step or tool call for the threshold (amber at the threshold, red at twice it); the toast fires once per agent.
-  - `≠` **tier mismatch** — the model or effort an agent actually ran differs from its description prefix (see below).
-  - `×N` **denied calls** — N tool calls were refused by a hook or errored, with the reasons.
+- **Live band** — one row per running subagent above the prompt: type, model and effort, task, current activity, then `ctx% · tokens · $ · m:ss` and a red `!` when it has an alert.
+- **`/sub` history** — every subagent of this project, earlier sessions included: it is read from the transcripts Claude Code keeps under `~/.claude/projects/`, so it survives `/clear` and a new session (newest first). Running agents come first, three lines each: the description with its tier prefix (`op.med · task`); `type · model · effort` with `≠ wanted <tier>` on a mismatch, then the current activity (cut, not scrolled); a context-fill bar and `ctx% · tokens · $ · m:ss`. Finished agents form a dense aligned table `# desc type tier cost time`, where `#` is the status glyph and cost is `ctx% · tokens · $` (`41% · 86.2k · $0.42`). Pick a row with ↑/↓.
+- **PR mode and Agent mode** — `/sub` opens in PR mode: under a `Title` column, one group per PR, with agent count, tokens, cost, wall time and the PR state in pr-hint's words and colors (Draft yellow / Ready magenta / Merged green), the current branch's PR on top and open (shown even before it has agents); Enter on a group opens or closes it. Agents that belong to no PR land in a dimmed `Other` group. An agent belongs to a PR by the first `#N` in its description (`op.med · #42 …`): the PR numbered N, or the PR whose body says `Closes #N`. Without one, by the branch it started on (the first line of its transcript): a ticket branch `<prefix>/<N>-<slug>` the same way, a PR's own head branch (a `spec/` integration branch) to that PR; `dev`, `main` and other branches to `Other`. A release PR from `dev` or `main` never owns an agent. The PR list comes from `gh pr list` (recent open and merged PRs, refreshed every 5 minutes; a failed fetch keeps the last list), so PR mode needs the GitHub CLI signed in. The header's `p: PR  a: Agent` switches: press `p` or `a`, or click one (Tab moves between buttons and does not switch); Agent mode is the flat list. Either way each agent is drawn in its row format above.
+- **Per-PR totals for other mods** — for every PR with subagents it publishes their tokens, estimated cost, wall time (agents that ran at once count once) and hook refusals (tool calls a hook refused; a failed command is no refusal); the main session is never counted. [pr-hint](../pr-hint) shows them on its PR card. agent-monitor reads nothing from other mods and works the same without them.
+- **Detail page** — Enter on a row opens it, read as a timeline: instruction; steps (status, start → end, then the latest actions); edited files with `+/−` line counts; the agent's alerts with their times and causes. Tokens (cache hit / miss / output) with an **estimated cost**, tool counts, skills and the result follow. A clean agent has no Alerts section. `b` goes back.
+- **Alerts** — a red `!` ends the row of an agent with any alert. Above the table, an alert timeline (oldest first, the newest four shown) gives each alert's time, glyph and real cause:
+  - `!` **file conflict** — two agents (or an agent and the main loop) edited the same file while both were running; the line names both and the path.
+  - `~` **stall** — a running agent has had no step or tool call for the threshold (amber at the threshold, red at twice it); the line names the tool that has not returned. The toast fires once per agent.
+  - `≠` **tier mismatch** — the model or effort an agent actually ran differs from its description prefix (see below); the line gives the tier asked for and the tier run.
+  - `×` **denied** — tool calls a hook refused: one line per distinct reason, with its text and `×N`.
+  - `✗` **error** (amber) — tool calls that ran and returned an error (`Exit code 1`): one line per distinct reason, with its text and `×N`; never counted as a refusal. Each line's time is the call's (from the transcript line's timestamp once it is read).
 - **Placement** — `/sub` opens the panel; `/sub top` keeps it in a band above the prompt, `/sub right` docks it as a side pane (remembered across sessions); `/sub set` opens the in-panel settings page.
 
 ## Commands
@@ -44,7 +47,7 @@ Open **/config** and pick agent-monitor, or use `/sub set` for the panel options
 | Live rows above the prompt | on | One row per running subagent. |
 | Alerts block / Toasts | on | Alert sentences above the table; a toast the first time a conflict or stall is seen. |
 | Default `/sub` placement | `last` | `last`, `right` or `top`. |
-| Columns | all on | Tier, Edits, Rounds, Tokens, Time, Alerts. |
+| Columns | all on | Tier, Cost, Time columns of the finished table; Alert mark (the red `!`). |
 | Model prices | API list prices | Compact JSON, USD per million tokens: `{"sonnet":[input,cacheWrite5m,cacheRead,output],...}`. A family left out keeps its default; bad JSON falls back to the defaults. |
 
 Costs are **estimates** from token counts and list prices (no batch, fast-mode or regional modifiers); an unpriced model shows a dash.

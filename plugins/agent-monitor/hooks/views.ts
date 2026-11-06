@@ -7,6 +7,7 @@ import { DEFAULT_PRICES, agentCost } from './cost'
 import type { Prices } from './cost'
 import { parseDescription } from './logic'
 import { clean } from './patches'
+import type { PrView } from './prindex'
 import type { Strings } from './strings'
 
 // 'unknown': the record said running but the engine no longer lists the agent.
@@ -23,6 +24,8 @@ export type View = {
   effort?: string | number
   rounds?: number
   tokens?: number
+  /** Latest step's input + cache tokens: the context fill. */
+  context?: number
   startedAt?: number
   finishedAt?: number
   elapsedMs?: number
@@ -53,10 +56,14 @@ export type View = {
   stall?: Stall
   tier?: TierCheck
   clashes: Clash[]
+  /** The transcript's first-line branch (which PR the agent counts toward). */
+  branch?: string
+  /** Hook denials only (AgentMonitorRec.refusals); `denied` also counts errored results. */
+  refusals: number
 }
 
-// What every screen draws from: the views (newest first), the session cwd for short paths, the settings.
-export type Board = { views: View[]; cwd: string; cfg: Config; t: Strings }
+// What every screen draws from: the views (newest first), the session cwd for short paths, the settings, the PR index and current branch (PR mode).
+export type Board = { views: View[]; cwd: string; cfg: Config; t: Strings; prs?: PrView }
 
 const DONE = new Set(['completed', 'done', 'success', 'succeeded'])
 const FAILED = new Set(['failed', 'killed', 'error', 'cancelled'])
@@ -146,6 +153,7 @@ export function buildViews(recs: Record<string, AgentMonitorRec>, list: ListAgen
       effort: r?.effort,
       rounds: r?.watched ? r.steps : undefined,
       tokens,
+      context: r && r.context > 0 ? r.context : undefined,
       startedAt: r?.startedAt,
       finishedAt: r?.finishedAt,
       elapsedMs,
@@ -167,6 +175,8 @@ export function buildViews(recs: Record<string, AgentMonitorRec>, list: ListAgen
       fileLines: r?.lines ?? {},
       skills: r?.skills ?? [],
       result: r?.result,
+      branch: r?.branch,
+      refusals: r?.refusals ?? 0,
       stall: r ? stallOf({ status, lastEventAt: r.lastEventAt, startedAt: r.startedAt, pendingTool: r.pendingTool }, now, ctx.stallMs ?? DEFAULT_STALL_MS) : undefined,
       tier: r ? tierMismatch(desc, r.actualModel, r.actualEffort) : undefined,
       clashes: [],

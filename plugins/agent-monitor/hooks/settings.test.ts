@@ -5,7 +5,7 @@ import type { Config } from './config'
 import { FIELD, ROWS, STALL_STEPS, configKey, diffDraft, draftFor, draftFromConfig, isDirty, rowLabel, saveEffects, toggleDraft } from './settings'
 import { strings } from './strings'
 
-const pluginJson = { fields: ['stallMinutes', 'autoBand', 'alertsBlock', 'toasts', 'defaultPlacement', 'colTier', 'colEdits', 'colRounds', 'colTokens', 'colTime', 'colAlerts'] }
+const pluginJson = { fields: ['stallMinutes', 'autoBand', 'alertsBlock', 'toasts', 'defaultPlacement', 'colTier', 'colTokens', 'colTime', 'colAlerts'] }
 
 test('every row maps to one of the plugin.json fields, each field to one row', () => {
   expect(ROWS.map(r => FIELD[r.key]).sort()).toEqual([...pluginJson.fields].sort())
@@ -19,7 +19,7 @@ test('a draft copied from the config is clean; each toggle makes exactly its own
   expect(diffDraft(toggleDraft(d, 'alertsBlock'), DEFAULTS)).toEqual([{ field: 'alertsBlock', value: false }])
   expect(diffDraft(toggleDraft(d, 'autoBand'), DEFAULTS)).toEqual([{ field: 'autoBand', value: false }])
   expect(diffDraft(toggleDraft(d, 'toasts'), DEFAULTS)).toEqual([{ field: 'toasts', value: false }])
-  for (const k of ['tier', 'edits', 'rounds', 'tokens', 'time', 'alerts'] as const) expect(diffDraft(toggleDraft(d, k), DEFAULTS)).toEqual([{ field: FIELD[k], value: false }])
+  for (const k of ['tier', 'cost', 'time', 'alerts'] as const) expect(diffDraft(toggleDraft(d, k), DEFAULTS)).toEqual([{ field: FIELD[k], value: false }])
 })
 
 test('toggling twice is no change; several changed rows are written together, in row order', () => {

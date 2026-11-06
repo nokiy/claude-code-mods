@@ -23,4 +23,5 @@ test('strings: both tables have the same keys, English is the default', () => {
   expect([en.fetched('5 min ago'), zh.fetched('5 分钟前')]).toEqual([' · fetched 5 min ago', ' · 拉取于 5 分钟前']);
   expect(en.behind(1)).toBe('1 commit behind');
   expect(en.behind(3)).toBe('3 commits behind');
+  expect([en.tokens('86.2k'), zh.tokens('86.2k')]).toEqual(['86.2k tokens', '86.2k tokens']); // English in both, as agent-monitor writes it
 });

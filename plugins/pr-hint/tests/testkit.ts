@@ -28,18 +28,23 @@ type On = Parameters<typeof mock.env>[0];
 // Mutable test state: the session's directory (a test moves it to stand for a cd or a /clear),
 // the `git for-each-ref` answer, ticket 7's issue, and whether GitHub links the closing issues (a PR into a non-default branch has none).
 // `root` is the repository root git reports (null: the session directory itself); `ghFails` makes every gh call exit 1 (a transient failure).
-export const st = { dir: '/tmp/x', root: null as string | null, ghFails: false, cwdFails: false, refs: 'refs/heads/dev aaa\n', issue7: ISSUE as unknown, gate: null as Promise<void> | null, linked: true, branch: 'dev', ghBranch: null as string | null };
+// `closing` is the PR's linked issues, `issues` extra issues by number, `headlines` the PR's commit headlines, `branches` the `git branch -a` answer.
+export const BRANCHES = 'dev\nspec/12-dark-mode\nfeat/7-theme-toggle\nworktree-7-x\n';
+export const st = {
+  dir: '/tmp/x', root: null as string | null, ghFails: false, cwdFails: false, refs: 'refs/heads/dev aaa\n', issue7: ISSUE as unknown, gate: null as Promise<void> | null, linked: true, branch: 'dev', ghBranch: null as string | null,
+  closing: PR.closingIssuesReferences as number[], issues: {} as Record<number, unknown>, headlines: [] as string[], branches: BRANCHES,
+};
 // gql counts PR requests, issues the follow-up by-number requests.
 export const tally = { refs: 0, branch: 0, gql: 0, issues: 0 };
 
 const labelled = (i: unknown) => ({ ...(i as object), labels: { nodes: ((i as { labels?: Array<{ name: string }> }).labels ?? []) } });
-const issueOf = (n: number) => (n === 12 ? SPEC : n === 7 ? st.issue7 : null);
+const issueOf = (n: number) => st.issues[n] ?? (n === 12 ? SPEC : n === 7 ? st.issue7 : null);
 
 // `gh api graphql` answers: the PR request (query names pullRequests) or the by-number issues request.
 const gql = (query: string) => {
   if (query.includes('pullRequests(')) {
-    const nodes = st.linked ? PR.closingIssuesReferences.map(n => labelled(issueOf(n))) : [];
-    const pr = { ...PR, commits: { nodes: [] }, statusCheckRollup: { contexts: { nodes: PR.statusCheckRollup } }, closingIssuesReferences: { nodes } };
+    const nodes = st.linked ? st.closing.map(n => labelled(issueOf(n))) : [];
+    const pr = { ...PR, commits: { nodes: st.headlines.map(messageHeadline => ({ commit: { messageHeadline } })) }, statusCheckRollup: { contexts: { nodes: PR.statusCheckRollup } }, closingIssuesReferences: { nodes } };
     return { data: { repository: { pullRequests: { nodes: [pr] } } } };
   }
   const nums = [...query.matchAll(/i(\d+):issue/g)].map(m => Number(m[1]));
@@ -54,7 +59,7 @@ export const reply = (argv: readonly string[]) => {
     if (argv[1] === 'rev-parse' && argv.includes('--abbrev-ref')) return ok(`${st.branch}\n`);
     if (argv[1] === 'rev-parse' && argv.includes('--show-toplevel')) return ok(`${st.root ?? st.dir}\n`);
     if (argv[1] === 'rev-parse') return ok('abc\n');
-    if (argv[1] === 'branch') return ok('dev\nspec/12-dark-mode\nfeat/7-theme-toggle\nworktree-7-x\n');
+    if (argv[1] === 'branch') return ok(st.branches);
     if (argv[1] === 'rev-list') return ok(argv[3]?.endsWith('feat/7-theme-toggle') ? '2\n' : '0\n');
   }
   return ok(JSON.stringify(gql(argv[argv.length - 1] ?? '')));
@@ -89,6 +94,18 @@ export const engineLines = (on: On, bandText: string | null = 'engine band') => 
   on('ui.render', { component: 'PromptHint' }, async (_$, e) => ({ type: 'Text', children: [e.props.hint] }) as never);
 };
 
+// agent-monitor's published `prStats` as pr-hint reads it (no agent-monitor in a test; a non-owner cannot set it):
+// `value` undefined leaves the engine's own read (never written: undefined), anything else answers it. `reads` counts the reads.
+export const injectPrStats = (on: On) => {
+  const box = { value: undefined as unknown, reads: 0 };
+  on('state.get', async (_$, e, next) => {
+    if (e.plugin !== 'agent-monitor' || e.key !== 'prStats') return next(e);
+    box.reads++;
+    return box.value === undefined ? next(e) : { value: { value: box.value, version: 1 } } as never;
+  });
+  return box;
+};
+
 // Two tiers: 20 s local git, 5 min `gh api graphql`. Set `st.gate` after wire() to hold every PR request until it resolves;
 // `ghHere` limits the gh answers to one directory and `st.ghBranch` to one branch (elsewhere gh finds no PR).
 export const wire = (on: On, ghHere?: string) => {
@@ -99,6 +116,7 @@ export const wire = (on: On, ghHere?: string) => {
   st.linked = true;
   st.branch = 'dev';
   st.ghBranch = null;
+  Object.assign(st, { closing: PR.closingIssuesReferences, issues: {}, headlines: [], branches: BRANCHES });
   quiet(on);
   on('session.start', async (_$, e) => ({ cwd: e.cwd }));
   on('process.run', async (_$, e) => {

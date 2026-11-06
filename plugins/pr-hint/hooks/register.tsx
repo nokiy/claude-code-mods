@@ -335,14 +335,14 @@ export const register: Register = (on, options) => {
     await ensureLang($);
 
     const { Box, Button, Text, Link } = $.ui.resolve(e);
-    // Border (2) + paddingX (2) leave this many cells for text.
-    const inner = Math.max(20, e.props.bodyColumns - 4);
+    const inner = Math.max(20, e.props.bodyColumns - 4); // border (2) + paddingX (2) leave this many cells for text
     const isPinned = (await read($, pinned)) === true;
     const isRefreshing = (await read($, refreshing)) === true;
     // Padded by a cell each side, like the pin: a plain Button's hit area is its label cells.
     const label = ` ${isRefreshing ? t.refreshing : t.refresh} `;
-    // The title wraps in what the button (plus a 1-cell gap) leaves of the first row.
-    const card = cardLines(data, await $.clock.now(), inner, t, Math.max(10, inner - width(label) - 1));
+    // The title wraps in what the button (plus a 1-cell gap) leaves of the first row; stats = agent-monitor's published totals (read only, undefined when absent).
+    const stats = (await $.state.get({ plugin: 'agent-monitor', key: 'prStats' } as const)).value?.[String(data.number)];
+    const card = cardLines(data, await $.clock.now(), inner, t, Math.max(10, inner - width(label) - 1), { stats });
     const [head, ...rest] = card.lines;
     const row = (l: NonNullable<typeof head>, i: number) => (
       <Text key={String(i)} wrap="truncate-end">
