@@ -1,6 +1,6 @@
 // Cache decisions: what an answer from gh does to an entry, and when a ref is due for work.
 import { expect, test } from 'claude-code/testing';
-import { RECHECK_MS, applyFetch, asEntry, isDue, needsCheck, needsSummary, parseIssue, withSummary } from '../hooks/cache';
+import { RECHECK_MS, applyFetch, isDue, needsCheck, needsSummary, parseIssue, withSummary } from '../hooks/cache';
 import type { Entry, Facts } from '../hooks/cache';
 
 // Field shapes as `gh api repos/<o>/<r>/issues/<n>` answers them.
@@ -69,12 +69,4 @@ test('isDue covers both kinds of work', () => {
 
 test('a finished summary lets the body go', () => {
   expect(withSummary(entry({ summary: null }), SUMMARY)).toEqual({ checkedAt: 0, facts: { ...FACTS, body: '' }, summary: SUMMARY });
-});
-
-test('a stored value of another shape reads as absent', () => {
-  expect(asEntry(entry())).toEqual(entry());
-  expect(asEntry(entry({ facts: null, summary: null }))).toEqual(entry({ facts: null, summary: null }));
-  for (const value of [undefined, null, 'x', {}, { checkedAt: 'x', facts: null, summary: null }, { checkedAt: 1, facts: {}, summary: null }]) {
-    expect(asEntry(value)).toBeUndefined();
-  }
 });

@@ -2,12 +2,13 @@
 // The engine's `$` and the atoms stay in this file (the validator follows them nowhere else); recognition lives in refs.ts,
 // repositories in repo.ts, cache decisions in cache.ts, the model's text in summary.ts, card text in card.ts; tests are in ../tests.
 import { atom, memberOf, read, update } from 'claude-code';
-import type { EngineInterface, Register } from 'claude-code';
+import type { EngineInterface, Register, RenderInput } from 'claude-code';
 import { applyFetch, asEntry, cacheKey, isDue, needsCheck, needsSummary, parseIssue, withSummary } from './cache';
 import type { Entry, Facts, FetchAnswer } from './cache';
 import { cardView, glossOf } from './card';
+import type { CardView } from './card';
 import { annotate, findRefs } from './refs';
-import type { RefToken } from './refs';
+import type { Annotated, RefToken } from './refs';
 import { commandHint, hrefOf, parseHref, parseRemote } from './repo';
 import type { CommandHint } from './repo';
 import { t } from './strings';
@@ -173,11 +174,12 @@ async function readBlockEntries($: EngineInterface, tokens: RefToken[], repo: st
 }
 
 // The block annotated from what is cached; null leaves it to the engine as it is.
-async function annotatedBlock($: EngineInterface, requestId: string, text: string): Promise<{ text: string; hrefs: string[] } | null> {
+async function annotatedBlock($: EngineInterface, requestId: string, text: string): Promise<Annotated | null> {
   const tokens = findRefs(text);
   if (tokens.length === 0) return null;
   const repo = await repoOfBlock($, requestId);
   if (repo === null) return null;
+  // Subscribes this drawing: it runs again whenever the cache or the queue moves.
   await read($, revision);
   const entries = await readBlockEntries($, tokens, repo);
   const out = annotate(text, token => {
@@ -194,6 +196,28 @@ const isSameRef = (a: PeekRef | null, b: PeekRef) => a?.repo === b.repo && a?.nu
 async function togglePeek($: EngineInterface, href: string): Promise<void> {
   const ref = parseHref(href);
   if (ref !== null) await update($, peek, open => (isSameRef(open, ref) ? null : ref));
+}
+
+function drawCard($: EngineInterface, e: RenderInput<'AbovePrompt'>, view: CardView) {
+  const { Box, Button, Text } = $.ui.resolve(e);
+  return (
+    <Box flexDirection="column" borderStyle="round" paddingX={1} width={Math.min(e.props.bodyColumns, CARD_COLUMNS)}>
+      <Box flexDirection="row">
+        <Box flexGrow={1} flexShrink={1}><Text weight="semibold">{view.head}</Text></Box>
+        <Box key="close-box" flexShrink={0} marginLeft={1}>
+          <Button key="close" label={t.close} plain hover={{ color: 'cyan', bold: true }} onPress={() => update($, peek, () => null)} />
+        </Box>
+      </Box>
+      <Text dimColor>{view.repo}</Text>
+      <Text>{view.sentence}</Text>
+      {view.changes.length > 0 ? (
+        <Box flexDirection="column">
+          <Text dimColor>{t.changes}</Text>
+          {view.changes.map(line => <Text>{`· ${line}`}</Text>)}
+        </Box>
+      ) : null}
+    </Box>
+  );
 }
 
 export const register: Register = on => {
@@ -226,33 +250,15 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const ref = await read($, peek);
     if (ref === null || e.props.hasSurvey) return next(e);
+    // Subscribes this drawing: an open card follows the cache and the queue.
     await read($, revision);
     const entry = await readEntry($, ref);
     if (entry?.facts == null) return next(e);
-    if (isDue(entry, await $.clock.now(), failuresOf(ref, entry))) schedule($, ref);
+    const failures = failuresOf(ref, entry);
+    if (isDue(entry, await $.clock.now(), failures)) schedule($, ref);
 
-    const { Box, Button, Text } = $.ui.resolve(e);
-    const view = cardView(ref, entry.facts, entry.summary, needsSummary(entry, failuresOf(ref, entry)));
-    return (
-      <Box flexDirection="column">
-        <Box flexDirection="column" borderStyle="round" paddingX={1} width={Math.min(e.props.bodyColumns, CARD_COLUMNS)}>
-          <Box flexDirection="row">
-            <Box flexGrow={1} flexShrink={1}><Text bold>{view.head}</Text></Box>
-            <Box key="close-box" flexShrink={0} marginLeft={1}>
-              <Button key="close" label={t.close} plain hover={{ color: 'cyan', bold: true }} onPress={() => update($, peek, () => null)} />
-            </Box>
-          </Box>
-          <Text dimColor>{view.repo}</Text>
-          <Text>{view.sentence}</Text>
-          {view.changes.length > 0 ? (
-            <Box flexDirection="column">
-              <Text dimColor>{t.changes}</Text>
-              {view.changes.map(line => <Text>{`· ${line}`}</Text>)}
-            </Box>
-          ) : null}
-        </Box>
-        {await next(e)}
-      </Box>
-    );
+    const { Box } = $.ui.resolve(e);
+    const view = cardView(ref, entry.facts, entry.summary, needsSummary(entry, failures));
+    return <Box flexDirection="column">{drawCard($, e, view)}{await next(e)}</Box>;
   });
 };

@@ -7,12 +7,22 @@ import type { PeekRef } from '../types';
 
 export type CardView = { head: string; repo: string; sentence: string; changes: string[] };
 
+const STATE_LABELS: Record<string, string> = {
+  'pr:draft': t.prDraft,
+  'pr:open': t.prOpen,
+  'pr:merged': t.prMerged,
+  'pr:closed': t.prClosed,
+  'issue:open': t.issueOpen,
+  'issue:closed': t.issueClosed,
+};
+
+function statusOf(facts: Facts): string {
+  if (facts.isMerged) return 'merged';
+  return facts.isDraft && facts.state === 'open' ? 'draft' : facts.state;
+}
+
 export function stateLabel(facts: Facts): string {
-  const isOpen = facts.state === 'open';
-  if (!facts.isPr) return isOpen ? t.issueOpen : t.issueClosed;
-  if (facts.isMerged) return t.prMerged;
-  if (!isOpen) return t.prClosed;
-  return facts.isDraft ? t.prDraft : t.prOpen;
+  return STATE_LABELS[`${facts.isPr ? 'pr' : 'issue'}:${statusOf(facts)}`] ?? '';
 }
 
 function kindLabel(facts: Facts): string {

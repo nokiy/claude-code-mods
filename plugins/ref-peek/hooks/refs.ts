@@ -6,6 +6,9 @@ export type RefToken = { start: number; end: number; text: string; number: numbe
 /** What a mention links to and the note after its first occurrence; null leaves it as written. */
 export type Lookup = (token: RefToken) => { href: string; gloss: string } | null;
 
+/** A block as written for the engine, and the links in it. */
+export type Annotated = { text: string; hrefs: string[] };
+
 const FENCE = /^[ \t>]*(`{3,}|~{3,})/;
 const INDENTED = /^(?: {4}| {0,3}\t)/;
 const LIST_ITEM = /^\s*(?:[-*+]|\d{1,9}[.)])(?:\s|$)/;
@@ -29,27 +32,29 @@ function closesFence(open: string, mark: string, rest: string): boolean {
   return mark[0] === open[0] && mark.length >= open.length && rest.trim() === '';
 }
 
+type OpenFence = { mark: string; start: number };
+
+// The fence open after the line at `at`; a line that closes one adds its range.
+function stepFence(open: OpenFence | null, line: string, at: number, ranges: Array<[number, number]>): OpenFence | null {
+  const m = FENCE.exec(line);
+  const mark = m?.[1];
+  if (!m || mark === undefined) return open;
+  const rest = line.slice(m[0].length);
+  if (open === null) return mark.startsWith('`') && rest.includes('`') ? null : { mark, start: at };
+  if (!closesFence(open.mark, mark, rest)) return open;
+  ranges.push([open.start, at + line.length]);
+  return null;
+}
+
 function fencedRanges(text: string): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
-  let open: string | null = null;
-  let start = 0;
+  let open: OpenFence | null = null;
   let at = 0;
   for (const line of text.split('\n')) {
-    const m = FENCE.exec(line);
-    const mark = m?.[1];
-    if (m && mark !== undefined) {
-      const rest = line.slice(m[0].length);
-      if (open === null && !(mark.startsWith('`') && rest.includes('`'))) {
-        open = mark;
-        start = at;
-      } else if (open !== null && closesFence(open, mark, rest)) {
-        ranges.push([start, at + line.length]);
-        open = null;
-      }
-    }
+    open = stepFence(open, line, at, ranges);
     at += line.length + 1;
   }
-  if (open !== null) ranges.push([start, text.length]);
+  if (open !== null) ranges.push([open.start, text.length]);
   return ranges;
 }
 
@@ -117,7 +122,7 @@ function withoutEmphasis(text: string, lookup: Lookup): string {
 }
 
 /** The block with each known mention linked and the first mention of each ref explained, plus the links written. */
-export function annotate(block: string, lookup: Lookup): { text: string; hrefs: string[] } {
+export function annotate(block: string, lookup: Lookup): Annotated {
   const text = withoutEmphasis(block, lookup);
   const hrefs = new Set<string>();
   let out = '';
@@ -127,10 +132,10 @@ export function annotate(block: string, lookup: Lookup): { text: string; hrefs: 
     if (hit === null) continue;
     const isFirst = !hrefs.has(hit.href);
     hrefs.add(hit.href);
-    const hasNote = !isFirst || hit.gloss === '' || EXPLAINED.test(text.slice(token.end));
-    out += `${text.slice(at, token.start)}[${token.text}](${hit.href})${hasNote ? '' : `（${hit.gloss}）`}`;
+    const skipsNote = !isFirst || hit.gloss === '' || EXPLAINED.test(text.slice(token.end));
+    out += `${text.slice(at, token.start)}[${token.text}](${hit.href})${skipsNote ? '' : `（${hit.gloss}）`}`;
     // The note's own bracket does the spacing, so a space after it goes (a table cell keeps its padding).
-    at = token.end + (!hasNote && SPACE_AFTER_NOTE.test(text.slice(token.end, token.end + 2)) ? 1 : 0);
+    at = token.end + (!skipsNote && SPACE_AFTER_NOTE.test(text.slice(token.end, token.end + 2)) ? 1 : 0);
   }
   return { text: out + text.slice(at), hrefs: [...hrefs] };
 }

@@ -128,7 +128,7 @@ test('a survey holds the band: the card yields to it', async ($, on) => {
   const { ui } = await ready($, clock);
   await press(ui, 52);
   await clock.settle();
-  const band = await $.ui.mount({ plugin: 'ref-peek', surface: 'terminal', component: 'AbovePrompt', requestId: 'survey', props: { hasSurvey: true, isWorking: false, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 19 }, view: {} } } as never);
+  const band = await mountBand($, 'survey', { hasSurvey: true });
   expect(await texts(band)).toEqual(['engine band']);
 });
 

@@ -19,16 +19,19 @@ export const prJson = (number: number, over: object = {}) => ({
 
 // `issues` by `repo#n`; absent reads as 404. `ghFails` makes every call a transient failure, `modelReply` is what haiku says
 // (null: no answer). `ghGate` / `modelGate` hold a call until resolved. `remotes` by directory answers `git remote get-url`.
-export const st = {
-  issues: {} as Record<string, unknown>,
+const freshState = () => ({
+  issues: { [`${REPO}#52`]: prJson(52) } as Record<string, unknown>,
   ghFails: false,
   modelReply: JSON.stringify(SUMMARY) as string | null,
   ghGate: null as Promise<void> | null,
   modelGate: null as Promise<void> | null,
-  remotes: {} as Record<string, string>,
+  remotes: { '/work/app': 'git@github.com:o/r.git' } as Record<string, string>,
   cwd: '/work/app',
-};
-export const tally = { gh: 0, ghRunning: 0, ghPeak: 0, model: 0, git: 0, prompts: [] as string[], ghPaths: [] as string[] };
+});
+const freshTally = () => ({ gh: 0, ghRunning: 0, ghPeak: 0, model: 0, git: 0, prompts: [] as string[], ghPaths: [] as string[] });
+
+export const st = freshState();
+export const tally = freshTally();
 
 const run = (exitCode: number, stdout: string, stderr = '') => ({ value: { exitCode, stdout, stderr, ...done } });
 
@@ -53,8 +56,8 @@ function git(argv: readonly string[]) {
 
 /** Everything beneath the plugin: store, clock, cwd, gh, git, haiku, and the engine's own drawing of a reply and of the band. */
 export function wire(on: On) {
-  Object.assign(st, { issues: { [`${REPO}#52`]: prJson(52) }, ghFails: false, modelReply: JSON.stringify(SUMMARY), ghGate: null, modelGate: null, remotes: { '/work/app': 'git@github.com:o/r.git' }, cwd: '/work/app' });
-  Object.assign(tally, { gh: 0, ghRunning: 0, ghPeak: 0, model: 0, git: 0, prompts: [], ghPaths: [] });
+  Object.assign(st, freshState());
+  Object.assign(tally, freshTally());
   mock.store(on);
   mock.env(on, { HOME: '/home/me' });
   on('session.cwd', async () => ({ value: st.cwd }));
@@ -71,7 +74,7 @@ export function wire(on: On) {
   return mock.clock(on, { now: NOW });
 }
 
-export const BAND = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 19 }, view: {} } as never;
+const BAND = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 19 }, view: {} };
 
 type Block = { text: string; id?: string; isFirstOfReply?: boolean; surface?: 'terminal' | 'desktop'; viewport?: object; props?: object };
 
@@ -80,7 +83,9 @@ export const mountBlock = ($: Dollar, b: Block) => $.ui.mount({
   props: { text: b.text, isFirstOfReply: b.isFirstOfReply ?? true, ...b.props }, viewport: b.viewport ?? FULLSCREEN,
 } as never);
 
-export const mountBand = ($: Dollar) => $.ui.mount({ plugin: 'ref-peek', surface: 'terminal', component: 'AbovePrompt', requestId: 'band', props: BAND } as never);
+export const mountBand = ($: Dollar, requestId = 'band', over: object = {}) => $.ui.mount({
+  plugin: 'ref-peek', surface: 'terminal', component: 'AbovePrompt', requestId, props: { ...BAND, ...over },
+} as never);
 
 type Mounted = Awaited<ReturnType<typeof mountBlock>>;
 

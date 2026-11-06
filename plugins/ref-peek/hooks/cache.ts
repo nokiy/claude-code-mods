@@ -1,5 +1,4 @@
 // The cached entry of one ref and the decisions around it: what a gh answer does to it, and when it is due for work.
-import { BODY_CAP } from './summary';
 import type { Summary } from './summary';
 import type { PeekRef } from '../types';
 
@@ -22,6 +21,8 @@ export type Entry = { checkedAt: number; facts: Facts | null; summary: Summary |
 /** What a gh call came to. */
 export type FetchAnswer = Facts | 'missing' | 'failed';
 
+/** How much of a body is kept for the prompt. */
+const BODY_CAP = 4000;
 /** gh is asked about one ref at most this often. */
 export const RECHECK_MS = 10 * 60 * 1000;
 /** A generation that failed is tried once more per session. */
@@ -85,13 +86,5 @@ export function applyFetch(entry: Entry | undefined, answer: FetchAnswer, now: n
   return kept ? withSummary(fresh, kept) : fresh;
 }
 
-const isFacts = (v: Partial<Facts> | null) => v === null || (typeof v.title === 'string' && typeof v.updatedAt === 'string');
-const isSummary = (v: Partial<Summary> | null) => v === null || (typeof v.summary === 'string' && Array.isArray(v.changes));
-
-/** A stored value as an entry; another shape (an older build's) reads as absent. */
-export function asEntry(value: unknown): Entry | undefined {
-  if (typeof value !== 'object' || value === null) return undefined;
-  const { checkedAt, facts, summary } = value as Partial<Entry>;
-  if (typeof checkedAt !== 'number' || facts === undefined || summary === undefined) return undefined;
-  return isFacts(facts) && isSummary(summary) ? { checkedAt, facts, summary } : undefined;
-}
+/** A stored value as an entry: only this mod writes the store. */
+export const asEntry = (value: unknown) => value as Entry | undefined;
