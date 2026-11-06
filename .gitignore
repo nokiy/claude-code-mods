@@ -8,3 +8,5 @@ screenshots/
 
 # Local agent workflow conventions (loki-pm setup)
 docs/agents/
+
+node_modules/

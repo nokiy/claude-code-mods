@@ -1,33 +1,57 @@
-# Builds the `release` branch (main without test files) on every push to main; marketplace installs read only that branch.
-# Runs with no Claude login: plugin validate needs none. Never add Claude credentials here.
-name: release-branch
+# The release bot (rules: docs/releasing.md, docs/release-packaging.md). Runs only on command, one mod per run:
+#   gh workflow run release.yml -f mod=<mod> [-f bump=patch|minor|major] [-f dry-run=true]
+# All logic lives in scripts/release-mod.sh. A merge to main triggers nothing here.
+# Runs with no Claude login: plugin validate/test need none. Never add Claude credentials here.
+name: release
 
 on:
-  push:
-    branches: [main]
-
-permissions:
-  contents: write
+  workflow_dispatch:
+    inputs:
+      mod:
+        description: The mod to release (a folder under plugins/)
+        required: true
+        type: string
+      bump:
+        description: Which digit to raise; ignored on a mod's first release
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+      dry-run:
+        description: Print the plan, write nothing
+        type: boolean
+        default: false
 
 concurrency:
-  group: release-branch
+  group: release
   cancel-in-progress: false
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
+      # Named ref, so a run that queued behind another release starts from that release's merge, not the dispatch commit.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Install Claude Code
-        run: npm i -g @anthropic-ai/claude-code@2.1.288
-      - name: Build and push release
+        run: npm i -g @anthropic-ai/claude-code@latest
+      - name: Release the mod
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MOD: ${{ inputs.mod }}
+          BUMP: ${{ inputs.bump }}
+          DRY_RUN: ${{ inputs.dry-run }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          scripts/build-release.sh "$GITHUB_SHA" --push
+          args=(--bump "$BUMP")
+          if [ "$DRY_RUN" = true ]; then args+=(--dry-run); fi
+          scripts/release-mod.sh "$MOD" "${args[@]}"
