@@ -31,7 +31,7 @@ The first command adds this repository as a plugin marketplace (once); the secon
 
 ## Releasing
 
-A changesets bot versions, tags (`<mod>@X.Y.Z`) and changelogs each release; every release bumps only the last digit. Steps: [docs/releasing.md](docs/releasing.md).
+Each mod is released on its own, only on command: a bot versions, tags (`<mod>@X.Y.Z`) and changelogs that one mod; a merge to `main` publishes nothing. Steps: [docs/releasing.md](docs/releasing.md).
 
 ## License
 
