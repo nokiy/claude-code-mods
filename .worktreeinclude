@@ -1,0 +1,4 @@
+# Gitignored files copied into new worktrees (claude --worktree, isolation: "worktree").
+# Names only; the files themselves stay out of git.
+CLAUDE.md
+docs/agents/
