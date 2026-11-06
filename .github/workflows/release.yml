@@ -42,7 +42,7 @@ jobs:
         with:
           node-version: 22
       - name: Install Claude Code
-        run: npm i -g @anthropic-ai/claude-code@2.1.288
+        run: npm i -g @anthropic-ai/claude-code@latest
       - name: Release the mod
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
