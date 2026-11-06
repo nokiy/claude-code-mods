@@ -5,6 +5,7 @@
 | Mod | What it does |
 | --- | --- |
 | [paste-peek](plugins/paste-peek) | See the images you paste into the prompt, in real pixels, right above it. Switch with ⌥←/⌥→, zoom with ⌥↑, side pane with ⌥↓. **Terminal: Ghostty or kitty** (macOS). |
+| [ref-peek](plugins/ref-peek) | Unlisted. Adds a plain one-sentence note after the PR, Ticket and Spec numbers a reply mentions; click a number for a card above the prompt. |
 
 ### Zoom — ⌥↑
 
