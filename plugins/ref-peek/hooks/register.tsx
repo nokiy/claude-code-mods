@@ -204,7 +204,7 @@ function drawCard($: EngineInterface, e: RenderInput<'AbovePrompt'>, view: CardV
   return (
     <Box flexDirection="column" borderStyle="round" paddingX={1} width={Math.min(e.props.bodyColumns, CARD_COLUMNS)}>
       <Box flexDirection="row">
-        <Box flexGrow={1} flexShrink={1}><Text weight="semibold">{view.head}</Text></Box>
+        <Box flexGrow={1} flexShrink={1}><Text bold>{view.head}</Text></Box>
         <Box key="close-box" flexShrink={0} marginLeft={1}>
           <Button key="close" label={t.close} plain hover={{ color: 'cyan', bold: true }} onPress={() => update($, peek, () => null)} />
         </Box>
