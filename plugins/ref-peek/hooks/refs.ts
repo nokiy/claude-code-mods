@@ -7,6 +7,8 @@ export type RefToken = { start: number; end: number; text: string; number: numbe
 export type Lookup = (token: RefToken) => { href: string; gloss: string } | null;
 
 const FENCE = /^[ \t>]*(`{3,}|~{3,})/;
+const INDENTED = /^(?: {4}| {0,3}\t)/;
+const LIST_ITEM = /^\s*(?:[-*+]|\d{1,9}[.)])(?:\s|$)/;
 // Inline code, links with their targets, reference links, bare URLs: nothing inside them is a mention.
 const SKIPPED = [
   /(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)/g,
@@ -51,6 +53,28 @@ function fencedRanges(text: string): Array<[number, number]> {
   return ranges;
 }
 
+type IndentState = { afterBlank: boolean; isCode: boolean; inList: boolean };
+
+// One line on: an indented line opens code after a blank line and goes on with it, unless a list is open; an unindented line after a blank one ends the list.
+function stepIndent(state: IndentState, line: string): IndentState {
+  if (line.trim() === '') return { ...state, afterBlank: true };
+  const isCode = INDENTED.test(line) && !state.inList && (state.afterBlank || state.isCode);
+  const staysInList = state.inList && (!state.afterBlank || /^\s/.test(line));
+  return { afterBlank: false, isCode, inList: !isCode && (LIST_ITEM.test(line) || staysInList) };
+}
+
+function indentedRanges(text: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  let state: IndentState = { afterBlank: true, isCode: false, inList: false };
+  let at = 0;
+  for (const line of text.split('\n')) {
+    state = stepIndent(state, line);
+    if (state.isCode) ranges.push([at, at + line.length]);
+    at += line.length + 1;
+  }
+  return ranges;
+}
+
 // NUL, not a space: code at the edge of an emphasis span must not read as whitespace beside its marks.
 function blank(text: string, start: number, end: number): string {
   return text.slice(0, start) + '\0'.repeat(end - start) + text.slice(end);
@@ -60,6 +84,7 @@ function blank(text: string, start: number, end: number): string {
 function masked(text: string): string {
   let out = text;
   for (const [start, end] of fencedRanges(text)) out = blank(out, start, end);
+  for (const [start, end] of indentedRanges(out)) out = blank(out, start, end);
   for (const pattern of SKIPPED) {
     for (const m of out.matchAll(pattern)) out = blank(out, m.index, m.index + m[0].length);
   }

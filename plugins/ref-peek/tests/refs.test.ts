@@ -35,6 +35,23 @@ test('an unclosed fence runs to the end of the block', () => {
   expect(found('PR #1\n```\nPR #2')).toEqual(['PR #1']);
 });
 
+test('an indented block after a blank line is code', () => {
+  expect(found('说明\n\n    PR #1\n    PR #2\n\n    PR #3\n\nPR #4')).toEqual(['PR #4']);
+  expect(found('    PR #1')).toEqual([]);
+  expect(found('说明\n\n\tPR #1')).toEqual([]);
+});
+
+test('an indented line inside a list item or a paragraph is no code', () => {
+  expect(found('- 第一条\n\n    PR #1')).toEqual(['PR #1']);
+  expect(found('1. 第一条\n    PR #1')).toEqual(['PR #1']);
+  expect(found('- 第一条\n\n  续行\n\n    PR #1')).toEqual(['PR #1']);
+  expect(found('说明\n    PR #1')).toEqual(['PR #1']);
+});
+
+test('a paragraph after a blank line ends the list', () => {
+  expect(found('- 第一条\n\n结束\n\n    PR #1')).toEqual([]);
+});
+
 test('things that only look like a number stay out', () => {
   for (const text of ['C#', 'C# 7', 'C#7', 'foo#12', 'https://x.test/y#12', 'www.x.test/#12', '&#39;', '# 12 heading', '###12', '#12a', '#1.2', '#0', 'a/b/c#1', 'o/r#12', '../up#1']) {
     expect(found(text)).toEqual([]);
