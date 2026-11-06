@@ -1,6 +1,6 @@
 // A click on a ref and the card above the prompt.
 import { expect, test } from 'claude-code/testing';
-import { REPO, href, mountBand, mountBlock, prJson, st, wire } from './testkit';
+import { REPO, href, mountBand, mountBlock, prJson, st, tally, wire } from './testkit';
 import type { Dollar } from './testkit';
 
 const texts = async (band: Awaited<ReturnType<typeof mountBand>>) => (await band.findAll({ type: 'Text' })).map(x => x.text ?? '');
@@ -85,10 +85,27 @@ test('an open card redraws when the summary lands', async ($, on) => {
   const { ui, band } = await ready($, clock, 'PR #52');
   await press(ui, 52);
   await clock.settle();
-  expect(await texts(band)).toContain('暂无说明');
+  expect(await texts(band)).toContain('生成中…');
+  expect(await texts(band)).not.toContain('暂无说明');
   open();
   await clock.settle();
   expect(await texts(band)).toContain('用户能用积分兑换商品');
+});
+
+test('an open card waits through the retry, and says so only once generation has failed', async ($, on) => {
+  const clock = wire(on);
+  let open = () => {};
+  st.modelGate = new Promise(r => { open = r; });
+  st.modelReply = null;
+  const { ui, band } = await ready($, clock, 'PR #52');
+  await press(ui, 52);
+  await clock.settle();
+  expect(await texts(band)).toContain('生成中…');
+  open();
+  await clock.settle();
+  expect(tally.model).toBe(2);
+  expect(await texts(band)).toContain('暂无说明');
+  expect(await texts(band)).not.toContain('生成中…');
 });
 
 test('a survey holds the band: the card yields to it', async ($, on) => {

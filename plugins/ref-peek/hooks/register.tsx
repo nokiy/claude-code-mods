@@ -95,6 +95,8 @@ function pump($: EngineInterface): void {
       running--;
       queued.delete(cacheKey(ref));
       pump($);
+      // Last, once the ref has left the queue: a failed generation saves nothing, and this redraw shows it and can ask for the retry.
+      void update($, revision, n => n + 1);
     });
   }
 }
@@ -230,7 +232,7 @@ export const register: Register = on => {
     if (isDue(entry, await $.clock.now(), failuresOf(ref, entry))) schedule($, ref);
 
     const { Box, Button, Text } = $.ui.resolve(e);
-    const view = cardView(ref, entry.facts, entry.summary);
+    const view = cardView(ref, entry.facts, entry.summary, needsSummary(entry, failuresOf(ref, entry)));
     return (
       <Box flexDirection="column">
         <Box flexDirection="column" borderStyle="round" paddingX={1} width={Math.min(e.props.bodyColumns, CARD_COLUMNS)}>

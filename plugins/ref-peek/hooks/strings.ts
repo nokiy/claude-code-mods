@@ -8,6 +8,7 @@ export const t = {
   issueOpen: '进行中',
   issueClosed: '已完成',
   noSummary: '暂无说明',
+  pending: '生成中…',
   changes: '做完后的变化',
   close: ' 收起 ',
 };

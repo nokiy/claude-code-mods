@@ -23,7 +23,7 @@ test('the note is the summary once there is one, the original title until then',
 });
 
 test('a card with a summary', () => {
-  expect(cardView({ repo: 'o/r', number: 52 }, FACTS, ENTRY.summary)).toEqual({
+  expect(cardView({ repo: 'o/r', number: 52 }, FACTS, ENTRY.summary, false)).toEqual({
     head: 'PR #52 积分兑换 · 待验收',
     repo: 'o/r',
     sentence: '用户能兑换商品',
@@ -31,8 +31,8 @@ test('a card with a summary', () => {
   });
 });
 
-test('a card without one keeps the original title and says so', () => {
-  expect(cardView({ repo: 'o/r', number: 52 }, FACTS, null)).toEqual({
+test('a card whose generation failed keeps the original title and says so', () => {
+  expect(cardView({ repo: 'o/r', number: 52 }, FACTS, null, false)).toEqual({
     head: 'PR #52 原标题 · 待验收',
     repo: 'o/r',
     sentence: '暂无说明',
@@ -40,7 +40,11 @@ test('a card without one keeps the original title and says so', () => {
   });
 });
 
+test('a card still waiting for its summary says that instead', () => {
+  expect(cardView({ repo: 'o/r', number: 52 }, FACTS, null, true).sentence).toBe('生成中…');
+});
+
 test('an issue is a Ticket, or a Spec by its label', () => {
-  expect(cardView({ repo: 'o/r', number: 7 }, issue({}), null).head).toBe('Ticket #7 原标题 · 进行中');
-  expect(cardView({ repo: 'o/r', number: 7 }, issue({ isSpec: true }), null).head).toBe('Spec #7 原标题 · 进行中');
+  expect(cardView({ repo: 'o/r', number: 7 }, issue({}), null, false).head).toBe('Ticket #7 原标题 · 进行中');
+  expect(cardView({ repo: 'o/r', number: 7 }, issue({ isSpec: true }), null, false).head).toBe('Spec #7 原标题 · 进行中');
 });

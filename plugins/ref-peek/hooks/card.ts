@@ -25,11 +25,12 @@ export function glossOf(facts: Facts, summary: Summary | null): string {
   return summary?.summary ?? plainTitle(facts.title);
 }
 
-export function cardView(ref: PeekRef, facts: Facts, summary: Summary | null): CardView {
+/** `isPending`: no summary yet and one still to come; without it, a missing summary is a failed generation. */
+export function cardView(ref: PeekRef, facts: Facts, summary: Summary | null, isPending: boolean): CardView {
   return {
     head: `${kindLabel(facts)} #${ref.number} ${summary?.title ?? plainTitle(facts.title)} · ${stateLabel(facts)}`,
     repo: ref.repo,
-    sentence: summary?.summary ?? t.noSummary,
+    sentence: summary?.summary ?? (isPending ? t.pending : t.noSummary),
     changes: summary?.changes ?? [],
   };
 }
