@@ -85,6 +85,3 @@ export function applyFetch(entry: Entry | undefined, answer: FetchAnswer, now: n
   const kept = entry?.facts?.updatedAt === answer.updatedAt ? entry?.summary : null;
   return kept ? withSummary(fresh, kept) : fresh;
 }
-
-/** A stored value as an entry: only this mod writes the store. */
-export const asEntry = (value: unknown) => value as Entry | undefined;

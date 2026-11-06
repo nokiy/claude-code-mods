@@ -19,13 +19,12 @@ const SKIPPED = [
   /!?\[[^\]\n]*\]\[[^\]\n]*\]/g,
   /(?:https?:\/\/|www\.)[^\s）」]+/g,
 ];
-// The guards are ASCII on purpose: Chinese has no spaces, so `见#12的` is a mention while `C#`, `foo#12` and `&#39;` are not.
-// `_` is left out of them: it is an emphasis mark in `__PR #52__`.
-const REF = /(?<![A-Za-z0-9#/&.-])(?:(?:PR|Ticket|Spec|Issue) )?#(?<number>[1-9]\d{0,6})(?![A-Za-z0-9]|\.\d)/g;
-// An emphasis span on one line: `*` opens anywhere but before a space, `_` also needs no word around it.
-const EMPHASIS = /(?<![\\*])(\*{1,3})(?=[^\s*])[^\n]*?(?<=[^\s*])\1(?!\*)|(?<![\\\w])(_{1,3})(?=[^\s_])[^\n]*?(?<=[^\s_])\2(?!\w)/g;
-// An explanation already there; a closing `**` may stand between the number and it.
-const EXPLAINED = /^[*_]* *[（(：:—–-]/;
+// The guards are ASCII on purpose: Chinese has no spaces, so `见#12的` is a mention while `C#`, `foo#12`, `foo_#12` and `&#39;` are not.
+const REF = /(?<![A-Za-z0-9_#/&.-])(?:(?:PR|Ticket|Spec|Issue) )?#(?<number>[1-9]\d{0,6})(?![A-Za-z0-9_]|\.\d)/g;
+// An emphasis span on one line: `*` opens anywhere but before a space. `_` is left alone: beside Chinese it reads as part of a name.
+const EMPHASIS = /(?<![\\*])(\*{1,3})(?=[^\s*])[^\n]*?(?<=[^\s*])\1(?!\*)/g;
+// An explanation already there, after optional spaces. The marks around a known number are gone by the time this is asked.
+const EXPLAINED = /^ *[（(：:—–]/;
 const SPACE_AFTER_NOTE = /^ [^|\s]/;
 
 function closesFence(open: string, mark: string, rest: string): boolean {
@@ -114,7 +113,7 @@ function withoutEmphasis(text: string, lookup: Lookup): string {
   for (const m of masked(text).matchAll(EMPHASIS)) {
     const end = m.index + m[0].length;
     if (!known.some(token => m.index <= token.start && token.end <= end)) continue;
-    const width = (m[1] ?? m[2] ?? '').length;
+    const width = (m[1] ?? '').length;
     out += text.slice(at, m.index) + text.slice(m.index + width, end - width);
     at = end;
   }

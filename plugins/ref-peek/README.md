@@ -34,8 +34,8 @@ Click `PR #52` in the fullscreen terminal and a card opens above the prompt. Cli
 ## Rules
 
 - `PR #N`, `Ticket #N`, `Spec #N`, `Issue #N` and bare `#N` are matched by text, not by a model. Fenced code, indented code (four spaces after a blank line, outside a list item), inline code, existing links and URLs are left alone, and so is `owner/repo#N`. A number GitHub does not know stays as written.
-- Every mention becomes a link; the note follows only the first mention of a ref in a block, and none follows a number already explained: one followed, after optional spaces, by `（`, `(`, `：`, `:`, `—`, `–` or `-`.
-- A `**`, `__`, `*` or `_` span around a linked number loses its marks: after a link or a note, a closing mark followed by Chinese would show as written. The link is styled already.
+- Every mention becomes a link; the note follows only the first mention of a ref in a block, and none follows a number already explained: one followed, after optional spaces, by `（`, `(`, `：`, `:`, `—` or `–`.
+- A `*` or `**` span around a linked number loses its marks: after a link or a note, a closing mark followed by Chinese would show as written. The link is styled already.
 - `haiku` writes the short title, the sentence and the changes in one call, from the title and body. Until that lands the note is the original title and the card says `生成中…`; if it fails the original title stays and the card says `暂无说明`. A failed generation is retried once per session. The sentence, and a title used as the note, lose their closing punctuation.
 - Title, body and the model's reply are untrusted: the prompt frames them as data, and all of it loses its markup before it reaches a reply.
 - Cached in the mod's store by repository and number. gh is asked about one ref at most every 10 minutes, and the model runs again only when `updated_at` changed. At most two fetches run at once.

@@ -53,13 +53,9 @@ test('a paragraph after a blank line ends the list', () => {
 });
 
 test('things that only look like a number stay out', () => {
-  for (const text of ['C#', 'C# 7', 'C#7', 'foo#12', 'https://x.test/y#12', 'www.x.test/#12', '&#39;', '# 12 heading', '###12', '#12a', '#1.2', '#0', 'a/b/c#1', 'o/r#12', '../up#1']) {
+  for (const text of ['C#', 'C# 7', 'C#7', 'foo#12', 'https://x.test/y#12', 'www.x.test/#12', '&#39;', '# 12 heading', '###12', '#12a', '#1.2', '#0', 'a/b/c#1', 'o/r#12', '../up#1', 'fix_#12_login', '#12_old', 'foo_#12']) {
     expect(found(text)).toEqual([]);
   }
-});
-
-test('an underscore beside a number is emphasis, not a word', () => {
-  expect(found('__PR #52__ 和 _#53_')).toEqual(['PR #52', '#53']);
 });
 
 test('a heading keeps its marks and a number after them is a number', () => {
@@ -77,7 +73,7 @@ test('two spellings of one number count as one ref', () => {
 });
 
 test('a number already explained gets the link alone', () => {
-  for (const after of ['（已有说明）', ' (note)', '(note)', '：积分兑换', ': note', ' ：积分兑换', '  （说明）', ' — 积分兑换', ' – 积分兑换', ' - 积分兑换']) {
+  for (const after of ['（已有说明）', ' (note)', '(note)', '：积分兑换', ': note', ' ：积分兑换', '  （说明）', ' — 积分兑换', ' – 积分兑换']) {
     expect(annotate(`PR #52${after}`, known).text).toBe(`${link('PR #52')}${after}`);
   }
   expect(annotate('**PR #52**（说明）', known).text).toBe(`${link('PR #52')}（说明）`);
@@ -85,12 +81,18 @@ test('a number already explained gets the link alone', () => {
 
 const NOTED = `${link('PR #52')}（一句话）`;
 
+test('a plain hyphen explains nothing', () => {
+  expect(annotate('#12 - #15', known).text).toBe(`${link('#12', 12)}（一句话）- ${link('#15', 15)}（一句话）`);
+  expect(annotate('#12-15', known).text).toBe(`${link('#12', 12)}（一句话）-15`);
+  expect(annotate('PR #52 -> main', known).text).toBe(`${NOTED}-> main`);
+  expect(annotate('PR #52 - 积分兑换', known).text).toBe(`${NOTED}- 积分兑换`);
+});
+
 test('an emphasis span around an annotated ref loses its marks', () => {
   expect(annotate('**PR #52**已经', known).text).toBe(`${NOTED}已经`);
   expect(annotate('已**PR #52**已', known).text).toBe(`已${NOTED}已`);
   expect(annotate('**PR #52 已合并**', known).text).toBe(`${NOTED}已合并`);
   expect(annotate('**PR #52** 已经', known).text).toBe(`${NOTED}已经`);
-  expect(annotate('__PR #52__', known).text).toBe(NOTED);
   expect(annotate('*PR #52*已经', known).text).toBe(`${NOTED}已经`);
   expect(annotate('***PR #52***已经', known).text).toBe(`${NOTED}已经`);
 });
@@ -112,8 +114,13 @@ test('emphasis without an annotated ref stays', () => {
 
 test('marks that open nothing stay', () => {
   expect(annotate('snake_case PR #52 more_text', known).text).toBe(`snake_case ${NOTED}more_text`);
+  expect(annotate('变量_a 和 PR #52 和 b_值', known).text).toBe(`变量_a 和 ${NOTED}和 b_值`);
   expect(annotate('2 * 3 PR #52 4 * 5', known).text).toBe(`2 * 3 ${NOTED}4 * 5`);
   expect(annotate('* PR #52\n* 下一条', known).text).toBe(`* ${NOTED}\n* 下一条`);
+});
+
+test('an underscore is no emphasis: a number inside it stays as written', () => {
+  expect(annotate('__PR #52__', known)).toEqual({ text: '__PR #52__', hrefs: [] });
 });
 
 test('a list dash on the next line explains nothing', () => {

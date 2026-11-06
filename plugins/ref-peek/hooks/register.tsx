@@ -3,7 +3,7 @@
 // repositories in repo.ts, cache decisions in cache.ts, the model's text in summary.ts, card text in card.ts; tests are in ../tests.
 import { atom, memberOf, read, update } from 'claude-code';
 import type { EngineInterface, Register, RenderInput } from 'claude-code';
-import { applyFetch, asEntry, cacheKey, isDue, needsCheck, needsSummary, parseIssue, withSummary } from './cache';
+import { applyFetch, cacheKey, isDue, needsCheck, needsSummary, parseIssue, withSummary } from './cache';
 import type { Entry, Facts, FetchAnswer } from './cache';
 import { cardView, glossOf } from './card';
 import type { CardView } from './card';
@@ -44,8 +44,9 @@ let originAsked: string | null = null;
 const failureKey = (ref: PeekRef, entry: Entry | undefined) => `${cacheKey(ref)}@${entry?.facts?.updatedAt}`;
 const failuresOf = (ref: PeekRef, entry: Entry | undefined) => summaryFailures.get(failureKey(ref, entry)) ?? 0;
 
+// The cast holds: only this mod writes the store.
 async function readEntry($: EngineInterface, ref: PeekRef): Promise<Entry | undefined> {
-  return asEntry(await $.store.get(cacheKey(ref)));
+  return (await $.store.get(cacheKey(ref))) as Entry | undefined;
 }
 
 async function saveEntry($: EngineInterface, ref: PeekRef, entry: Entry): Promise<void> {
