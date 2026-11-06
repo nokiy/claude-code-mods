@@ -2,7 +2,10 @@
 import type { Summary } from './summary';
 import type { PeekRef } from '../types';
 
-/** What `gh api repos/<o>/<r>/issues/<n>` said, reduced to what ref-peek uses. */
+/** A ticket a PR closes, or a PR that closes a ticket. */
+export type Related = { repo: string; number: number; kind: 'PR' | 'Ticket' | 'Spec'; title: string };
+
+/** What the GraphQL answer said, reduced to what ref-peek uses. */
 export type Facts = {
   title: string;
   /** Kept for the summary only; dropped once that exists. */
@@ -13,6 +16,9 @@ export type Facts = {
   isMerged: boolean;
   isSpec: boolean;
   updatedAt: string;
+  /** The first of the related items, and how many there are in all. Absent on an entry cached before relations were read. */
+  related?: Related[];
+  relatedCount?: number;
 };
 
 /** `facts` null: nothing there (404) or nothing known yet; the ref is drawn as written either way. */
@@ -30,33 +36,83 @@ const SUMMARY_TRIES = 2;
 
 export const cacheKey = (ref: PeekRef) => `${ref.repo}#${ref.number}`;
 
-type IssueJson = {
-  title?: unknown; body?: unknown; state?: unknown; draft?: unknown; updated_at?: unknown;
-  labels?: Array<{ name?: unknown }>; pull_request?: { merged_at?: unknown };
-};
+/** How many related items one answer carries. */
+export const RELATED_MAX = 4;
 
-function readJson(text: string): IssueJson | null {
+const LABELS = 'labels(first: 20) { nodes { name } }';
+const QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issueOrPullRequest(number: $number) {
+      __typename
+      ... on PullRequest {
+        title body state isDraft updatedAt ${LABELS}
+        closingIssuesReferences(first: ${RELATED_MAX}) { totalCount nodes { number title ${LABELS} repository { nameWithOwner } } }
+      }
+      ... on Issue {
+        title body state updatedAt ${LABELS}
+        closedByPullRequestsReferences(first: ${RELATED_MAX}, includeClosedPrs: true) { totalCount nodes { number title repository { nameWithOwner } } }
+      }
+    }
+  }
+}`;
+
+/** The `gh` command that asks about one ref and what relates to it. */
+export function issueCommand(ref: PeekRef): string[] {
+  const [owner = '', name = ''] = ref.repo.split('/');
+  return ['gh', 'api', 'graphql', '-f', `query=${QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${ref.number}`];
+}
+
+type Labels = { nodes?: Array<{ name?: unknown }> };
+type RelatedNode = { number?: unknown; title?: unknown; labels?: Labels; repository?: { nameWithOwner?: unknown } };
+type Connection = { totalCount?: unknown; nodes?: RelatedNode[] };
+type IssueNode = {
+  __typename?: unknown; title?: unknown; body?: unknown; state?: unknown; isDraft?: unknown; updatedAt?: unknown; labels?: Labels;
+  closingIssuesReferences?: Connection; closedByPullRequestsReferences?: Connection;
+};
+type Answer = { data?: { repository?: { issueOrPullRequest?: IssueNode | null } | null }; errors?: Array<{ type?: unknown }> };
+
+function readJson(text: string): Answer | null {
   try {
     const value: unknown = JSON.parse(text);
-    return typeof value === 'object' && value !== null ? value as IssueJson : null;
+    return typeof value === 'object' && value !== null ? value as Answer : null;
   } catch {
     return null;
   }
 }
 
-/** One answer of the issues endpoint; a PR is told by its `pull_request` key. null when it is not such an answer. */
-export function parseIssue(text: string): Facts | null {
+const isSpecLabelled = (labels: Labels | undefined) => labels?.nodes?.some(l => l.name === 'spec') === true;
+
+function relatedOf(node: RelatedNode, kind: Related['kind']): Related | null {
+  const repo = node.repository?.nameWithOwner;
+  if (typeof node.number !== 'number' || typeof node.title !== 'string' || typeof repo !== 'string') return null;
+  return { repo, number: node.number, kind, title: node.title };
+}
+
+function relatedNodes(connection: Connection | undefined, isPr: boolean): Related[] {
+  const kindOf = (node: RelatedNode) => (isPr ? (isSpecLabelled(node.labels) ? 'Spec' : 'Ticket') : 'PR');
+  return (connection?.nodes ?? []).flatMap(node => relatedOf(node, kindOf(node)) ?? []);
+}
+
+/** One answer of `issueCommand`, whatever gh's exit code: it fails on a number nothing has, and says why here. */
+export function parseIssue(text: string): FetchAnswer {
   const raw = readJson(text);
-  if (raw === null || typeof raw.title !== 'string' || typeof raw.state !== 'string' || typeof raw.updated_at !== 'string') return null;
+  if (raw?.errors?.some(e => e.type === 'NOT_FOUND') === true) return 'missing';
+  const node = raw?.data?.repository?.issueOrPullRequest;
+  if (node == null || typeof node.title !== 'string' || typeof node.state !== 'string' || typeof node.updatedAt !== 'string') return 'failed';
+  const isPr = node.__typename === 'PullRequest';
+  const connection = isPr ? node.closingIssuesReferences : node.closedByPullRequestsReferences;
+  const related = relatedNodes(connection, isPr);
   return {
-    title: raw.title,
-    body: typeof raw.body === 'string' ? raw.body.slice(0, BODY_CAP) : '',
-    state: raw.state,
-    isPr: raw.pull_request !== undefined,
-    isDraft: raw.draft === true,
-    isMerged: Boolean(raw.pull_request?.merged_at),
-    isSpec: Array.isArray(raw.labels) && raw.labels.some(l => l.name === 'spec'),
-    updatedAt: raw.updated_at,
+    title: node.title,
+    body: typeof node.body === 'string' ? node.body.slice(0, BODY_CAP) : '',
+    state: node.state === 'MERGED' ? 'closed' : node.state.toLowerCase(),
+    isPr,
+    isDraft: node.isDraft === true,
+    isMerged: node.state === 'MERGED',
+    isSpec: isSpecLabelled(node.labels),
+    updatedAt: node.updatedAt,
+    related,
+    relatedCount: typeof connection?.totalCount === 'number' ? connection.totalCount : related.length,
   };
 }
 

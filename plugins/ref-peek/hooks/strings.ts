@@ -11,4 +11,7 @@ export const t = {
   pending: '生成中…',
   changes: '做完后的变化',
   close: ' 收起 ',
+  linked: '关联',
+  closedBy: '所属',
+  more: (count: number) => `还有 ${count} 个`,
 };

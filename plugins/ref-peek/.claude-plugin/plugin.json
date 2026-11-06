@@ -1,7 +1,7 @@
 {
   "name": "ref-peek",
   "version": "0.0.1",
-  "description": "Explains the PR, Ticket and Spec numbers a reply mentions: a plain one-sentence note after each number, and a click on it opens a card above the prompt. Display only.",
+  "description": "Explains the PR, Ticket and Spec numbers a reply mentions: a plain one-sentence note after each number, and a click on it opens a bubble over the reply. Display only.",
   "author": {
     "name": "nokiy"
   },

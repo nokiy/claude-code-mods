@@ -1,6 +1,6 @@
 // Recognition and annotation of the numbers a reply mentions.
 import { expect, test } from 'claude-code/testing';
-import { annotate, findRefs } from '../hooks/refs';
+import { anchorOf, annotate, cellsOf, findRefs, wrapped } from '../hooks/refs';
 import type { Lookup } from '../hooks/refs';
 
 const found = (text: string) => findRefs(text).map(t => t.text);
@@ -53,7 +53,8 @@ test('a paragraph after a blank line ends the list', () => {
 });
 
 test('things that only look like a number stay out', () => {
-  for (const text of ['C#', 'C# 7', 'C#7', 'foo#12', 'https://x.test/y#12', 'www.x.test/#12', '&#39;', '# 12 heading', '###12', '#12a', '#1.2', '#0', 'a/b/c#1', 'o/r#12', '../up#1', 'fix_#12_login', '#12_old', 'foo_#12']) {
+  const lookalikes = ['C#', 'C# 7', 'C#7', 'foo#12', 'https://x.test/y#12', 'www.x.test/#12', '&#39;', '# 12 heading', '###12', '#12a', '#1.2', '#0'];
+  for (const text of [...lookalikes, 'a/b/c#1', 'o/r#12', '../up#1', 'fix_#12_login', '#12_old', 'foo_#12']) {
     expect(found(text)).toEqual([]);
   }
 });
@@ -147,4 +148,67 @@ test('a number with nothing known stays as written, link-free', () => {
 
 test('an empty note leaves the link alone', () => {
   expect(annotate('PR #52', t => ({ ...known(t)!, gloss: '' })).text).toBe(link('PR #52'));
+});
+
+const HREF = 'https://github.com/o/r/pull/60';
+const REF = `[PR #60](${HREF})`;
+const WIDE_ROW = '字'.repeat(30);
+
+test('cells: Chinese and full-width marks take two, the rest one', () => {
+  expect(cellsOf('aB #1')).toBe(5);
+  expect(cellsOf('中文（）。')).toBe(10);
+});
+
+test('a line wraps at spaces, and a word wider than the row breaks by the cell', () => {
+  expect(wrapped('aaa bbb', 10)).toEqual({ row: 0, column: 7 });
+  expect(wrapped('aaaaaa bbbbbb', 10)).toEqual({ row: 1, column: 6 });
+  expect(wrapped('字'.repeat(7), 10)).toEqual({ row: 1, column: 4 });
+});
+
+test('a word wider than the row starts on a fresh one only when that saves a row', () => {
+  expect(wrapped(`a ${'b'.repeat(12)}`, 10)).toEqual({ row: 1, column: 4 });
+  expect(wrapped(`aaaaaaaa ${'b'.repeat(10)}`, 10)).toEqual({ row: 1, column: 10 });
+});
+
+test('a link not in the block has no anchor', () => {
+  expect(anchorOf('文字', HREF, 80)).toBeNull();
+});
+
+test('a paragraph: the block parts after it, one blank row on', () => {
+  const anchor = anchorOf(`甲\n\n乙 ${REF} 丙\n\n丁`, HREF, 80);
+  expect(anchor).toEqual({ through: `甲\n\n乙 ${REF} 丙`, tail: '丁', gap: 1, row: 2, rowsBelow: 0, column: 3 });
+});
+
+test('the last unit leaves no tail', () => {
+  expect(anchorOf(`甲 ${REF}`, HREF, 80)).toMatchObject({ through: `甲 ${REF}`, tail: '', gap: 0 });
+});
+
+test('a ref late in a wrapped paragraph counts the rows above and under it', () => {
+  const anchor = anchorOf(`${WIDE_ROW}${WIDE_ROW}${REF} ${WIDE_ROW}${WIDE_ROW}`, HREF, 60);
+  expect(anchor).toMatchObject({ row: 2, rowsBelow: 2, column: 0 });
+});
+
+test('a rule right under the paragraph takes no row', () => {
+  expect(anchorOf(`${REF}\n---\n\n丁`, HREF, 80)).toMatchObject({ rowsBelow: 0 });
+});
+
+test('a list item is its own unit, and wraps beside its marker', () => {
+  const text = `- 甲\n- ${WIDE_ROW}${WIDE_ROW} ${REF} 丙\n- 丁`;
+  expect(anchorOf(text, HREF, 62)).toMatchObject({ through: `- 甲\n- ${WIDE_ROW}${WIDE_ROW} ${REF} 丙`, tail: '- 丁', gap: 0, row: 3, rowsBelow: 0, column: 2 });
+});
+
+test('an ordered item keeps the width of its own marker', () => {
+  expect(anchorOf(`1. ${REF}\n2. 乙`, HREF, 80)).toMatchObject({ column: 3, tail: '2. 乙', gap: 0 });
+});
+
+test('a table is one unit: the rows under the link, a rule over each, then the bottom edge', () => {
+  const text = `| 项 | 状态 |\n| --- | --- |\n| 甲 | ${REF} |\n| 乙 | 无 |\n| 丙 | 无 |\n\n后文`;
+  const anchor = anchorOf(text, HREF, 80);
+  expect(anchor).toMatchObject({ tail: '后文', gap: 1, rowsBelow: 5, column: 7 });
+  expect(anchor?.through.endsWith('| 丙 | 无 |')).toBe(true);
+});
+
+test('a table wider than the block counts the rows its cells wrap to', () => {
+  const text = `| 项 | 备注 |\n| --- | --- |\n| ${REF} | 无 |\n| 乙 | ${'字'.repeat(60)} |`;
+  expect(anchorOf(text, HREF, 60)?.rowsBelow).toBe(2 + 1 + 2 + 1 - 1 + 2);
 });

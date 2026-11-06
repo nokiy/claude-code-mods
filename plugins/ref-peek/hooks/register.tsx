@@ -1,13 +1,13 @@
-// Hooks entry of ref-peek: annotates the numbers a reply mentions, draws the card above the prompt, and keeps the cache behind them.
+// Hooks entry of ref-peek: annotates the numbers a reply mentions, draws the bubble over the reply, and keeps the cache behind them.
 // The engine's `$` and the atoms stay in this file (the validator follows them nowhere else); recognition lives in refs.ts,
-// repositories in repo.ts, cache decisions in cache.ts, the model's text in summary.ts, card text in card.ts; tests are in ../tests.
+// repositories in repo.ts, cache decisions in cache.ts, the model's text in summary.ts, bubble text and placement in card.ts; tests are in ../tests.
 import { atom, memberOf, read, update } from 'claude-code';
 import type { EngineInterface, Register, RenderInput } from 'claude-code';
-import { applyFetch, cacheKey, isDue, needsCheck, needsSummary, parseIssue, withSummary } from './cache';
+import { applyFetch, cacheKey, isDue, issueCommand, needsCheck, needsSummary, parseIssue, withSummary } from './cache';
 import type { Entry, Facts, FetchAnswer } from './cache';
-import { cardView, glossOf } from './card';
-import type { CardView } from './card';
-import { annotate, findRefs } from './refs';
+import { bareView, cardView, fit, glossOf, placeBubble } from './card';
+import type { CardView, Placement } from './card';
+import { anchorOf, annotate, findRefs } from './refs';
 import type { Annotated, RefToken } from './refs';
 import { commandHint, hrefOf, parseHref, parseRemote } from './repo';
 import type { CommandHint } from './repo';
@@ -26,7 +26,9 @@ const MAX_FETCHES = 2;
 const GH_TIMEOUT_MS = 10_000;
 const GIT_TIMEOUT_MS = 5_000;
 const MODEL_TIMEOUT_MS = 20_000;
-const CARD_COLUMNS = 76;
+const DEFAULT_COLUMNS = 80;
+const BULLET_COLUMNS = 2;
+const BUBBLE_FILL = 'userMessageBackground';
 // The most links one Markdown answers (the engine's limit).
 const MAX_PRESSABLE = 256;
 // The engine's reply bullet on macOS; a mod is not told the platform, and this one is loaded on macOS only for now.
@@ -54,12 +56,10 @@ async function saveEntry($: EngineInterface, ref: PeekRef, entry: Entry): Promis
   await update($, revision, n => n + 1);
 }
 
-// Never throws: anything but an answer or a 404 is a transient failure.
+// Never throws: anything but an answer or a number GitHub does not know is a transient failure.
 async function fetchIssue($: EngineInterface, ref: PeekRef): Promise<FetchAnswer> {
   try {
-    const r = await $.process.run(['gh', 'api', `repos/${ref.repo}/issues/${ref.number}`], { timeoutMs: GH_TIMEOUT_MS });
-    if (r.exitCode === 0) return parseIssue(r.stdout) ?? 'failed';
-    return r.stderr.includes('HTTP 404') ? 'missing' : 'failed';
+    return parseIssue((await $.process.run(issueCommand(ref), { timeoutMs: GH_TIMEOUT_MS })).stdout);
   } catch {
     return 'failed';
   }
@@ -194,15 +194,23 @@ async function annotatedBlock($: EngineInterface, requestId: string, text: strin
 
 const isSameRef = (a: PeekRef | null, b: PeekRef) => a?.repo === b.repo && a?.number === b.number;
 
-async function togglePeek($: EngineInterface, href: string): Promise<void> {
-  const ref = parseHref(href);
-  if (ref !== null) await update($, peek, open => (isSameRef(open, ref) ? null : ref));
+// A press on the anchor closes the bubble; any other ref of any block moves it there.
+async function pressRef($: EngineInterface, href: string, requestId: string): Promise<void> {
+  const shown = parseHref(href);
+  if (shown === null) return;
+  await update($, peek, open => (open?.requestId === requestId && open.href === href ? null : { requestId, href, shown }));
 }
 
-function drawCard($: EngineInterface, e: RenderInput<'AbovePrompt'>, view: CardView) {
+// A related row: the bubble stays where it stands and shows that ref.
+async function showRef($: EngineInterface, shown: PeekRef): Promise<void> {
+  await update($, peek, open => open && { ...open, shown });
+}
+
+function drawBubble($: EngineInterface, e: RenderInput<'AssistantMessage'>, view: CardView, at: Placement) {
   const { Box, Button, Text } = $.ui.resolve(e);
+  const side = at.side === 'above' ? { bottom: at.offset } : { top: at.offset };
   return (
-    <Box flexDirection="column" borderStyle="round" paddingX={1} width={Math.min(e.props.bodyColumns, CARD_COLUMNS)}>
+    <Box position="absolute" {...side} left={at.left} width={at.width} flexDirection="column" borderStyle="round" paddingX={1} backgroundColor={BUBBLE_FILL}>
       <Box flexDirection="row">
         <Box flexGrow={1} flexShrink={1}><Text bold>{view.head}</Text></Box>
         <Box key="close-box" flexShrink={0} marginLeft={1}>
@@ -217,6 +225,53 @@ function drawCard($: EngineInterface, e: RenderInput<'AbovePrompt'>, view: CardV
           {view.changes.map(line => <Text>{`· ${line}`}</Text>)}
         </Box>
       ) : null}
+      {view.related.map(row => (
+        <Box key={`related-box-${cacheKey(row.ref)}`}>
+          <Button key={`related-${cacheKey(row.ref)}`} label={fit(row.label, at.inner)} plain hover={{ color: 'cyan', bold: true }} onPress={() => showRef($, row.ref)} />
+        </Box>
+      ))}
+      {view.more === null ? null : <Text dimColor>{view.more}</Text>}
+    </Box>
+  );
+}
+
+// What the open bubble of this block shows, or null when the bubble is elsewhere.
+async function openView($: EngineInterface, e: RenderInput<'AssistantMessage'>) {
+  const open = await read($, peek);
+  if (open === null || open.requestId !== e.requestId) return null;
+  const entry = await readEntry($, open.shown);
+  const failures = failuresOf(open.shown, entry);
+  if (isDue(entry, await $.clock.now(), failures)) schedule($, open.shown);
+  const isPending = entry === undefined || queued.has(cacheKey(open.shown)) || needsSummary(entry, failures);
+  const view = entry?.facts == null ? bareView(open.shown, isPending) : cardView(open.shown, entry.facts, entry.summary, needsSummary(entry, failures));
+  return { href: open.href, view };
+}
+
+// The reply's Markdown. With the bubble open it is cut after the unit holding the ref: the engine's layout then counts the rows down to the ref,
+// and only the rows left in that unit are estimated. Drawn last in its Box, the bubble paints over what stands before it.
+async function drawReply($: EngineInterface, e: RenderInput<'AssistantMessage'>, out: Annotated) {
+  const { Box, Markdown } = $.ui.resolve(e);
+  const press = (link: { href: string }) => pressRef($, link.href, e.requestId);
+  const reply = (key: string, text: string) => <Markdown key={key} text={text} onLinkPress={press} pressableLinks={out.hrefs.slice(0, MAX_PRESSABLE)} />;
+  const open = await openView($, e);
+  const columns = (e.viewport?.columns ?? DEFAULT_COLUMNS) - BULLET_COLUMNS;
+  const anchor = open === null ? null : anchorOf(out.text, open.href, columns);
+  if (open === null || anchor === null) return reply('reply', out.text);
+
+  const at = placeBubble(anchor, open.view, { columns, onScreen: e.props.onScreen });
+  const bubble = drawBubble($, e, open.view, at);
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="column">
+        {reply('reply', anchor.through)}
+        {at.side === 'above' ? bubble : null}
+      </Box>
+      {anchor.tail === '' ? null : (
+        <Box flexDirection="column" marginTop={anchor.gap}>
+          {reply('reply-tail', anchor.tail)}
+          {at.side === 'below' ? bubble : null}
+        </Box>
+      )}
     </Box>
   );
 }
@@ -236,30 +291,14 @@ export const register: Register = on => {
     if (out === null) return next(e);
     if (e.surface !== 'terminal' || e.viewport?.isFullscreen === false) return next({ ...e, props: { ...e.props, text: out.text } });
 
-    const { Box, Markdown, Text } = $.ui.resolve(e);
+    const { Box, Text } = $.ui.resolve(e);
     return (
       <Box alignItems="flex-start" flexDirection="row" marginTop={1} width="100%">
-        {e.props.isFirstOfReply ? <Box minWidth={2}><Text color="text">{BULLET}</Text></Box> : null}
+        {e.props.isFirstOfReply ? <Box minWidth={BULLET_COLUMNS}><Text color="text">{BULLET}</Text></Box> : null}
         <Box flexDirection="column">
-          <Markdown key="reply" text={out.text} onLinkPress={link => togglePeek($, link.href)} pressableLinks={out.hrefs.slice(0, MAX_PRESSABLE)} />
+          {await drawReply($, e, out)}
         </Box>
       </Box>
     );
-  });
-
-  // The card stands above the engine's band, never in its place.
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const ref = await read($, peek);
-    if (ref === null || e.props.hasSurvey) return next(e);
-    // Subscribes this drawing: an open card follows the cache and the queue.
-    await read($, revision);
-    const entry = await readEntry($, ref);
-    if (entry?.facts == null) return next(e);
-    const failures = failuresOf(ref, entry);
-    if (isDue(entry, await $.clock.now(), failures)) schedule($, ref);
-
-    const { Box } = $.ui.resolve(e);
-    const view = cardView(ref, entry.facts, entry.summary, needsSummary(entry, failures));
-    return <Box flexDirection="column">{drawCard($, e, view)}{await next(e)}</Box>;
   });
 };
