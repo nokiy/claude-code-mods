@@ -77,7 +77,7 @@ test('two spellings of one number count as one ref', () => {
 });
 
 test('a number already explained gets the link alone', () => {
-  for (const after of ['（已有说明）', ' (note)', '(note)']) {
+  for (const after of ['（已有说明）', ' (note)', '(note)', '：积分兑换', ': note', ' ：积分兑换', '  （说明）', ' — 积分兑换', ' – 积分兑换', ' - 积分兑换']) {
     expect(annotate(`PR #52${after}`, known).text).toBe(`${link('PR #52')}${after}`);
   }
   expect(annotate('**PR #52**（说明）', known).text).toBe(`${link('PR #52')}（说明）`);
@@ -114,6 +114,10 @@ test('marks that open nothing stay', () => {
   expect(annotate('snake_case PR #52 more_text', known).text).toBe(`snake_case ${NOTED}more_text`);
   expect(annotate('2 * 3 PR #52 4 * 5', known).text).toBe(`2 * 3 ${NOTED}4 * 5`);
   expect(annotate('* PR #52\n* 下一条', known).text).toBe(`* ${NOTED}\n* 下一条`);
+});
+
+test('a list dash on the next line explains nothing', () => {
+  expect(annotate('- PR #52\n- 下一条', known).text).toBe(`- ${NOTED}\n- 下一条`);
 });
 
 test('a later mention does not make up for one that was already explained', () => {

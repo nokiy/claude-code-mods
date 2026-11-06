@@ -22,7 +22,7 @@ const REF = /(?<![A-Za-z0-9#/&.-])(?:(?:PR|Ticket|Spec|Issue) )?#(?<number>[1-9]
 // An emphasis span on one line: `*` opens anywhere but before a space, `_` also needs no word around it.
 const EMPHASIS = /(?<![\\*])(\*{1,3})(?=[^\s*])[^\n]*?(?<=[^\s*])\1(?!\*)|(?<![\\\w])(_{1,3})(?=[^\s_])[^\n]*?(?<=[^\s_])\2(?!\w)/g;
 // An explanation already there; a closing `**` may stand between the number and it.
-const EXPLAINED = /^[*_]* ?[（(]/;
+const EXPLAINED = /^[*_]* *[（(：:—–-]/;
 const SPACE_AFTER_NOTE = /^ [^|\s]/;
 
 function closesFence(open: string, mark: string, rest: string): boolean {
@@ -127,7 +127,7 @@ export function annotate(block: string, lookup: Lookup): { text: string; hrefs: 
     if (hit === null) continue;
     const isFirst = !hrefs.has(hit.href);
     hrefs.add(hit.href);
-    const hasNote = !isFirst || hit.gloss === '' || EXPLAINED.test(text.slice(token.end, token.end + 4));
+    const hasNote = !isFirst || hit.gloss === '' || EXPLAINED.test(text.slice(token.end));
     out += `${text.slice(at, token.start)}[${token.text}](${hit.href})${hasNote ? '' : `（${hit.gloss}）`}`;
     // The note's own bracket does the spacing, so a space after it goes (a table cell keeps its padding).
     at = token.end + (!hasNote && SPACE_AFTER_NOTE.test(text.slice(token.end, token.end + 2)) ? 1 : 0);
