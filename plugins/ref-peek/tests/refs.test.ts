@@ -4,7 +4,7 @@ import { annotate, findRefs } from '../hooks/refs';
 import type { Lookup } from '../hooks/refs';
 
 const found = (text: string) => findRefs(text).map(t => t.text);
-const known: Lookup = t => ({ href: `https://github.com/${t.repo ?? 'o/r'}/pull/${t.number}`, gloss: '一句话' });
+const known: Lookup = t => ({ href: `https://github.com/o/r/pull/${t.number}`, gloss: '一句话' });
 const link = (label: string, n = 52) => `[${label}](https://github.com/o/r/pull/${n})`;
 
 test('every written form is recognised', () => {
@@ -36,22 +36,13 @@ test('an unclosed fence runs to the end of the block', () => {
 });
 
 test('things that only look like a number stay out', () => {
-  for (const text of ['C#', 'C# 7', 'C#7', 'foo#12', 'https://x.test/y#12', 'www.x.test/#12', '&#39;', '# 12 heading', '###12', '#12a', '#1.2', '#0', 'a/b/c#1']) {
+  for (const text of ['C#', 'C# 7', 'C#7', 'foo#12', 'https://x.test/y#12', 'www.x.test/#12', '&#39;', '# 12 heading', '###12', '#12a', '#1.2', '#0', 'a/b/c#1', 'o/r#12', '../up#1']) {
     expect(found(text)).toEqual([]);
   }
 });
 
 test('a heading keeps its marks and a number after them is a number', () => {
   expect(found('## #12 标题')).toEqual(['#12']);
-});
-
-test('owner/repo#N names its own repository', () => {
-  expect(findRefs('见 nokiy/claude-code-mods#12')[0]).toMatchObject({ number: 12, repo: 'nokiy/claude-code-mods' });
-  expect(findRefs('PR #12')[0]?.repo).toBeNull();
-});
-
-test('a dotted path segment is no repository', () => {
-  expect(findRefs('../up#1').some(t => t.repo !== null)).toBe(false);
 });
 
 test('the note follows the first mention and the link every mention', () => {

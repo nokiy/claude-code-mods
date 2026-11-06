@@ -1,7 +1,7 @@
 // Finds the PR / Ticket / Spec numbers in a block of markdown and writes the annotated block. Pure text, no model.
 
-/** One mention: where it stands, how it is written, and the repository it names itself (`o/r#N`). */
-export type RefToken = { start: number; end: number; text: string; number: number; repo: string | null };
+/** One mention: where it stands and how it is written. */
+export type RefToken = { start: number; end: number; text: string; number: number };
 
 /** What a mention links to and the note after its first occurrence; null leaves it as written. */
 export type Lookup = (token: RefToken) => { href: string; gloss: string } | null;
@@ -15,7 +15,7 @@ const SKIPPED = [
   /(?:https?:\/\/|www\.)[^\s）」]+/g,
 ];
 // The guards are ASCII on purpose: Chinese has no spaces, so `见#12的` is a mention while `C#`, `foo#12` and `&#39;` are not.
-const REF = /(?<![\w#/&.-])(?:(?<repo>\w[\w.-]*\/\w[\w.-]*)#|(?:(?:PR|Ticket|Spec|Issue) )?#)(?<number>[1-9]\d{0,6})(?!\w|\.\d)/g;
+const REF = /(?<![\w#/&.-])(?:(?:PR|Ticket|Spec|Issue) )?#(?<number>[1-9]\d{0,6})(?!\w|\.\d)/g;
 // An explanation already there; a closing `**` may stand between the number and it.
 const EXPLAINED = /^[*_]* ?[（(]/;
 const SPACE_AFTER_NOTE = /^ [^|\s]/;
@@ -68,7 +68,6 @@ export function findRefs(text: string): RefToken[] {
     end: m.index + m[0].length,
     text: m[0],
     number: Number(m.groups?.number),
-    repo: m.groups?.repo ?? null,
   }));
 }
 

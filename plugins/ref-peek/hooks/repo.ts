@@ -1,5 +1,4 @@
-// Reads a GitHub repository out of remotes, a block's own text, Bash commands and the links ref-peek writes.
-import { findRefs } from './refs';
+// Reads a GitHub repository out of remotes, Bash commands and the links ref-peek writes.
 import type { PeekRef } from '../types';
 
 /** What a Bash command says about where the session works: a repository outright, or a path to ask git about. */
@@ -18,11 +17,6 @@ const withoutSuffix = (repo: string) => repo.replace(/\.git$/, '').replace(/\.$/
 export function parseRemote(url: string): string | null {
   const repo = GITHUB.exec(url.trim())?.[1];
   return repo === undefined ? null : withoutSuffix(repo);
-}
-
-/** The repository a block names itself: a github.com URL, else `o/r#N`. */
-export function repoInText(text: string): string | null {
-  return parseRemote(text) ?? findRefs(text).find(t => t.repo !== null)?.repo ?? null;
 }
 
 /** What one Bash command tells: a named repository wins over a path; a path the shell has yet to expand tells nothing. */

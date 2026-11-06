@@ -8,7 +8,7 @@ import type { Entry, Facts, FetchAnswer } from './cache';
 import { cardView, glossOf } from './card';
 import { annotate, findRefs } from './refs';
 import type { RefToken } from './refs';
-import { commandHint, hrefOf, parseHref, parseRemote, repoInText } from './repo';
+import { commandHint, hrefOf, parseHref, parseRemote } from './repo';
 import type { CommandHint } from './repo';
 import { t } from './strings';
 import { buildPrompt, parseSummary } from './summary';
@@ -144,10 +144,8 @@ async function sessionRepo($: EngineInterface): Promise<string | null> {
   return null;
 }
 
-// The block's repository. One that comes from the session is pinned to the block, so a later move elsewhere does not turn an old #52 into another repository's.
-async function repoOfBlock($: EngineInterface, requestId: string, text: string): Promise<string | null> {
-  const own = repoInText(text);
-  if (own !== null) return own;
+// The block's repository: the session's, pinned to the block so a later move elsewhere does not turn an old #52 into another repository's.
+async function repoOfBlock($: EngineInterface, requestId: string): Promise<string | null> {
   const member = memberOf(blockRepo, { requestId });
   const pinned = await read($, member);
   if (pinned !== null) return pinned;
@@ -156,7 +154,7 @@ async function repoOfBlock($: EngineInterface, requestId: string, text: string):
   return repo;
 }
 
-const refOf = (token: RefToken, repo: string): PeekRef => ({ repo: token.repo ?? repo, number: token.number });
+const refOf = (token: RefToken, repo: string): PeekRef => ({ repo, number: token.number });
 
 // Each ref's cached entry, asking the background for those that are due. Never waits on the network.
 async function readBlockEntries($: EngineInterface, tokens: RefToken[], repo: string): Promise<Map<string, Entry | undefined>> {
@@ -176,7 +174,7 @@ async function readBlockEntries($: EngineInterface, tokens: RefToken[], repo: st
 async function annotatedBlock($: EngineInterface, requestId: string, text: string): Promise<{ text: string; hrefs: string[] } | null> {
   const tokens = findRefs(text);
   if (tokens.length === 0) return null;
-  const repo = await repoOfBlock($, requestId, text);
+  const repo = await repoOfBlock($, requestId);
   if (repo === null) return null;
   await read($, revision);
   const entries = await readBlockEntries($, tokens, repo);

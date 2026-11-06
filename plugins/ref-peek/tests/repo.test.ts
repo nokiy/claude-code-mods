@@ -1,7 +1,7 @@
-// Where a repository is read from (remotes, a block's own text, Bash commands, the links ref-peek wrote), then which one a block's numbers belong to:
-// the block's own text, the session's last repository, the cwd's origin.
+// Where a repository is read from (remotes, Bash commands, the links ref-peek wrote), then which one a block's numbers belong to:
+// the session's last repository, the cwd's origin.
 import { expect, test } from 'claude-code/testing';
-import { commandHint, hrefOf, parseHref, parseRemote, repoInText } from '../hooks/repo';
+import { commandHint, hrefOf, parseHref, parseRemote } from '../hooks/repo';
 import { linked, mountBlock, prJson, shown, st, tally, wire } from './testkit';
 
 test('every GitHub remote spelling gives owner/repo', () => {
@@ -13,12 +13,6 @@ test('every GitHub remote spelling gives owner/repo', () => {
 test('a remote elsewhere is no repository', () => {
   expect(parseRemote('git@gitlab.com:o/r.git')).toBeNull();
   expect(parseRemote('')).toBeNull();
-});
-
-test('a block names its repository by URL or by o/r#N', () => {
-  expect(repoInText('见 https://github.com/o/r/pull/5 的 PR #52')).toBe('o/r');
-  expect(repoInText('nokiy/mods#12 已合并')).toBe('nokiy/mods');
-  expect(repoInText('PR #52')).toBeNull();
 });
 
 test('a Bash command names a repository', () => {
@@ -123,22 +117,24 @@ test('a path outside any repository changes nothing', async ($, on) => {
   expect(tally.ghPaths).toEqual(['repos/o/r/issues/52']);
 });
 
-test('a URL in the block beats everything', async ($, on) => {
+test('a URL in the block does not move its numbers to that repository', async ($, on) => {
   const clock = wire(on);
+  st.issues['a/b#52'] = prJson(52);
   st.issues['e/f#52'] = prJson(52);
   await $.tool.call(bash('gh pr view 1 --repo a/b'));
   await clock.settle();
   await mountBlock($, { text: 'https://github.com/e/f 的 PR #52' });
   await clock.settle();
-  expect(tally.ghPaths).toEqual(['repos/e/f/issues/52']);
+  expect(tally.ghPaths).toEqual(['repos/a/b/issues/52']);
 });
 
-test('o/r#N links to that repository', async ($, on) => {
+test('o/r#N is no mention and moves nothing', async ($, on) => {
   const clock = wire(on);
   st.issues['e/f#52'] = prJson(52);
-  const ui = await mountBlock($, { text: '见 e/f#52' });
+  const ui = await mountBlock($, { text: '见 e/f#52 和 PR #52' });
   await clock.settle();
-  expect(await shown(ui)).toContain(linked('e/f#52', 52, 'e/f'));
+  expect(tally.ghPaths).toEqual(['repos/o/r/issues/52']);
+  expect(await shown(ui)).toContain('见 e/f#52 和 ');
 });
 
 test('a block keeps the repository it was first drawn under', async ($, on) => {
