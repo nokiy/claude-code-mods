@@ -15,7 +15,10 @@ const SKIPPED = [
   /(?:https?:\/\/|www\.)[^\s）」]+/g,
 ];
 // The guards are ASCII on purpose: Chinese has no spaces, so `见#12的` is a mention while `C#`, `foo#12` and `&#39;` are not.
-const REF = /(?<![\w#/&.-])(?:(?:PR|Ticket|Spec|Issue) )?#(?<number>[1-9]\d{0,6})(?!\w|\.\d)/g;
+// `_` is left out of them: it is an emphasis mark in `__PR #52__`.
+const REF = /(?<![A-Za-z0-9#/&.-])(?:(?:PR|Ticket|Spec|Issue) )?#(?<number>[1-9]\d{0,6})(?![A-Za-z0-9]|\.\d)/g;
+// An emphasis span on one line: `*` opens anywhere but before a space, `_` also needs no word around it.
+const EMPHASIS = /(?<![\\*])(\*{1,3})(?=[^\s*])[^\n]*?(?<=[^\s*])\1(?!\*)|(?<![\\\w])(_{1,3})(?=[^\s_])[^\n]*?(?<=[^\s_])\2(?!\w)/g;
 // An explanation already there; a closing `**` may stand between the number and it.
 const EXPLAINED = /^[*_]* ?[（(]/;
 const SPACE_AFTER_NOTE = /^ [^|\s]/;
@@ -48,8 +51,9 @@ function fencedRanges(text: string): Array<[number, number]> {
   return ranges;
 }
 
+// NUL, not a space: code at the edge of an emphasis span must not read as whitespace beside its marks.
 function blank(text: string, start: number, end: number): string {
-  return text.slice(0, start) + ' '.repeat(end - start) + text.slice(end);
+  return text.slice(0, start) + '\0'.repeat(end - start) + text.slice(end);
 }
 
 // The block with everything that holds no mention blanked out, every offset unchanged.
@@ -71,8 +75,25 @@ export function findRefs(text: string): RefToken[] {
   }));
 }
 
+// The block without the emphasis marks around known mentions, inner spans too: after a link's `)` or a note's `）`, a closing mark
+// followed by Chinese no longer closes anything and would show as written. The link is styled already.
+function withoutEmphasis(text: string, lookup: Lookup): string {
+  const known = findRefs(text).filter(token => lookup(token) !== null);
+  let out = '';
+  let at = 0;
+  for (const m of masked(text).matchAll(EMPHASIS)) {
+    const end = m.index + m[0].length;
+    if (!known.some(token => m.index <= token.start && token.end <= end)) continue;
+    const width = (m[1] ?? m[2] ?? '').length;
+    out += text.slice(at, m.index) + text.slice(m.index + width, end - width);
+    at = end;
+  }
+  return at === 0 ? text : withoutEmphasis(out + text.slice(at), lookup);
+}
+
 /** The block with each known mention linked and the first mention of each ref explained, plus the links written. */
-export function annotate(text: string, lookup: Lookup): { text: string; hrefs: string[] } {
+export function annotate(block: string, lookup: Lookup): { text: string; hrefs: string[] } {
+  const text = withoutEmphasis(block, lookup);
   const hrefs = new Set<string>();
   let out = '';
   let at = 0;

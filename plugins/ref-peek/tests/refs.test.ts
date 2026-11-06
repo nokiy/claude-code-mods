@@ -41,6 +41,10 @@ test('things that only look like a number stay out', () => {
   }
 });
 
+test('an underscore beside a number is emphasis, not a word', () => {
+  expect(found('__PR #52__ 和 _#53_')).toEqual(['PR #52', '#53']);
+});
+
 test('a heading keeps its marks and a number after them is a number', () => {
   expect(found('## #12 标题')).toEqual(['#12']);
 });
@@ -59,7 +63,40 @@ test('a number already explained gets the link alone', () => {
   for (const after of ['（已有说明）', ' (note)', '(note)']) {
     expect(annotate(`PR #52${after}`, known).text).toBe(`${link('PR #52')}${after}`);
   }
-  expect(annotate('**PR #52**（说明）', known).text).toBe(`**${link('PR #52')}**（说明）`);
+  expect(annotate('**PR #52**（说明）', known).text).toBe(`${link('PR #52')}（说明）`);
+});
+
+const NOTED = `${link('PR #52')}（一句话）`;
+
+test('an emphasis span around an annotated ref loses its marks', () => {
+  expect(annotate('**PR #52**已经', known).text).toBe(`${NOTED}已经`);
+  expect(annotate('已**PR #52**已', known).text).toBe(`已${NOTED}已`);
+  expect(annotate('**PR #52 已合并**', known).text).toBe(`${NOTED}已合并`);
+  expect(annotate('**PR #52** 已经', known).text).toBe(`${NOTED}已经`);
+  expect(annotate('__PR #52__', known).text).toBe(NOTED);
+  expect(annotate('*PR #52*已经', known).text).toBe(`${NOTED}已经`);
+  expect(annotate('***PR #52***已经', known).text).toBe(`${NOTED}已经`);
+});
+
+test('a second mention in emphasis loses its marks too', () => {
+  expect(annotate('PR #52 和 **PR #52**已经', known).text).toBe(`${NOTED}和 ${link('PR #52')}已经`);
+});
+
+test('nested emphasis and code inside the span do not keep the marks', () => {
+  expect(annotate('**前面 *PR #52* 后面**已经', known).text).toBe(`前面 ${NOTED}后面已经`);
+  expect(annotate('**`x` PR #52**已经', known).text).toBe(`\`x\` ${NOTED}已经`);
+});
+
+test('emphasis without an annotated ref stays', () => {
+  expect(annotate('**注意** PR #52 **重要**', known).text).toBe(`**注意** ${NOTED}**重要**`);
+  expect(annotate('**PR #52**已经', () => null).text).toBe('**PR #52**已经');
+  expect(annotate('**`PR #52`**已经', known).text).toBe('**`PR #52`**已经');
+});
+
+test('marks that open nothing stay', () => {
+  expect(annotate('snake_case PR #52 more_text', known).text).toBe(`snake_case ${NOTED}more_text`);
+  expect(annotate('2 * 3 PR #52 4 * 5', known).text).toBe(`2 * 3 ${NOTED}4 * 5`);
+  expect(annotate('* PR #52\n* 下一条', known).text).toBe(`* ${NOTED}\n* 下一条`);
 });
 
 test('a later mention does not make up for one that was already explained', () => {
