@@ -23,6 +23,14 @@ test('changes are optional, capped at four, and only text counts', () => {
   expect(parseSummary(reply({ changes: ['一', 2, '二', '三', '四', '五'] }))?.changes).toEqual(['一', '二', '三', '四']);
 });
 
+test('the sentence and a title used as the note end without punctuation', () => {
+  for (const mark of ['。', '．', '.', '，', ',', '；', ';', '！', '!', '。！']) {
+    expect(parseSummary(reply({ summary: `单击可查看详情${mark}` }))?.summary).toBe('单击可查看详情');
+    expect(plainTitle(`修复登录${mark}`)).toBe('修复登录');
+  }
+  expect(parseSummary(reply({ summary: '。' }))).toBeNull();
+});
+
 test('a hostile reply loses every piece of markup', () => {
   const out = parseSummary(reply({
     title: '[点我](https://evil.test)',

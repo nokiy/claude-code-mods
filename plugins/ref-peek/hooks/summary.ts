@@ -18,6 +18,8 @@ const MARKUP = /[[\](){}（）`*_<>|~\\]/g;
 const SCOPE_TAG = /^\[[^\]]*\]\s*/;
 const COMMIT_PREFIX = /^\w+(?:\([^)]*\))?!?:\s*/;
 const FRAME_TAG = /<\/?data>/gi;
+// The note stands in brackets inside someone's sentence, where a closing `。` reads wrong.
+const TRAILING_PUNCTUATION = /[。．.，,；;！!\s]+$/;
 
 function cut(text: string, max: number): string {
   const chars = Array.from(text);
@@ -30,9 +32,11 @@ export function sanitize(text: string, max: number): string {
   return cut(plain, max);
 }
 
-/** An original title fit to stand as the note: no `[scope]` tag, no `feat(x):` prefix, clean. */
+const withoutEnd = (text: string) => text.replace(TRAILING_PUNCTUATION, '');
+
+/** An original title fit to stand as the note: no `[scope]` tag, no `feat(x):` prefix, no closing punctuation, clean. */
 export function plainTitle(title: string): string {
-  return sanitize(title.replace(SCOPE_TAG, '').replace(COMMIT_PREFIX, ''), NOTE_CAP);
+  return withoutEnd(sanitize(title.replace(SCOPE_TAG, '').replace(COMMIT_PREFIX, ''), NOTE_CAP));
 }
 
 /** The whole request. Title and body are someone else's words: they stand inside one frame they cannot close. */
@@ -59,7 +63,7 @@ export function parseSummary(text: string): Summary | null {
   const raw = jsonIn(text) as { title?: unknown; summary?: unknown; changes?: unknown } | null;
   if (raw === null || typeof raw.title !== 'string' || typeof raw.summary !== 'string') return null;
   const title = sanitize(raw.title, TITLE_CAP);
-  const summary = sanitize(raw.summary, SUMMARY_CAP);
+  const summary = withoutEnd(sanitize(raw.summary, SUMMARY_CAP));
   if (title === '' || summary === '') return null;
   const lines = Array.isArray(raw.changes) ? raw.changes.filter(c => typeof c === 'string') : [];
   return { title, summary, changes: lines.map(c => sanitize(c, CHANGE_CAP)).filter(c => c !== '').slice(0, CHANGES_MAX) };
