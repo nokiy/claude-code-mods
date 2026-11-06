@@ -25,7 +25,7 @@ const MAX_FETCHES = 2;
 const GH_TIMEOUT_MS = 10_000;
 const GIT_TIMEOUT_MS = 5_000;
 const MODEL_TIMEOUT_MS = 20_000;
-const CARD_COLUMNS = 64;
+const CARD_COLUMNS = 76;
 // The most links one Markdown answers (the engine's limit).
 const MAX_PRESSABLE = 256;
 // The engine's reply bullet on macOS; a mod is not told the platform, and this one is loaded on macOS only for now.
@@ -243,9 +243,9 @@ export const register: Register = on => {
             </Box>
           </Box>
           <Text dimColor>{view.repo}</Text>
-          <Box marginTop={1}><Text>{view.sentence}</Text></Box>
+          <Text>{view.sentence}</Text>
           {view.changes.length > 0 ? (
-            <Box flexDirection="column" marginTop={1}>
+            <Box flexDirection="column">
               <Text dimColor>{t.changes}</Text>
               {view.changes.map(line => <Text>{`· ${line}`}</Text>)}
             </Box>

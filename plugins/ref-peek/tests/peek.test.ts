@@ -42,6 +42,21 @@ test('the card carries no file counts and no link to the PR', async ($, on) => {
   expect(tree).not.toMatch(/"Link"|打开 PR|Open PR|\+\d+|文件/);
 });
 
+test('the card stacks head, repo, sentence and changes with no blank rows, wide enough for a full sentence', async ($, on) => {
+  const clock = wire(on);
+  const sentence = '一'.repeat(30);
+  const changes = ['一条', '二条', '三条', '四条'];
+  st.modelReply = JSON.stringify({ title: '积分兑换', summary: sentence, changes });
+  const { ui, band } = await ready($, clock, 'PR #52');
+  await press(ui, 52);
+  await clock.settle();
+  const rows = ['PR #52 积分兑换 · 待验收', 'o/r', sentence, '做完后的变化', ...changes.map(c => `· ${c}`), 'engine band'];
+  expect(await texts(band)).toEqual(rows);
+  const tree = JSON.stringify(await band.drawn());
+  expect(tree).not.toContain('"marginTop"');
+  expect(tree).toContain('"width":76');
+});
+
 test('the same ref closes it, another ref switches it', async ($, on) => {
   const clock = wire(on);
   const { ui, band } = await ready($, clock);
