@@ -34,45 +34,45 @@ export function commandHint(command: string): CommandHint | null {
 /** A tool call as a model step asks for it: the tool's name and its parsed arguments. */
 export type ToolUse = { readonly name: string; readonly input: unknown };
 
-/** What the shell commands of a step's tool calls tell, in call order. */
+/** A shell command a tool call runs, and the directory it is told to run in (Bun's `.cwd('/path')`), if any. */
+export type Shell = { command: string; cwd: string | null };
+
+/** What the shell commands of a step's tool calls tell, in call order; a command that names nothing falls back on its `cwd`. */
 export function stepHints(uses: readonly ToolUse[]): CommandHint[] {
-  return uses.flatMap(shellCommands).map(commandHint).filter((hint): hint is CommandHint => hint !== null);
+  return uses.flatMap(shellCommands)
+    .map(s => commandHint(s.command) ?? (s.cwd === null ? null : { path: s.cwd }))
+    .filter((hint): hint is CommandHint => hint !== null);
 }
 
-/** The shell commands a tool call runs: a Bash call's command, or every literal command in Code Mode's REPL code. */
-export function shellCommands(use: ToolUse): string[] {
+/** The shell commands a tool call runs: a Bash call's command, or every literal `$`…`` command in Code Mode's REPL code. */
+export function shellCommands(use: ToolUse): Shell[] {
   const field = (key: string) => {
     const value = typeof use.input === 'object' && use.input !== null ? (use.input as Record<string, unknown>)[key] : undefined;
     return typeof value === 'string' ? value : '';
   };
-  if (use.name === 'Bash') return field('command') === '' ? [] : [field('command')];
+  if (use.name === 'Bash') return field('command') === '' ? [] : [{ command: field('command'), cwd: null }];
   if (use.name === 'REPL') return replCommands(field('code'));
   return [];
 }
 
-// A string literal whose text is known before it runs: quoted, or a template with no `${}`.
-const LITERAL = String.raw`'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|\x60(?:[^\x60\\$]|\\.|\$(?!\{))*\x60`;
-// `$('cmd', ms)`, and `Bash({ command: 'cmd' })` (also as `tools.Bash`).
-const CALLS = [
-  new RegExp(String.raw`(?<![\w$.])\$\(\s*(${LITERAL})`, 'gs'),
-  new RegExp(String.raw`(?<![\w$])(?:tools\.)?Bash\(\s*\{[^}]*?\bcommand\s*:\s*(${LITERAL})`, 'gs'),
-];
+// `.cwd('/path')` right after the template, with a plain quoted path.
+const CWD = /^\.cwd\(\s*('[^'\\]*'|"[^"\\]*")\s*\)/;
 
 const unquote = (literal: string) => literal.slice(1, -1).replace(/\\(.)/gs, (_, c: string) => ({ n: '\n', t: '\t' })[c] ?? c);
 
-/** Code Mode's shell calls with literal commands, in source order; a command built at run time (`${}`) is skipped, not guessed. */
-export function replCommands(code: string): string[] {
-  const found: { at: number; command: string }[] = [];
+/** Code Mode's `$`…`` shell calls with literal commands, in source order; a command built at run time (`${}`) is skipped, not guessed. */
+export function replCommands(code: string): Shell[] {
+  const found: Shell[] = [];
   for (let i = 0; i < code.length; i++) {
     if (code[i] !== '$' || code[i + 1] !== '`' || /[\w$.]/.test(code[i - 1] ?? '')) continue;
     const t = scanTemplate(code, i + 1);
-    if (t.isPlain && t.end < code.length) found.push({ at: i, command: unquote(code.slice(i + 1, t.end + 1)) });
+    if (t.isPlain && t.end < code.length) {
+      const cwd = CWD.exec(code.slice(t.end + 1))?.[1];
+      found.push({ command: unquote(code.slice(i + 1, t.end + 1)), cwd: cwd === undefined ? null : unquote(cwd) });
+    }
     i = t.end;
   }
-  for (const pattern of CALLS) {
-    for (const m of code.matchAll(pattern)) found.push({ at: m.index, command: unquote(m[1] ?? '""') });
-  }
-  return found.sort((a, b) => a.at - b.at).map(f => f.command);
+  return found;
 }
 
 // A template literal from its opening backtick: the index of its closing one (the code's length if none), and whether it has no `${}`.
