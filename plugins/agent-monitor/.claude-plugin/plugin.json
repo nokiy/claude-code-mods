@@ -39,7 +39,7 @@
     "stallMinutes": {
       "type": "number",
       "title": "Stall threshold (minutes)",
-      "description": "A running subagent with no turn step or tool call for this long is flagged ~ (amber at the threshold, red at twice it)",
+      "description": "A running subagent that starts or finishes no model step for this long is flagged ~ (amber at the threshold, red at twice it)",
       "default": 3,
       "min": 0.5
     },
