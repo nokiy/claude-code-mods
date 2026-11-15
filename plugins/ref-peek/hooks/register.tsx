@@ -9,7 +9,7 @@ import { bareView, cardView, fit, glossOf, placeBubble } from './card';
 import type { CardView, Placement } from './card';
 import { anchorOf, annotate, findRefs } from './refs';
 import type { Annotated, RefToken } from './refs';
-import { commandHint, hrefOf, parseHref, parseRemote } from './repo';
+import { hrefOf, parseHref, parseRemote, stepHints } from './repo';
 import type { CommandHint } from './repo';
 import { t } from './strings';
 import { buildPrompt, parseSummary } from './summary';
@@ -127,7 +127,11 @@ async function learnOrigin($: EngineInterface, cwd: string): Promise<void> {
 
 async function noteCommand($: EngineInterface, hint: CommandHint): Promise<void> {
   const repo = 'repo' in hint ? hint.repo : await remoteRepo($, await expandHome($, hint.path));
-  if (repo !== null) await update($, lastRepo, () => repo);
+  if (repo !== null) await update($, lastRepo, () => repo);}
+
+// One after another, so the last command that names a repository wins.
+async function noteCommands($: EngineInterface, hints: CommandHint[]): Promise<void> {
+  for (const hint of hints) await noteCommand($, hint).catch(() => undefined);
 }
 
 async function expandHome($: EngineInterface, path: string): Promise<string> {
@@ -277,11 +281,13 @@ async function drawReply($: EngineInterface, e: RenderInput<'AssistantMessage'>,
 }
 
 export const register: Register = on => {
-  // Bash calls show where the session works. All of it runs from a timer: the call goes on at once.
-  on('tool.call', { tool: 'Bash' }, ($, e, next) => {
-    const hint = commandHint(e.command);
-    if (hint !== null) $.clock.after(0, () => void noteCommand($, hint));
-    return next(e);
+  // Shell commands show where the session works, read off each model step's tool calls rather than hooking them (a tool.call hook
+  // keeps Code Mode off). The step passes through untouched; the noting runs from a timer.
+  on('turn.step', async function* ($, e, next) {
+    const step = yield* next(e);
+    const hints = stepHints(step.toolUses);
+    if (hints.length > 0) $.clock.after(0, () => void noteCommands($, hints));
+    return step;
   });
 
   // A press only reaches a Markdown of ours, and `next(e)` resolves to an opaque engine node that takes none: where clicks are reported

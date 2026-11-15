@@ -43,7 +43,7 @@ A PR's bubble lists the tickets it closes (`关联 Ticket #41 …`), a Ticket's 
 - `haiku` writes the short title, the sentence and the changes in one call, from the title and body. Until that lands the note is the original title and the bubble says `生成中…`; if it fails the original title stays and the bubble says `暂无说明`. A failed generation is retried once per session. The sentence, and a title used as the note, lose their closing punctuation.
 - Title, body and the model's reply are untrusted: the prompt frames them as data, and all of it loses its markup before it reaches a reply.
 - Cached in the mod's store by repository and number. One `gh api graphql` call reads a ref and what relates to it. gh is asked about one ref at most every 10 minutes, and the model runs again only when `updated_at` changed. At most two fetches run at once.
-- The repository is the one this session's Bash calls last touched (`--repo`, a GitHub URL, `gh api repos/o/r`, `git -C <path>`, `cd <path>`), else the session directory's `origin`. A repository named in a reply's text changes nothing. A block keeps the repository it was first drawn under.
+- The repository is the one this session's shell commands last touched (Bash calls, or literal commands in Code Mode's REPL code: `--repo`, a GitHub URL, `gh api repos/o/r`, `git -C <path>`, `cd <path>`), else the session directory's `origin`. A repository named in a reply's text changes nothing. A block keeps the repository it was first drawn under.
 
 ## Where the bubble stands
 
