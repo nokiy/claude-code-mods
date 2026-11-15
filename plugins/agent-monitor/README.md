@@ -21,7 +21,7 @@ See what your Claude Code subagents are doing: a live band above the prompt whil
   - `✗` **error** (amber) — tool calls that ran and returned an error (`Exit code 1`): one line per distinct reason, with its text and `×N`; never counted as a refusal. Each line's time is the call's (from the transcript line's timestamp once it is read).
 
   Refusals, errors and `+/−` line counts are read from the agent's transcript (within a second for a running agent); everything else live comes from the model's steps.
-- **Code Mode** — the mod hooks no tool call and no spawn, so it leaves Code Mode on. There every call is one `REPL` script: the live activity is the script's description, the tool counts count scripts, and the files edited inside a script come from the transcript.
+- **Code Mode** — the mod hooks no tool call and no spawn, so it leaves Code Mode on. There every call is one `REPL` script: the live activity is the script's description, the tool counts count scripts, and the files edited inside a script come from the transcript. The main loop's own edits are not seen there, so only agent-vs-agent conflicts are flagged.
 - **Placement** — `/sub` opens the panel; `/sub top` keeps it in a band above the prompt, `/sub right` docks it as a side pane (remembered across sessions); `/sub set` opens the in-panel settings page.
 
 ## Commands
