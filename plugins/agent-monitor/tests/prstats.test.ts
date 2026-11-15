@@ -2,7 +2,7 @@
 // read, through the whole mod: fake transcripts and a fake `gh pr list` (testkit.ts), the value taken from the mod's own writes.
 import { expect, mock, test } from 'claude-code/testing'
 
-import { PROJECT, ROOT, ghPr, mountPane, st, step, wire } from './testkit'
+import { PROJECT, ROOT, ghPr, listed, mountPane, st, step, wire } from './testkit'
 import type { Dollar } from './testkit'
 import { agentFiles, assistantLine, fakeFs, jsonl, userLine } from './transcripts'
 
@@ -77,10 +77,11 @@ test('a PR\'s tokens are every step\'s usage added up, not the last step\'s cont
   expect(await groupRow($)).toMatch(/3 agents\s+86\.0k tok/)
 })
 
-test('an agent watched live keeps every step\'s usage when its Agent result arrives with the last turn\'s', async ($, on) => {
+// A live agent of this session on PR #49 (by its description's `#44`), seen through its steps; `files` are what the fake fs holds.
+async function live($: Run[0], on: Run[1], id: string, files: Record<string, string> = {}) {
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
-  wire(on, fakeFs())
+  wire(on, fakeFs(files))
   st.branch = 'dev'
   st.gh = JSON.stringify(PRS)
   const pub = { value: undefined as Stats | undefined }
@@ -88,39 +89,25 @@ test('an agent watched live keeps every step\'s usage when its Agent result arri
     if (e.plugin === 'agent-monitor' && e.key === 'prStats') pub.value = e.value as Stats
     return next(e)
   })
-  on('agent.spawn', async () => ({ agentId: 'L1', model: 'claude-opus-5-5' }))
-  const last = { input_tokens: 10_000, output_tokens: 1_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
-  on('tool.call', async () => ({ result: { agentId: 'L1', status: 'completed', totalTokens: 11_000, totalDurationMs: 60_000, usage: last } }) as never)
   await $.session.start({ cwd: ROOT } as never)
-  await $.agent.spawn({ subagentType: 'worker', description: '#44 tidy the rows', prompt: 'go' } as never)
-  st.agents = [{ id: 'L1', type: 'worker', status: 'running', description: '#44 tidy the rows' }]
-  for (let i = 0; i < 3; i++) await step($, 'L1', 'claude-opus-5-5', { input_tokens: 10_000, output_tokens: 1_000 })
-  await $.tool.call({ tool: 'Agent', subagent_type: 'worker', description: '#44 tidy the rows', prompt: 'go' } as never)
+  st.agents = [listed(id, 'worker', '#44 tidy the rows')]
+  return { clock, pub }
+}
+
+test('an agent watched live publishes every step\'s usage once its turn completes', async ($, on) => {
+  const { clock, pub } = await live($, on, 'L1')
+  for (let i = 0; i < 3; i++) await step($, 'L1', 'claude-opus-5-5', { input_tokens: 10_000, output_tokens: 1_000 }, undefined, [], i)
+  await $.turn.complete({ agentId: 'L1', reason: 'answer', answer: 'tidied', durationMs: 60_000, isAborted: false, turnId: 't-L1' } as never)
   await $.command.run({ command: 'sub', args: '' } as never)
   await clock.settle()
   expect(pub.value?.['49']?.tokens).toBe(33_000)
 })
 
+// A running agent's refusals come from its transcript as Claude Code writes it, the same in Code Mode: no tool call is hooked.
 test('refusals count hook denials only: a failed Bash run is no refusal', async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  mock.store(on)
-  wire(on, fakeFs())
-  st.branch = 'dev'
-  st.gh = JSON.stringify(PRS)
-  const pub = { value: undefined as Stats | undefined }
-  on('state.set', async (_$, e, next) => {
-    if (e.plugin === 'agent-monitor' && e.key === 'prStats') pub.value = e.value as Stats
-    return next(e)
-  })
-  on('agent.spawn', async () => ({ agentId: 'R1', model: 'claude-opus-5-5' }))
-  // A hook refuses `rm`; `bun test` runs and fails.
-  on('tool.call', async (_$, e) => ((e as { command?: string }).command?.startsWith('rm') ? { deny: 'PreToolUse:Bash hook error: no rm' } : { result: {}, isError: true, text: 'exit code 1' }) as never)
-  await $.session.start({ cwd: ROOT } as never)
-  await $.agent.spawn({ subagentType: 'worker', description: '#44 tidy the rows', prompt: 'go' } as never)
-  st.agents = [{ id: 'R1', type: 'worker', status: 'running', description: '#44 tidy the rows' }]
+  const R1 = { sessionId: 'cur', agentId: 'R1', type: 'worker', desc: '#44 tidy the rows', denials: ['PreToolUse:Bash hook error: no rm'], errors: ['exit code 1'] }
+  const { clock, pub } = await live($, on, 'R1', agentFiles(PROJECT, R1))
   await step($, 'R1', 'claude-opus-5-5', { input_tokens: 1_000, output_tokens: 100 })
-  await $.tool.call({ tool: 'Bash', command: 'rm -rf build', agentId: 'R1' } as never)
-  await $.tool.call({ tool: 'Bash', command: 'bun test', agentId: 'R1' } as never)
   await $.command.run({ command: 'sub', args: '' } as never)
   await clock.settle()
   expect(pub.value?.['49']?.refusals).toBe(1)

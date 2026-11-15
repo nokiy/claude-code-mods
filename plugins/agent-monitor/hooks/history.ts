@@ -94,12 +94,14 @@ export type TxIndex = { at: number; files: Record<string, TxEntry> }
 export const indexKey = (project: string) => `txIndex:${project}`
 export const MAX_INDEX_BYTES = 256 * 1024
 export const MAX_PROJECTS = 6
-/** Per stored entry: the latest few refusals and errored results, their texts cut short (the counts stay whole). */
+/** Per stored entry: the latest few refusals and errored results, their texts cut short (the counts stay whole), and the first few edited paths. */
 const KEPT = 5
 const KEPT_TEXT = 120
+const KEPT_EDITS = 10
 
 const short = (xs: Rollup['refusals']) => xs.slice(-KEPT).map(x => ({ ...x, text: x.text.slice(0, KEPT_TEXT) }))
-const stored = (e: TxEntry): TxEntry => ({ ...e, roll: { ...e.roll, refusals: short(e.roll.refusals), errors: short(e.roll.errors) } })
+const fewEdits = (edits: Rollup['edits']) => (edits === undefined ? {} : { edits: Object.fromEntries(Object.entries(edits).slice(0, KEPT_EDITS)) })
+const stored = (e: TxEntry): TxEntry => ({ ...e, roll: { ...e.roll, refusals: short(e.roll.refusals), errors: short(e.roll.errors), ...fewEdits(e.roll.edits) } })
 
 /** The project's cached entries as its stored index: newest first (by mtime), as many as fit in MAX_INDEX_BYTES. */
 export function toIndex(cache: ReadonlyMap<string, TxEntry>, project: string, now: number): TxIndex {
@@ -195,6 +197,8 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
       durationMs: r.startedAt !== undefined && r.lastAt !== undefined ? r.lastAt - r.startedAt : undefined,
       status: 'done',
       branch: r.gitBranch,
+      // The edits the tool results report, Code Mode's inner calls included (a step only shows its REPL code).
+      ...(r.edits && Object.keys(r.edits).length > 0 ? { files: Object.keys(r.edits), lines: r.edits } : {}),
       // Set even at zero: the transcript is the timestamped record of refusals (`toolDenialKind`, a hook's) and errored results.
       denied: r.denied + r.failed,
       refusals: r.denied,

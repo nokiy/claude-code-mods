@@ -139,3 +139,24 @@ test('refresh: with a session id only that session\'s subagents are listed', asy
   expect(fs.tally.lists).toEqual([`${PROJECT}/s2/subagents`])
   expect(Object.keys(historyRecs(cache))).toEqual(['a2'])
 })
+
+test('edits: a transcript\'s edited paths and line counts fill a record whose steps named none; a stored index keeps the first ten', async () => {
+  const edits = Array.from({ length: 12 }, (_, i) => ({ path: `/w/f${i}.ts`, lines: ['+a', '-b'] }))
+  const fs = fakeFs(agentFiles(PROJECT, { sessionId: 's1', agentId: 'e1', type: 'worker', desc: 'edit things', edits }))
+  const cache = new Map<string, TxEntry>()
+  await refreshProject(ioOf(fs), PROJECT, cache)
+  const h = historyRecs(cache)
+  expect(h.e1?.files).toHaveLength(12)
+  expect(h.e1?.lines?.['/w/f3.ts']).toEqual({ add: 1, del: 1 })
+  // A live record (Code Mode: its steps were REPL scripts) has no files: the transcript's stand; one with its own files keeps them.
+  const live = { type: 'worker', desc: 'edit things', task: 'edit things', steps: 2, watched: true, context: 0, output: 0, status: 'running' as const }
+  expect(withHistory({ e1: live }, h).e1?.files).toHaveLength(12)
+  expect(withHistory({ e1: { ...live, files: ['/w/f0.ts'] } }, h).e1).toMatchObject({ files: ['/w/f0.ts'], lines: { '/w/f0.ts': { add: 1, del: 1 } } })
+  const fresh = new Map<string, TxEntry>()
+  seedCache(fresh, PROJECT, JSON.parse(JSON.stringify(toIndex(cache, PROJECT, 1))))
+  expect(historyRecs(fresh).e1?.files).toHaveLength(10)
+  // An entry stored by an older build has no edits: no files, nothing breaks.
+  const [path, entry] = [...cache][0]!
+  const old = new Map([[path, { ...entry, roll: { ...entry.roll, edits: undefined } }]])
+  expect(historyRecs(old).e1?.files).toBeUndefined()
+})

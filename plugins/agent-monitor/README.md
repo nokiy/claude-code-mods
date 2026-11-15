@@ -15,10 +15,13 @@ See what your Claude Code subagents are doing: a live band above the prompt whil
 - **Detail page** — Enter on a row opens it, read as a timeline: instruction; steps (status, start → end, then the latest actions); edited files with `+/−` line counts; the agent's alerts with their times and causes. Tokens (cache hit / miss / output) with an **estimated cost**, tool counts, skills and the result follow. A clean agent has no Alerts section. `b` goes back.
 - **Alerts** — a red `!` ends the row of an agent with any alert. Above the table, an alert timeline (oldest first, the newest four shown) gives each alert's time, glyph and real cause:
   - `!` **file conflict** — two agents (or an agent and the main loop) edited the same file while both were running; the line names both and the path.
-  - `~` **stall** — a running agent has had no step or tool call for the threshold (amber at the threshold, red at twice it); the line names the tool that has not returned. The toast fires once per agent.
+  - `~` **stall** — a running agent has started or finished no model step for the threshold (amber at the threshold, red at twice it); the line names the first tool its last step called (in Code Mode, `REPL`). The toast fires once per agent.
   - `≠` **tier mismatch** — the model or effort an agent actually ran differs from its description prefix (see below); the line gives the tier asked for and the tier run.
   - `×` **denied** — tool calls a hook refused: one line per distinct reason, with its text and `×N`.
   - `✗` **error** (amber) — tool calls that ran and returned an error (`Exit code 1`): one line per distinct reason, with its text and `×N`; never counted as a refusal. Each line's time is the call's (from the transcript line's timestamp once it is read).
+
+  Refusals, errors and `+/−` line counts are read from the agent's transcript (within a second for a running agent); everything else live comes from the model's steps.
+- **Code Mode** — the mod hooks no tool call and no spawn, so it leaves Code Mode on. There every call is one `REPL` script: the live activity is the script's description, the tool counts count scripts, and the files edited inside a script come from the transcript.
 - **Placement** — `/sub` opens the panel; `/sub top` keeps it in a band above the prompt, `/sub right` docks it as a side pane (remembered across sessions); `/sub set` opens the in-panel settings page.
 
 ## Commands

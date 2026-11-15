@@ -2,9 +2,10 @@
 // rolled up into one small record, fed in byte chunks so a large file resumes from where the last read stopped. Read by history.ts.
 // Pure; tested in tests/unit/transcript.test.ts.
 import type { AgentSpent } from '../types'
+import { MAX_FILES } from './alerts'
 import { plusSpent } from './cost'
 import { clip } from './logic'
-import { MAX_PROMPT } from './patches'
+import { MAX_PROMPT, diffStat } from './patches'
 
 /**
  * One hook refusal (a line carrying `toolDenialKind`, `kind` its value) or errored tool result (an `is_error` tool_result on any other
@@ -38,6 +39,11 @@ export type Rollup = {
   /** Every errored tool result counted; the latest MAX_REFUSALS kept apart, so failing runs never push hook refusals out. */
   failed: number
   errors: Refusal[]
+  /**
+   * Lines added / removed per edited path, summed over the tool results that carry a patch (`toolUseResult.filePath` with its
+   * `structuredPatch`, or a created file's content): at most MAX_FILES paths. Absent in entries stored by older builds.
+   */
+  edits?: Record<string, { add: number; del: number }>
 }
 
 export const MAX_REFUSALS = 20
@@ -57,6 +63,17 @@ type Line = {
   cwd?: string
   toolDenialKind?: string
   message?: { id?: string; model?: string; usage?: Record<string, number | null | undefined>; content?: unknown }
+  toolUseResult?: unknown
+}
+
+// One edit result's lines joined to the path's sum; a new path past MAX_FILES is left out.
+function addEdit(edits: Rollup['edits'], result: unknown): Rollup['edits'] {
+  const path = (result as { filePath?: unknown } | null | undefined)?.filePath
+  const stat = typeof path === 'string' && path !== '' ? diffStat(result) : undefined
+  if (!stat || typeof path !== 'string') return edits
+  const old = edits?.[path]
+  if (!old && Object.keys(edits ?? {}).length >= MAX_FILES) return edits
+  return { ...edits, [path]: { add: (old?.add ?? 0) + stat.add, del: (old?.del ?? 0) + stat.del } }
 }
 
 const ZERO: AgentSpent = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
@@ -107,6 +124,9 @@ function addLine(r: Rollup, l: Line): Rollup {
     if (errored.length > 0) {
       out.failed = r.failed + errored.length
       out.errors = [...r.errors, ...errored.map(b => ({ at: Number.isNaN(at) ? undefined : at, kind: 'error', text: clip(textOf([b]), 200) }))].slice(-MAX_REFUSALS)
+    } else if (l.toolUseResult !== undefined) {
+      const edits = addEdit(r.edits, l.toolUseResult)
+      if (edits !== r.edits) out.edits = edits
     }
   }
   if (l.type === 'assistant' && m?.id && m.model && m.model !== '<synthetic>') {

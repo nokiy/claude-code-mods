@@ -8,7 +8,7 @@ type Kind = 'conflict' | 'stall' | 'tier' | 'denied' | 'failed'
 
 const EN = {
   // tool activity: verb + short target (`Read logic.ts`)
-  verb: { Read: 'Read', Edit: 'Edit', Write: 'Write', Grep: 'Search', Glob: 'Find', Bash: 'Run', WebFetch: 'Fetch', WebSearch: 'Web search', Skill: 'Skill', Agent: 'Dispatch', LSP: 'Code navigation' } as Record<string, string>,
+  verb: { Read: 'Read', Edit: 'Edit', Write: 'Write', Grep: 'Search', Glob: 'Find', Bash: 'Run', WebFetch: 'Fetch', WebSearch: 'Web search', Skill: 'Skill', Agent: 'Dispatch', LSP: 'Code navigation', REPL: 'Script' } as Record<string, string>,
   starting: 'starting',
   // an agent named in a sentence: type + quoted task
   quote: (s: string) => `"${s}"`,
@@ -75,7 +75,7 @@ const PR_WORDS = { modes: EN.modes, prColumns: EN.prColumns, tok: EN.tok, prStat
 export type Strings = typeof EN
 
 const ZH: Strings = {
-  verb: { Read: '读取', Edit: '修改', Write: '写入', Grep: '搜索', Glob: '查找', Bash: '运行', WebFetch: '抓取', WebSearch: '搜索网页', Skill: '技能', Agent: '派发', LSP: '代码导航' },
+  verb: { Read: '读取', Edit: '修改', Write: '写入', Grep: '搜索', Glob: '查找', Bash: '运行', WebFetch: '抓取', WebSearch: '搜索网页', Skill: '技能', Agent: '派发', LSP: '代码导航', REPL: '脚本' },
   starting: '启动中',
   quote: s => `「${s}」`,
   tag: { conflict: '冲突', stall: '卡住', tier: '档位', denied: '拦截', failed: '出错' },

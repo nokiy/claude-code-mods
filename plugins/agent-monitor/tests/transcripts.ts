@@ -17,11 +17,17 @@ export type FakeAgent = {
   model?: string
   at?: string
   steps?: FakeStep[]
-  /** Hook refusals: tool_result text of a line carrying `toolDenialKind`. */
+  /** Hook refusals: tool_result text of a line carrying `toolDenialKind`, at `deniedAt` (10:02 by default). */
   denials?: string[]
-  /** Errored tool results (`is_error`, no `toolDenialKind`): their text, at 10:01:30, before the refusals (10:02). */
+  deniedAt?: string
+  /** Errored tool results (`is_error`, no `toolDenialKind`): their text, at `erroredAt` (10:01:30 by default, before the refusals). */
   errors?: string[]
+  erroredAt?: string
+  /** Edit results (`toolUseResult` with `filePath` and the patch's lines), after the steps. */
+  edits?: FakeEdit[]
 }
+/** One Edit tool result: the path and its patch lines (`+x`, `-y`, ` ctx`). */
+export type FakeEdit = { path: string; lines: string[] }
 
 const ids = (a: Pick<FakeAgent, 'sessionId' | 'agentId'>) => ({ sessionId: a.sessionId, agentId: a.agentId, isSidechain: true, userType: 'external', version: '2.1.291' })
 const usage = (u: FakeUsage = {}) => ({ input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, ...u })
@@ -38,19 +44,27 @@ export const denialLine = (a: Pick<FakeAgent, 'sessionId' | 'agentId'>, text: st
 export const errorLine = (a: Pick<FakeAgent, 'sessionId' | 'agentId'>, text: string, at = '2026-10-01T10:01:30.000Z') =>
   JSON.stringify({ ...ids(a), type: 'user', timestamp: at, message: { role: 'user', content: [{ type: 'tool_result', is_error: true, content: text, tool_use_id: 'toolu_e' }] } })
 
-export const attachmentLine = (a: Pick<FakeAgent, 'sessionId' | 'agentId'>) =>
+export const editLine = (a: Pick<FakeAgent, 'sessionId' | 'agentId'>, e: FakeEdit, at = '2026-10-01T10:01:10.000Z') =>
+  JSON.stringify({
+    ...ids(a), type: 'user', timestamp: at,
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_d', content: 'The file has been updated.', is_error: false }] },
+    toolUseResult: { type: 'update', filePath: e.path, structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: e.lines }], originalFile: '', userModified: false },
+  })
+
+export const attachmentLine =(a: Pick<FakeAgent, 'sessionId' | 'agentId'>) =>
   JSON.stringify({ ...ids(a), type: 'attachment', timestamp: '2026-10-01T10:00:30.000Z', attachment: { type: 'hook_success' } })
 
 /** Lines joined as a jsonl file: each line ends with a newline. */
 export const jsonl = (lines: readonly string[]) => lines.map(l => `${l}\n`).join('')
 
-/** The whole transcript of one agent: its first user line, its steps, its errored results, then its refusals. */
+/** The whole transcript of one agent: its first user line, its steps, its edit results, its errored results, then its refusals. */
 export const agentTranscript = (a: FakeAgent) =>
   jsonl([
     userLine(a),
     ...(a.steps ?? [{ id: 'm1', usage: { input_tokens: 10, output_tokens: 5 } }]).map(s => assistantLine(a, s, a.model)),
-    ...(a.errors ?? []).map(e => errorLine(a, e)),
-    ...(a.denials ?? []).map(d => denialLine(a, d)),
+    ...(a.edits ?? []).map(e => editLine(a, e)),
+    ...(a.errors ?? []).map(e => errorLine(a, e, a.erroredAt)),
+    ...(a.denials ?? []).map(d => denialLine(a, d, a.deniedAt)),
   ])
 
 export const agentMeta = (a: FakeAgent) =>

@@ -69,10 +69,10 @@ export function findClashes(spans: readonly Span[], main: readonly MainEdit[]): 
 
 // ---- stall ----
 
-// level 1 at the threshold, 2 at twice it. `tool`: the tool call still awaiting its result, if any.
+// level 1 at the threshold, 2 at twice it. `tool`: the first tool call the latest step asked for, while no later step has begun.
 export type Stall = { level: 1 | 2; idleMs: number; tool?: string }
 
-// Running agents only: idle since the latest turn.step or tool.call start / finish (the start when none was seen yet).
+// Running agents only: idle since the latest turn.step start / end (the start when none was seen yet).
 export function stallOf(a: { status: string; lastEventAt?: number; startedAt?: number; pendingTool?: string }, now: number, thresholdMs: number): Stall | undefined {
   if (a.status !== 'running') return undefined
   const since = a.lastEventAt ?? a.startedAt
@@ -120,11 +120,4 @@ export function addDenial(p: { denied?: number; reasons?: readonly Denial[] }, t
   if (hit) hit.n++
   else if (reasons.length < MAX_REASONS) reasons.push({ text: reason, n: 1, ...(at === undefined ? {} : { at }), ...(failed ? { failed: true as const } : {}) })
   return { denied: (p.denied ?? 0) + 1, reasons }
-}
-
-// A tool.call result's refusal: a hook's `deny`, or the text of an errored result. undefined when the call went through.
-export function reasonOf(r: { deny?: string; isError?: boolean; text?: string } | undefined): string | undefined {
-  if (!r) return undefined
-  if (r.deny !== undefined) return r.deny
-  return r.isError ? (r.text ?? '') : undefined
 }

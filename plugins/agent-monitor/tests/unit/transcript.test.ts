@@ -1,7 +1,7 @@
 import { test, expect } from 'claude-code/testing'
 
 import { emptyRollup, feed } from '../../hooks/transcript'
-import { agentTranscript, assistantLine, jsonl, userLine } from '../transcripts'
+import { agentTranscript, assistantLine, editLine, jsonl, userLine } from '../transcripts'
 
 const A = { sessionId: 's1', agentId: 'a1' }
 
@@ -58,4 +58,20 @@ test('rollup: a broken line is skipped, the rest still counts', () => {
   expect(roll.steps).toBe(1)
   expect(roll.byModel).toEqual({ 'claude-opus-4-5': { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 } })
   expect(roll.gitBranch).toBe('dev')
+})
+
+test('rollup: edit results add their patch lines per path; a created file counts its lines; other results add nothing', () => {
+  const created = JSON.stringify({ ...A, type: 'user', toolUseResult: { type: 'create', filePath: '/w/new.ts', content: 'a\nb', structuredPatch: [] }, message: { role: 'user', content: [] } })
+  const read = JSON.stringify({ ...A, type: 'user', toolUseResult: { type: 'text', file: { filePath: '/w/x.ts', content: 'x' } }, message: { role: 'user', content: [] } })
+  const bash = JSON.stringify({ ...A, type: 'user', toolUseResult: { stdout: 'ok', stderr: '' }, message: { role: 'user', content: [] } })
+  const text = jsonl([userLine(A), editLine(A, { path: '/w/a.ts', lines: [' a', '-b', '+c'] }), editLine(A, { path: '/w/a.ts', lines: ['+d', '+e'] }), created, read, bash])
+  expect(feed(emptyRollup(), text).roll.edits).toEqual({ '/w/a.ts': { add: 3, del: 1 }, '/w/new.ts': { add: 2, del: 0 } })
+  expect(feed(emptyRollup(), jsonl([userLine(A), read, bash])).roll.edits).toBeUndefined()
+})
+
+test('rollup: at most 50 edited paths; a path already counted still adds up', () => {
+  const lines = Array.from({ length: 52 }, (_, i) => editLine(A, { path: `/w/f${i}.ts`, lines: ['+x'] }))
+  const { roll } = feed(emptyRollup(), jsonl([userLine(A), ...lines, editLine(A, { path: '/w/f0.ts', lines: ['-y'] })]))
+  expect(Object.keys(roll.edits ?? {})).toHaveLength(50)
+  expect(roll.edits?.['/w/f0.ts']).toEqual({ add: 1, del: 1 })
 })

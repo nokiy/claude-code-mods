@@ -205,6 +205,7 @@ export function activityText(tool: string, input: Record<string, unknown>, t: Pi
     case 'Grep': return `${v} "${truncate(one(input.pattern), 24)}"`
     case 'Glob': return `${v} ${one(input.pattern)}`
     case 'Bash': return `${v} ${truncate(one(input.description || input.command), 24)}`
+    case 'REPL': return `${v} ${truncate(one(input.description || input.code), 24)}` // Code Mode: every call is one script
     case 'WebFetch': return `${v} ${host(input.url)}`
     case 'WebSearch': return `${v} "${truncate(one(input.query), 24)}"`
     case 'Skill': return `${v} ${one(input.skill)}`

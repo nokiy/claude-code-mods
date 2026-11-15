@@ -1,7 +1,7 @@
 // [POS] Row formats through the whole mod: the live band above the prompt and the /sub panel's running rows and finished table (testkit.ts).
 import { expect, mock, test } from 'claude-code/testing'
 
-import { PROJECT, ROOT, mountBand, mountPane, rowKeys, shown, st, step, wire } from './testkit'
+import { PROJECT, ROOT, listed, mountBand, mountPane, rowKeys, shown, st, step, wire } from './testkit'
 import type { Dollar } from './testkit'
 import { agentFiles, fakeFs } from './transcripts'
 import { PALETTE } from '../hooks/palette'
@@ -14,10 +14,8 @@ async function running($: Dollar, on: On, desc = 'op.med · fix the parser', mod
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   wire(on)
-  on('agent.spawn', async () => ({ agentId: 'a1', model }))
   await $.session.start({ cwd: ROOT } as never)
-  await $.agent.spawn({ subagentType: 'worker', description: desc, prompt: 'go' } as never)
-  st.agents = [{ id: 'a1', type: 'worker', status: 'running', description: desc }]
+  st.agents = [listed('a1', 'worker', desc)]
   await step($, 'a1', model, { input_tokens: 80_000, output_tokens: 6_200 }, 'medium')
   await clock.advance(65_000)
   return clock
@@ -123,10 +121,9 @@ test('/sub Agent mode: the running agent\'s three lines first, then the finished
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   wire(on, fakeFs(agentFiles(PROJECT, FINISHED[0]!)))
-  on('agent.spawn', async () => ({ agentId: 'a1', model: 'claude-opus-5-5' }))
   await $.session.start({ cwd: ROOT } as never)
-  await $.agent.spawn({ subagentType: 'worker', description: 'op.med · fix the parser', prompt: 'go' } as never)
-  st.agents = [{ id: 'a1', type: 'worker', status: 'running', description: 'op.med · fix the parser' }]
+  // Listed by the engine, no step seen yet: the row stands on the list alone.
+  st.agents = [listed('a1', 'worker', 'op.med · fix the parser')]
   await $.command.run({ command: 'sub', args: '' } as never)
   await clock.settle()
   const ui = await mountPane($)
@@ -139,6 +136,31 @@ test('/sub Agent mode: the running agent\'s three lines first, then the finished
   expect(head).toBeGreaterThan(run)
   expect(fin).toBeGreaterThan(head)
   expect(await rowKeys(ui)).toEqual(['row:a1', 'row:f1'])
+})
+
+// Code Mode: every tool call is one `REPL` call whose script carries a description; the step lists it as any other call.
+test('live band: a Code Mode subagent shows from its first step, its activity the script\'s description', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  wire(on)
+  await $.session.start({ cwd: ROOT } as never)
+  st.agents = [listed('a1', 'Explore', 'List current directory files')]
+  const repl = { name: 'REPL', input: { code: "const t = await file('/w/x').text();\nt", description: 'Read the rules' } }
+  await step($, 'a1', 'claude-haiku-5-5', { input_tokens: 16_000, output_tokens: 300 }, undefined, [repl])
+  await clock.advance(5000)
+  const text = await shown(await mountBand($))
+  expect(text).toContain('List current directory files')
+  expect(text).toContain('Script Read the rules')
+  expect(text).toContain('· 0:05')
+})
+
+test('a step of an agent the engine does not list (an engine fork) starts no row', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  wire(on)
+  await $.session.start({ cwd: ROOT } as never)
+  await step($, 'fork1', 'claude-haiku-5-5', { input_tokens: 10, output_tokens: 5 })
+  expect(await rowKeys(await mountPane($))).toEqual([])
 })
 
 test('live band: ctx%, tokens without the `tok` word, time as m:ss', async ($, on) => {

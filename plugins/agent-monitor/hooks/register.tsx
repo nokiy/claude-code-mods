@@ -4,13 +4,13 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentMonitorDraft, AgentMonitorRec, MainEdit, PrStat } from '../types'
 import { alertLines, dueToasts } from './alertlines'
-import { MAX_MAIN, editedPath, normPath, reasonOf } from './alerts'
+import { MAX_MAIN } from './alerts'
 import { DEFAULTS, readConfig, type Config } from './config'
 import { groupByPr, statsByPr } from './groups'
 import { MAX_PROJECTS, historyRecs, indexKey, projectDir, refreshProject, seedCache, staleIndexes, toIndex, withHistory, type TxEntry } from './history'
 import { inScope } from './logic'
 import { CLOSED, pageStr, parseElementKey, parsePage, ringKeyOf, siteFlags, subEffects, type NavPatch, type Placement } from './nav'
-import { agentLaunched, blank, clean, editDelta, onAgentResult, onComplete, onSpawn, onStep, onStepEnd, onToolEnd, onToolStart } from './patches'
+import { blank, clean, editedPaths, onComplete, onStep, onStepEnd, onToolUses } from './patches'
 import type { Mode } from './pages'
 import { bandTree, panel } from './render'
 import { configKey, draftFromConfig, saveEffects, toggleDraft, type SettingKey } from './settings'
@@ -61,11 +61,11 @@ async function writeNav($: EngineInterface, p: NavPatch) {
   if (p.session !== undefined) await update($, sessionPlacement, () => p.session ?? null)
 }
 
-// Read-modify-write one record. An agent with no record yet starts one only when `$.agent.list()` names it or `spawned` says the engine just started it (an engine fork or workflow agent is no subagent: no row). Returns whether a record was written.
-async function track($: EngineInterface, id: string, fn: (r: AgentMonitorRec) => AgentMonitorRec, spawned = false): Promise<boolean> {
+// Read-modify-write one record. An agent with no record yet starts one only when `$.agent.list()` names it, with its type and description from there (an engine fork or workflow agent is no subagent: no row). Returns whether a record was written.
+async function track($: EngineInterface, id: string, fn: (r: AgentMonitorRec) => AgentMonitorRec): Promise<boolean> {
   const known = (await read($, agents))[id] !== undefined
-  const seed = known || spawned ? undefined : seedRec((await $.agent.list()).find(a => a.id === id))
-  if (!known && !spawned && !seed) return false
+  const seed = known ? undefined : seedRec((await $.agent.list()).find(a => a.id === id))
+  if (!known && !seed) return false
   await update($, agents, (all: Recs) => ({ ...all, [id]: clean(fn({ ...(all[id] ?? seed ?? blank()) })) }))
   return true
 }
@@ -135,7 +135,6 @@ async function dropPerFileKeys($: EngineInterface) {
   } catch { /* tried again in the next load */ }
 }
 
-const hookDenials = new Set<string>() // tool_use_ids a PreToolUse hook denied, until their tool.call returns
 const prCache: PrCache = {} // the PR index (prindex.ts: `gh pr list` on an interval, last good kept in the store) and the session's branch, for the PR mode
 let prView: PrView = { prs: [] }
 async function refreshPrs($: EngineInterface) {
@@ -332,70 +331,31 @@ export const register: Register = (on, options) => {
     return next(e)
   })
   on('ui.close', async ($, e, next) => (e.id === PANE && e.origin.kind !== 'unload' && (await Promise.all([update($, paneOpen, () => false), update($, ringKey, () => null)])), next(e)))
-  // agent.spawn resolves with the new agentId: the id every later turn.step / tool.call carries.
-  on('agent.spawn', async ($, e, next) => {
-    const r = await next(e)
-    if (!(await active($)) || !r.agentId) return r
-    const now = await $.clock.now()
-    await track($, r.agentId, p => onSpawn(p, e, r.model, now), true)
-    ensureTimer($)
-    $.ui.invalidate('ui.render')
-    return r
-  })
-  // Model, effort and token usage come from a subagent's own steps (agentId is absent on main).
+  // Everything live comes from the model's steps, never from hooking tool calls or spawns (either keeps Code Mode off). A subagent's
+  // first step starts its record (`$.agent.list()` names it); each step brings model, effort and usage, and the tool calls it asks
+  // for (activity, counts, edited paths; Code Mode's are one `REPL` each). A main-loop step's edits feed the conflict check.
+  // The step streams through untouched.
   on('turn.step', async function* ($, e, next) {
     if (!(await active($))) return yield* next(e)
     const id = e.agentId
     const now = await $.clock.now()
     const tracked = id ? await track($, id, p => onStep(p, e, now)) : false
-    if (tracked) ensureTimer($)
-    const result = yield* next(e)
-    if (id && tracked) {
-      const u = result.usage
-      const done = await $.clock.now()
-      await track($, id, p => onStepEnd(p, u ?? undefined, done))
-    }
-    return result
-  })
-  // A settings hook's deny reaches tool.call below as an errored result; its PreToolUse decision, seen here, makes it a refusal.
-  on('classic.PreToolUse', async (_$, e, next) => {
-    const r = await next(e)
-    if (r?.deny !== undefined) hookDenials.add(e.tool_use_id)
-    return r
-  })
-  on('tool.call', async ($, e, next) => {
-    if (!(await active($))) return next(e)
-    const id = e.agentId
-    const tool = String(e.tool)
-    const input = e as unknown as Record<string, unknown>
-    const path = editedPath(tool, input)
-    const file = path ? normPath(path, await $.session.cwd()) : undefined
-    const now = await $.clock.now()
-    if (!id && file) await noteMainEdit($, file, now)
-    // pendingTool is set before the call runs and cleared once it returns (or throws); the result says whether it was refused.
-    const tracked = id ? await track($, id, p => onToolStart(p, tool, input, file, now, t)) : false
-    let r: Awaited<ReturnType<typeof next>> | undefined
-    try {
-      r = await next(e)
-    } finally {
-      const hookDenied = (r as { deny?: string } | undefined)?.deny !== undefined || hookDenials.delete(e.tool_use_id)
-      if (id && tracked) {
-        const done = await $.clock.now()
-        await track($, id, p => onToolEnd(p, tool, reasonOf(r), done, editDelta(file, r), hookDenied))
-      }
-    }
-    const launched = agentLaunched(e, r as { result?: unknown; isError?: boolean })
-    if (launched) {
-      const at = await $.clock.now()
-      await track($, launched.res.agentId, p => onAgentResult(p, launched.call, launched.res, at), true)
+    if (tracked) {
+      ensureTimer($)
       $.ui.invalidate('ui.render')
     }
-    return r
+    const result = yield* next(e)
+    if (id && !tracked) return result
+    const done = await $.clock.now()
+    const cwd = result.toolUses.length > 0 ? await $.session.cwd() : ''
+    if (id) await track($, id, p => onToolUses(onStepEnd(p, result.usage ?? undefined, done), result.toolUses, cwd, t))
+    else for (const path of editedPaths(result.toolUses, cwd)) await noteMainEdit($, path, done)
+    return result
   })
   on('turn.complete', async ($, e, next) => {
     if (!(await active($)) || !e.agentId) return next(e) // the main loop's turn ends no subagent
     const now = await $.clock.now()
-    if (await track($, e.agentId, p => onComplete(p, e.reason, now))) $.ui.invalidate('ui.render')
+    if (await track($, e.agentId, p => onComplete(p, e.reason, now, e.answer))) $.ui.invalidate('ui.render')
     return next(e)
   })
   // The band above the prompt: the panel while `/sub top` is open, else the running agents, one row each.

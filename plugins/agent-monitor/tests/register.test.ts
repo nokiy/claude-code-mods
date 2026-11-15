@@ -1,7 +1,7 @@
 // The whole mod through its hooks: subagent history read from the project's transcripts, on synthetic files (testkit.ts).
 import { expect, mock, test } from 'claude-code/testing'
 
-import { OTHER, PROJECT, ROOT, countStore, ghPr, listKeys, mountPane, rowKeys, shown, st, wire } from './testkit'
+import { OTHER, PROJECT, ROOT, countStore, ghPr, listKeys, listed, mountPane, rowKeys, shown, st, step, wire } from './testkit'
 import type { Dollar } from './testkit'
 import { agentFiles, agentMeta, agentPaths, agentTranscript, assistantLine, fakeFs, jsonl, userLine } from './transcripts'
 
@@ -13,10 +13,10 @@ test('/clear: /sub still lists the subagents of earlier sessions, with type, des
   mock.store(on)
   const live = { sessionId: 'cur', agentId: 'a3', type: 'worker', desc: 'fix the lexer', at: '2026-10-03T08:59:00.000Z' }
   wire(on, fakeFs({ ...agentFiles(PROJECT, OLD1), ...agentFiles(PROJECT, OLD2), ...agentFiles(PROJECT, live) }))
-  on('agent.spawn', async () => ({ agentId: 'a3', model: 'claude-opus-4-5' }))
   await $.session.start({ cwd: ROOT } as never)
   // An agent of this session, seen by the hooks, then cleared from the live records with the session.
-  await $.agent.spawn({ subagentType: 'worker', description: 'fix the lexer', prompt: 'go' } as never)
+  st.agents = [listed('a3', 'worker', 'fix the lexer')]
+  await step($, 'a3', 'claude-opus-4-5', { input_tokens: 10, output_tokens: 5 })
   await $.session.end({ reason: 'clear', sessionId: 'cur' } as never)
   st.session = 'next'
   await $.session.start({ cwd: ROOT } as never)
@@ -37,10 +37,9 @@ test('an agent in both the hook events and its transcript is one row', async ($,
   mock.store(on)
   const live = { sessionId: 'cur', agentId: 'a9', type: 'worker', desc: 'fix the parser', model: 'claude-opus-4-5' }
   const fs = wire(on, fakeFs(agentFiles(PROJECT, live)))
-  on('agent.spawn', async () => ({ agentId: 'a9', model: 'claude-opus-4-5' }))
   await $.session.start({ cwd: ROOT } as never)
-  await $.agent.spawn({ subagentType: 'worker', description: 'fix the parser', prompt: 'go' } as never)
-  st.agents = [{ id: 'a9', type: 'worker', status: 'running', description: 'fix the parser' }]
+  st.agents = [listed('a9', 'worker', 'fix the parser')]
+  await step($, 'a9', 'claude-opus-4-5', { input_tokens: 10, output_tokens: 5 })
   await $.command.run({ command: 'sub', args: '' } as never)
   await clock.settle()
   expect(fs.tally.reads.get(agentPaths(PROJECT, live).jsonl)).toBe(1)
@@ -65,11 +64,10 @@ test('the 1 s tick reads only this session\'s folder, and no unchanged file agai
   mock.store(on)
   const live = { sessionId: 'cur', agentId: 'a9', type: 'worker', desc: 'fix the parser' }
   const fs = wire(on, fakeFs({ ...agentFiles(PROJECT, OLD1), ...agentFiles(PROJECT, live) }))
-  on('agent.spawn', async () => ({ agentId: 'a9', model: 'claude-opus-4-5' }))
   await $.session.start({ cwd: ROOT } as never)
   await $.command.run({ command: 'sub', args: '' } as never)
-  await $.agent.spawn({ subagentType: 'worker', description: 'fix the parser', prompt: 'go' } as never)
-  st.agents = [{ id: 'a9', type: 'worker', status: 'running', description: 'fix the parser' }]
+  st.agents = [listed('a9', 'worker', 'fix the parser')]
+  await step($, 'a9', 'claude-opus-4-5', { input_tokens: 10, output_tokens: 5 })
   fs.reset()
   await clock.advance(1000)
   expect(fs.tally.lists).toEqual([`${PROJECT}/cur/subagents`])
@@ -147,7 +145,6 @@ test('a refresh of several changed transcripts writes the store once; the 1 s ti
   const store = countStore(on)
   const live = { sessionId: 'cur', agentId: 'a9', type: 'worker', desc: 'fix the parser' }
   const fs = wire(on, fakeFs(projectFiles([...FILES, live])))
-  on('agent.spawn', async () => ({ agentId: 'a9', model: 'claude-opus-4-5' }))
   await $.session.start({ cwd: ROOT } as never)
   await $.command.run({ command: 'sub', args: '' } as never)
   await clock.settle()
@@ -159,8 +156,8 @@ test('a refresh of several changed transcripts writes the store once; the 1 s ti
   await clock.settle()
   expect(txKeys(store.tally.sets)).toHaveLength(1)
   // A running agent's transcript grows under the 1 s tick: read, never stored.
-  await $.agent.spawn({ subagentType: 'worker', description: 'fix the parser', prompt: 'go' } as never)
-  st.agents = [{ id: 'a9', type: 'worker', status: 'running', description: 'fix the parser' }]
+  st.agents = [listed('a9', 'worker', 'fix the parser')]
+  await step($, 'a9', 'claude-opus-4-5', { input_tokens: 10, output_tokens: 5 })
   store.reset()
   fs.reset()
   fs.append(agentPaths(PROJECT, live).jsonl, jsonl([assistantLine(live, { id: 'm10', usage: { input_tokens: 5, output_tokens: 1 } })]))

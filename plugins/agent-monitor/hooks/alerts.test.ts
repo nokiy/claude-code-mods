@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 
-import { MAX_FILES, MAX_REASONS, addDenial, addFile, denialReason, editedPath, findClashes, idleText, normPath, reasonOf, shortPath, stallOf, tierMismatch } from './alerts'
+import { MAX_FILES, MAX_REASONS, addDenial, addFile, denialReason, editedPath, findClashes, idleText, normPath, shortPath, stallOf, tierMismatch } from './alerts'
 
 test('normPath: absolute, relative to cwd, dots and doubled slashes folded', () => {
   expect(normPath('/a/b/c.ts', '/cwd')).toBe('/a/b/c.ts')
@@ -105,14 +105,6 @@ test('denials: first line, 80 cells, deduped with counts, ten distinct at most',
   expect(p.reasons).toHaveLength(MAX_REASONS)
   expect(p.denied).toBe(24) // every denial counts, only distinct reasons are capped
   expect(addDenial(p, 'a').reasons![0]).toEqual({ text: 'a', n: 4 }) // a listed reason still counts after the cap
-})
-
-test('reasonOf: a deny, an errored result, or nothing', () => {
-  expect(reasonOf({ deny: 'blocked' })).toBe('blocked')
-  expect(reasonOf({ isError: true, text: 'File not found\nmore' })).toBe('File not found\nmore')
-  expect(reasonOf({ isError: true })).toBe('')
-  expect(reasonOf({ isError: false, text: 'fine' })).toBeUndefined()
-  expect(reasonOf(undefined)).toBeUndefined()
 })
 
 test('timeline times: a denial keeps the time its reason was first seen; a clash the time the overlap began', () => {

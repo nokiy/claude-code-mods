@@ -3,6 +3,7 @@
 // no fs or process mock, so `wire` hooks those events on the test's `on`, as pr-hint's testkit does for `process.run`.
 import { mock, test } from 'claude-code/testing'
 
+import type { ToolUse } from '../hooks/patches'
 import { fakeFs } from './transcripts'
 import type { FakeFs } from './transcripts'
 
@@ -20,10 +21,10 @@ export type ListAgent = { id: string; type: string; status: string; description:
 
 /**
  * Mutable answers: the session id `$.session.id()` gives, what `$.agent.list()` lists, the branch `git rev-parse --abbrev-ref HEAD`
- * prints, what `gh pr list` prints (null: gh fails, exit 1), the usage a model step answers with. `ghCalls` counts gh runs; `ghGate`, when
+ * prints, what `gh pr list` prints (null: gh fails, exit 1), the usage and tool calls a model step answers with. `ghCalls` counts gh runs; `ghGate`, when
  * set, holds every gh answer until it resolves (a slow network). Reset by wire().
  */
-export const st = { session: 'cur', agents: [] as ListAgent[], branch: 'dev', gh: '[]' as string | null, ghCalls: 0, ghGate: null as Promise<unknown> | null, usage: {} as Record<string, number> }
+export const st = { session: 'cur', agents: [] as ListAgent[], branch: 'dev', gh: '[]' as string | null, ghCalls: 0, ghGate: null as Promise<unknown> | null, usage: {} as Record<string, number>, toolUses: [] as ToolUse[] }
 
 /** One row of `gh pr list --json …` with every field the mod may ask for; `closes` go into the body as `Closes #N` lines. */
 export const ghPr = (number: number, title: string, headRefName: string, closes: number[] = [], state = 'OPEN', isDraft = false) =>
@@ -44,7 +45,7 @@ function ghAnswer(argv: readonly string[], text: string): string {
  * Returns the fake fs, whose `tally` counts reads, tails and listings.
  */
 export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
-  Object.assign(st, { session: 'cur', agents: [], branch: 'dev', gh: '[]', ghCalls: 0, ghGate: null, usage: {} })
+  Object.assign(st, { session: 'cur', agents: [], branch: 'dev', gh: '[]', ghCalls: 0, ghGate: null, usage: {}, toolUses: [] })
   mock.env(on, { HOME })
   on('settings.read', async () => ({ value: {} }))
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
@@ -60,11 +61,12 @@ export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
   on('session.id', async () => ({ value: st.session }))
   on('session.messages', async () => ({ value: [] }) as never)
   on('agent.list', async () => ({ value: st.agents }) as never)
-  // The engine's own band draws nothing; a model step answers with `st.usage` (set by `step`).
+  // The engine's own band draws nothing; a model step answers with `st.usage` and asks for `st.toolUses` (set by `step`).
   on('ui.render', { component: 'AbovePrompt' }, async () => ({ type: 'Box', props: {}, children: [] }) as never)
   on('turn.step', async function* (_$, e) {
-    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: st.usage } as never
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: st.toolUses, stopReason: st.toolUses.length ? 'tool_use' : 'end_turn', usage: st.usage } as never
   })
+  on('turn.complete', async (_$, e) => ({ text: e.answer }))
   on('fs.list', async (_$, e) => ({ value: fs.list(e.path) }))
   on('fs.read', async (_$, e) => ({ value: fs.read(e.path) }))
   on('process.run', async (_$, e) => {
@@ -116,12 +118,19 @@ export const mountBand = ($: Dollar, bodyColumns = 100) =>
 
 export type StepUsage = { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
 
-/** One model step of subagent `agentId` on `model`, answered beneath every plugin with `usage`: what `turn.step` brings the mod. */
-export async function step($: Dollar, agentId: string, model: string, usage: StepUsage, effort?: 'low' | 'medium' | 'high') {
+/**
+ * One model step of subagent `agentId` (undefined: the main loop) on `model`, answered beneath every plugin with `usage` and asking
+ * for `toolUses`: what `turn.step` brings the mod. `index`: the step's place in its turn.
+ */
+export async function step($: Dollar, agentId: string | undefined, model: string, usage: StepUsage, effort?: 'low' | 'medium' | 'high', toolUses: ToolUse[] = [], index = 0) {
   st.usage = { cache_read_input_tokens: 0, cache_creation_input_tokens: 0, ...usage }
-  const s = $.turn.step({ turnId: `t-${agentId}`, index: 0, model, effort, agentId, messageCount: 1 } as never)
+  st.toolUses = toolUses
+  const s = $.turn.step({ turnId: `t-${agentId ?? 'main'}`, index, model, effort, agentId, messageCount: 1 } as never)
   for await (const _ of s) void _
 }
+
+/** A subagent `$.agent.list()` lists as running. */
+export const listed = (id: string, type: string, description: string): ListAgent => ({ id, type, status: 'running', description })
 
 /** The table's rows, one Button each keyed `row:<agentId>`, in drawn order. */
 export const rowKeys = async (ui: { findAll: (q: { type: string }) => Promise<{ key: string | undefined }[]> }) =>
