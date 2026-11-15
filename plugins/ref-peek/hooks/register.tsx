@@ -127,7 +127,8 @@ async function learnOrigin($: EngineInterface, cwd: string): Promise<void> {
 
 async function noteCommand($: EngineInterface, hint: CommandHint): Promise<void> {
   const repo = 'repo' in hint ? hint.repo : await remoteRepo($, await expandHome($, hint.path));
-  if (repo !== null) await update($, lastRepo, () => repo);}
+  if (repo !== null) await update($, lastRepo, () => repo);
+}
 
 // One after another, so the last command that names a repository wins.
 async function noteCommands($: EngineInterface, hints: CommandHint[]): Promise<void> {
