@@ -4,16 +4,19 @@ import { isSpecIssue, parseJson, parseTicket } from './parse';
 
 type Json = Record<string, unknown>;
 
-// The one request per fetch: the current branch's PRs (open or merged, latest first) with their CI, commit headlines
-// and closing issues.
+// The one request per fetch: the current branch's PRs (open or merged, latest first) with their CI, commit messages
+// and closing issues. Commits ask the whole `message`, not `messageHeadline`: GitHub cuts that to ~70 characters with
+// "…", losing a trailing `(#N)` or a long Merge headline's branch. The bodies cost an extra download of about 35 KB
+// for 100 commits.
 // `gh` fills {owner}, {repo} and {branch} from the session directory's repository and checked-out branch.
 export const REPO_ARGS = ['api', 'graphql', '-F', 'owner={owner}', '-F', 'name={repo}'];
 export const PR_ARGS = [...REPO_ARGS, '-F', 'branch={branch}'];
 const ISSUE_FIELDS = 'number title state body labels(first:10){nodes{name}}';
 export const PR_QUERY =
-  'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){pullRequests(headRefName:$branch,states:[OPEN,MERGED],first:10,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{' +
+  'query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){' +
+  'pullRequests(headRefName:$branch,states:[OPEN,MERGED],first:10,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{' +
   'number title state isDraft isCrossRepository baseRefName headRefName headRefOid url body ' +
-  'commits(first:100){nodes{commit{messageHeadline}}} ' +
+  'commits(first:100){nodes{commit{message}}} ' +
   'statusCheckRollup{contexts(first:100){nodes{... on CheckRun{status conclusion} ... on StatusContext{state}}}} ' +
   `closingIssuesReferences(first:50){nodes{${ISSUE_FIELDS}}}}}}}`;
 
