@@ -135,59 +135,92 @@ test('the group row shows the same time as the published value: wall time, not t
 })
 
 // A fresh session, before any turn: the store holds the project's transcript index and the PR index an earlier session wrote.
-async function stored(agents: readonly (typeof A1 | typeof A2 | typeof A3)[] = [A1, A2, A3]) {
+async function stored(agents: readonly (typeof A1 | typeof A2 | typeof A3)[] = [A1, A2, A3], prAt = NOW) {
   const fs = fakeFs(Object.assign({}, ...agents.map(a => agentFiles(PROJECT, a))) as Record<string, string>)
   const cache = new Map<string, TxEntry>()
   await refreshProject({ list: async d => fs.list(d), read: async p => fs.read(p), tail: async (p, from) => fs.tail(p, from) }, PROJECT, cache)
-  return { [indexKey(PROJECT)]: toIndex(cache, PROJECT, NOW), [prIndexKey(ROOT)]: { at: NOW, prs: parsePrList(JSON.stringify(PRS)) } }
+  return { [indexKey(PROJECT)]: toIndex(cache, PROJECT, NOW), [prIndexKey(ROOT)]: { at: prAt, prs: parsePrList(JSON.stringify(PRS)) } }
 }
 
-// pr-hint's card reads the value at once: no transcript is read and gh is not run to give it.
-async function fresh($: Run[0], on: Run[1], seed: Record<string, unknown>, hold?: Parameters<typeof countStore>[2]) {
+// A fresh session (no input yet) over the store's indexes and the transcripts `files` on disk. `pub.values`: every prStats write in
+// order; `pub.ghAtFirst`: the gh runs made by the time of the first.
+async function fresh($: Run[0], on: Run[1], seed: Record<string, unknown>, files: Record<string, string> = {}, hold?: Parameters<typeof countStore>[2]) {
   const clock = mock.clock(on, { now: NOW })
   const store = countStore(on, seed, hold)
-  const fs = wire(on, fakeFs())
+  const fs = wire(on, fakeFs(files))
   st.gh = null
-  const pub = { value: undefined as Stats | undefined, writes: 0 }
+  const pub = { value: undefined as Stats | undefined, writes: 0, values: [] as Stats[], ghAtFirst: undefined as number | undefined }
   on('state.set', async (_$, e, next) => {
-    if (e.plugin === 'agent-monitor' && e.key === 'prStats') Object.assign(pub, { value: e.value as Stats, writes: pub.writes + 1 })
+    if (e.plugin === 'agent-monitor' && e.key === 'prStats') {
+      Object.assign(pub, { value: e.value as Stats, writes: pub.writes + 1, ghAtFirst: pub.ghAtFirst ?? st.ghCalls })
+      pub.values.push(e.value as Stats)
+    }
     return next(e)
   })
   return { clock, store, fs, pub }
 }
+const onDisk = { ...agentFiles(PROJECT, A1), ...agentFiles(PROJECT, A2), ...agentFiles(PROJECT, A3) }
+const figures = (s: Stats[string] | undefined) => ({ ...s, cost: s?.cost?.toFixed(6) })
+const ALL = { tokens: 53_000, cost: '0.260000', ms: 4 * 60_000, refusals: 2 }
 
-test('session start publishes what the store already holds, before any turn, reading no transcript and running no gh', async ($, on) => {
+// pr-hint's card reads the value at once: the first write carries the stored figures, before gh runs or any transcript is read.
+test('session start publishes what the store already holds first, before any turn, reading no transcript and running no gh', async ($, on) => {
   const { clock, fs, pub } = await fresh($, on, await stored())
   await $.session.start({ cwd: ROOT } as never)
   await clock.settle()
-  const s = pub.value?.['49']
-  expect({ ...s, cost: s?.cost?.toFixed(6) }).toEqual({ tokens: 53_000, cost: '0.260000', ms: 4 * 60_000, refusals: 2 })
+  expect(figures(pub.values[0]?.['49'])).toEqual(ALL)
   expect(fs.tally.reads.size).toBe(0)
-  expect(st.ghCalls).toBe(0)
+  expect(pub.ghAtFirst).toBe(0)
 })
 
-test('session start with nothing stored publishes nothing (a reload keeps the value it has)', async ($, on) => {
+// The stored index is written only on a full refresh, so it lags (here it holds a1 alone): the same background chain then runs the
+// refresh the first turn would, so with no input at all the value ends as /sub gives it; the first turn does not repeat it.
+test('session start, no input: the published value ends as /sub\'s refresh gives it; the first turn does not refresh again', async ($, on) => {
+  on('turn.start', async (_$, e) => e as never)
+  const { clock, fs, pub } = await fresh($, on, await stored([A1]), onDisk)
+  await $.session.start({ cwd: ROOT } as never)
+  await clock.settle()
+  expect(pub.values[0]?.['49']?.tokens).toBe(42_000) // the stored figures, at once
+  expect(figures(pub.value?.['49'])).toEqual(ALL)
+  fs.reset()
+  await $.turn.start({ turnId: 't0' } as never)
+  await clock.settle()
+  expect(fs.tally.lists).toEqual([])
+  const writes = pub.writes
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  expect(figures(pub.value?.['49'])).toEqual(ALL)
+  expect(pub.writes).toBe(writes)
+})
+
+test('session start with nothing stored and nothing on disk publishes nothing', async ($, on) => {
   const { clock, pub } = await fresh($, on, {})
   await $.session.start({ cwd: ROOT } as never)
   await clock.settle()
   expect(pub.writes).toBe(0)
 })
 
-// A hot reload runs session.start again with the value already published; the stored index is written only on a full refresh, so it
-// may lag this session (here it holds a1 alone): the value stands until the next refresh.
+// A hot reload runs session.start again with the value already published, and the stored index may lag (here it holds a1 alone):
+// its figures are never written over the value; only the transcript refresh that follows writes. (The PR index is due and gh held,
+// so its own refresh, which publishes whatever the history holds then, cannot write first.)
 test('session start keeps a value already published (a reload): a lagging stored index never overwrites it', async ($, on) => {
-  const good: Stats = { 49: { tokens: 53_000, cost: 0.26, ms: 4 * 60_000, refusals: 2 } }
+  const good: Stats = { 49: { tokens: 1, ms: 1, refusals: 0 } }
   on('state.get', async (_$, e, next) => (e.plugin === 'agent-monitor' && e.key === 'prStats' ? { value: { value: good, version: 1 } } as never : next(e)))
-  const { clock, pub } = await fresh($, on, await stored([A1]))
+  const { clock, pub } = await fresh($, on, await stored([A1], NOW - 10 * 60_000), onDisk)
+  let answer = () => {}
+  st.ghGate = new Promise<void>(r => { answer = r })
   await $.session.start({ cwd: ROOT } as never)
+  await clock.advance(1000)
+  expect(pub.values.some(v => v['49']?.tokens === 42_000)).toBe(false)
+  expect(figures(pub.values[0]?.['49'])).toEqual(ALL)
+  answer()
   await clock.settle()
-  expect(pub.writes).toBe(0)
 })
 
 test('session start does not wait for the stored index', async ($, on) => {
   let open = () => {}
   const gate = new Promise<void>(r => { open = r })
-  const { clock } = await fresh($, on, await stored(), key => (key.startsWith('txIndex:') ? gate : undefined))
+  const { clock } = await fresh($, on, await stored(), {}, key => (key.startsWith('txIndex:') ? gate : undefined))
   let started = false
   await Promise.race([$.session.start({ cwd: ROOT } as never).then(() => { started = true }), clock.advance(1000)])
   expect(started).toBe(true)

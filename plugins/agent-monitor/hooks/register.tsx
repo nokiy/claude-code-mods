@@ -102,7 +102,13 @@ function seedHistory($: EngineInterface, project: string): Promise<boolean> {
   if (!seed) txSeeds.set(project, (seed = (async () => seedCache(txCache, project, await $.store.get(indexKey(project))))().catch(() => false)))
   return seed
 }
-async function readHistory($: EngineInterface, current = false) {
+// A full scan already under way is joined, not run twice (session.start's background backfill and a quick /sub, say).
+let fullScan: Promise<void> | undefined
+function readHistory($: EngineInterface, current = false): Promise<void> {
+  if (current) return scanHistory($, true)
+  return (fullScan ??= scanHistory($, false).finally(() => { fullScan = undefined }))
+}
+async function scanHistory($: EngineInterface, current: boolean) {
   try {
     const project = await projectOf($)
     const first = !txSeeds.has(project)
@@ -146,10 +152,14 @@ async function dropPerFileKeys($: EngineInterface) {
 const prCache: PrCache = {} // the PR index (prindex.ts: `gh pr list` on an interval, last good kept in the store) and the session's branch, for the PR mode
 let prView: PrView = { prs: [] }
 const prIo = ($: EngineInterface) => ({ run: (a: string[]) => $.process.run(a), load: (k: string) => $.store.get(k), save: (k: string, v: PrIndex) => $.store.set(k, v) })
-async function refreshPrs($: EngineInterface) {
-  prView = await refreshIndex(prIo($), prCache, await $.clock.now(), await $.session.cwd())
-  await publish($)
-  $.ui.invalidate('ui.render')
+// One refresh at a time: a second caller joins the one in flight (gh is run once).
+let prRefresh: Promise<void> | undefined
+function refreshPrs($: EngineInterface): Promise<void> {
+  return (prRefresh ??= (async () => {
+    prView = await refreshIndex(prIo($), prCache, await $.clock.now(), await $.session.cwd())
+    await publish($)
+    $.ui.invalidate('ui.render')
+  })().finally(() => { prRefresh = undefined }))
 }
 
 // The per-PR subagent totals other mods read (docs/adr/0001-cross-mod-state.md), written only when they change: each write redraws the readers.
@@ -159,19 +169,20 @@ async function publish($: EngineInterface, views?: Board['views']) {
 }
 
 // At session start, before any turn: the per-PR totals from what the store already holds (the transcript index, the PR index), so a
-// reader's card has them at once; the first turn's refresh corrects them. Published only when both are stored and nothing is published
-// yet: a hot reload runs this too, and the stored index (written on a full refresh only) may lag this session, so a value already there
-// stands until the next refresh. Reads no transcript, runs no process.
+// reader's card has them at once; session.start runs the backfill right after, in the same background chain, which corrects them (the
+// stored index is written on a full refresh only, so it lags). Published only when both are stored and nothing is published yet: a hot
+// reload runs this too, and a value already there stands until that refresh. Reads no transcript, runs no process.
 async function publishStored($: EngineInterface) {
   try {
     if (!(await seedHistory($, await projectOf($)))) return
     history = historyRecs(txCache)
     $.ui.invalidate('ui.render')
     await loadStored(prIo($), prCache, await $.session.cwd())
-    if (!prCache.index || Object.keys(await read($, prStats)).length > 0) return
+    if (!prCache.index) return
     prView = { prs: prCache.index.prs, branch: prCache.branch } // the cache, not the stored copy: a refresh may have landed meanwhile
+    if (Object.keys(await read($, prStats)).length > 0) return
     await publish($)
-  } catch { /* the first turn's refresh publishes */ }
+  } catch { /* the backfill that follows publishes */ }
 }
 
 // Agents the mod never saw spawn come back from the main conversation (its Agent tool uses and task notifications), earlier ones from the transcripts. Only the transcripts are awaited (an unchanged project is a listing); the PR index (git and gh, seconds on a slow network) and the conversation land in the background and redraw.
@@ -311,7 +322,8 @@ export const register: Register = (on, options) => {
     scoped = inScope(e.cwd, cfg.scope)
     void dropPerFileKeys($) // a one-off clean-up of up to a few thousand keys: the session does not wait for it
     if (scoped) {
-      void publishStored($) // the session does not wait for the store
+      backfilled = true // done here, so the first turn does not run it again
+      void publishStored($).then(() => backfill($)).catch(() => {}) // one chain the session does not wait for: stored figures, then the refresh
       await ensureCommand($)
       if ((await $.store.get('placement')) != null) await $.store.delete('placement') // the old remembered placement: `lastPlacement` replaces it
       if (await read($, paneOpen)) { // a reload: the pane the state says is open comes back holding the keyboard, the ring where it was
@@ -325,7 +337,7 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     if (await active($)) {
       await ensureCommand($) // a hot reload may have dropped it
-      void (backfilled ? refreshPrs($) : backfill($)) // backfill once per load, not holding the turn (a first scan reads every transcript); /sub backfills again; later turns refresh the PR index when due
+      void (backfilled ? refreshPrs($) : backfill($)) // backfill once per load (session.start's chain, else here), not holding the turn (a first scan reads every transcript); /sub backfills again; later turns refresh the PR index when due
       backfilled = true
       if (cfg.pricesBad && !priceToasted) { priceToasted = true; $.ui.toast(t.pricesBad, { timeoutMs: 8000 }) }
     }
