@@ -86,7 +86,7 @@ describe('ticket status from git', () => {
     expect(ticketStatus('OPEN', null, F({ isMerged: true }))).toBe('merged');
     expect(ticketStatus('OPEN', null, F())).toBe('todo');
   });
-  test('mergedByCommits: strict <type>(#N): headlines and merge headlines naming /N-', () => {
+  test('mergedByCommits: strict <type>(#N): headlines, headlines ending (#N), and merge headlines naming /N-', () => {
     const heads = [
       'feat(#5): add toggle',
       'fix(#6): repair it',
@@ -96,8 +96,10 @@ describe('ticket status from git', () => {
       'Merge pull request #3 from org/feat/10-other',
       'refactor(#11) missing colon',
       'fix: see feat(#12): quoted',
+      'feat(pr-hint): card header in two lines (#14)',
+      'docs: see (#13) in the middle',
     ];
-    expect([...mergedByCommits(heads, [5, 6, 7, 8, 9, 10, 11, 12, 13])].sort((a, b) => a - b)).toEqual([5, 6, 9, 10]);
+    expect([...mergedByCommits(heads, [5, 6, 7, 8, 9, 10, 11, 12, 13, 14])].sort((a, b) => a - b)).toEqual([5, 6, 9, 10, 14]);
     // Numbers not asked for are ignored.
     expect([...mergedByCommits(heads, [6])]).toEqual([6]);
     expect(mergedByCommits([], [1]).size).toBe(0);

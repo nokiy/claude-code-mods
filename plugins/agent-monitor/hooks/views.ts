@@ -5,8 +5,9 @@ import type { Clash, Stall, TierCheck } from './alerts'
 import type { Config } from './config'
 import { DEFAULT_PRICES, agentCost } from './cost'
 import type { Prices } from './cost'
-import { parseDescription } from './logic'
+import { parseDescription, resolveTier } from './logic'
 import { clean } from './patches'
+import type { PrView } from './prindex'
 import type { Strings } from './strings'
 
 // 'unknown': the record said running but the engine no longer lists the agent.
@@ -23,6 +24,8 @@ export type View = {
   effort?: string | number
   rounds?: number
   tokens?: number
+  /** Latest step's input + cache tokens: the context fill. */
+  context?: number
   startedAt?: number
   finishedAt?: number
   elapsedMs?: number
@@ -39,6 +42,8 @@ export type View = {
   /** Model and effort of the latest turn.step. */
   actualModel?: string
   actualEffort?: string | number
+  /** Model and effort are the transcript's (no step tracked): what ran, never filled from the description prefix. */
+  fromTranscript?: true
   /** Detail page: the spawn prompt, the latest activity texts (oldest first), the longest step, token parts, lines changed per path, skills, the report. */
   prompt?: string
   recent: string[]
@@ -53,10 +58,14 @@ export type View = {
   stall?: Stall
   tier?: TierCheck
   clashes: Clash[]
+  /** The transcript's first-line branch (which PR the agent counts toward). */
+  branch?: string
+  /** Hook denials only (AgentMonitorRec.refusals); `denied` also counts errored results. */
+  refusals: number
 }
 
-// What every screen draws from: the views (newest first), the session cwd for short paths, the settings.
-export type Board = { views: View[]; cwd: string; cfg: Config; t: Strings }
+// What every screen draws from: the views (newest first), the session cwd for short paths, the settings, the PR index and current branch (PR mode).
+export type Board = { views: View[]; cwd: string; cfg: Config; t: Strings; prs?: PrView }
 
 const DONE = new Set(['completed', 'done', 'success', 'succeeded'])
 const FAILED = new Set(['failed', 'killed', 'error', 'cancelled'])
@@ -69,6 +78,10 @@ export function effectiveStatus(rec: Status | undefined, listStatus: string | un
   if (listStatus !== undefined && FAILED.has(listStatus)) return 'failed'
   return rec ?? 'running'
 }
+
+// The tier a row shows, as full words: the record's model and effort. The description prefix fills what no step has said yet, save on
+// a record read from its transcript, which says what ran: there an unknown effort stays unknown (bare `sonnet`).
+export const shownTier = (v: Pick<View, 'model' | 'effort' | 'desc' | 'fromTranscript'>) => resolveTier(v.model, v.effort, v.fromTranscript ? '' : v.desc)
 
 // Newest start first, whatever the status. No start time: after those with one; ties and unknowns by agentId.
 export function orderViews<T extends { id: string; startedAt?: number }>(rows: T[]): T[] {
@@ -146,6 +159,7 @@ export function buildViews(recs: Record<string, AgentMonitorRec>, list: ListAgen
       effort: r?.effort,
       rounds: r?.watched ? r.steps : undefined,
       tokens,
+      context: r && r.context > 0 ? r.context : undefined,
       startedAt: r?.startedAt,
       finishedAt: r?.finishedAt,
       elapsedMs,
@@ -159,6 +173,7 @@ export function buildViews(recs: Record<string, AgentMonitorRec>, list: ListAgen
       reasons: r?.reasons ?? [],
       actualModel: r?.actualModel,
       actualEffort: r?.actualEffort,
+      fromTranscript: r?.fromTranscript,
       prompt: r?.prompt,
       recent: r?.recent ?? [],
       longestStepMs: r?.longestStepMs,
@@ -167,6 +182,8 @@ export function buildViews(recs: Record<string, AgentMonitorRec>, list: ListAgen
       fileLines: r?.lines ?? {},
       skills: r?.skills ?? [],
       result: r?.result,
+      branch: r?.branch,
+      refusals: r?.refusals ?? 0,
       stall: r ? stallOf({ status, lastEventAt: r.lastEventAt, startedAt: r.startedAt, pendingTool: r.pendingTool }, now, ctx.stallMs ?? DEFAULT_STALL_MS) : undefined,
       tier: r ? tierMismatch(desc, r.actualModel, r.actualEffort) : undefined,
       clashes: [],

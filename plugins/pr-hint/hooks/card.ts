@@ -1,6 +1,6 @@
-// Pure text for the AbovePrompt detail card (full hierarchy, no row cap) and the hint row's spans and layout.
-import type { PrData, PrTicket, TicketStatus } from '../types';
-import { prState, relTime, shortTitle, sortTickets, truncate, width, wrapCells } from './parse';
+// Pure text for the AbovePrompt detail card (two header lines, then every ticket, no row cap) and the hint row's spans and layout.
+import type { PrData, PrStat, PrTicket, TicketStatus } from '../types';
+import { prState, relTime, shortTitle, sortTickets, truncate, width } from './parse';
 import type { PrState } from './parse';
 import type { Strings } from './strings';
 
@@ -92,51 +92,69 @@ export function refreshText(prev: PrData | null, next: PrData | null, s: Strings
   return parts.length === 0 ? s.upToDate(next.number) : s.changed(next.number, parts.join(' · '));
 }
 
-/**
- * The card, top to bottom, `inner` cells wide: the PR title (wrapped to at most
- * 3 rows), the Spec with its integration branch, the CI and the PR state chip,
- * then one line per ticket. `footer` follows the link.
- */
-export function cardLines(pr: PrData, nowMs: number, inner: number, s: Strings, titleInner = inner): { lines: CardLine[]; footer: string } {
+// The bar is BAR cells; only when the title would get under 8 cells does it shrink, never below MIN_BAR.
+const BAR = 20;
+const MIN_BAR = 10;
+
+// Header line 1, at most `room` cells when it fits: `PR #n` · title (cut with …) · bar · `Tickets d/n` · `Spec #n`.
+// d counts merged and done tickets; the bar fills d/n of its cells, and the tail follows it directly.
+const headLine = (pr: PrData, s: Strings, room: number): CardLine => {
   const prefix = `PR #${pr.number}`;
-  const title = wrapCells(`${prefix} ${pr.title}`, titleInner, 3).map((text, i) =>
-    i === 0 && text.startsWith(prefix)
-      ? line([{ text: prefix, color: 'cyan', bold: true }, { text: text.slice(prefix.length) }])
-      : line([{ text }]),
-  );
-
-  const subjects = ticketSubjects(pr.tickets);
-  const branches = `${s.integration} ${pr.base} ← ${pr.head}`;
-  // Row 2: the Spec, else the lone ticket, else (several tickets) just the branches; no tickets keeps the state.
-  const only = pr.tickets.length === 1 ? pr.tickets[0] : undefined;
-  const lead = pr.spec
-    ? { head: `Spec #${pr.spec.number} `, title: pr.spec.title }
-    : only
-      ? { head: `${s.ticket} #${only.number} · `, title: subjects.get(only.number) ?? only.title }
-      : null;
-  let meta: CardLine;
-  if (lead) {
-    const tail = ` · ${branches}`;
-    const room = Math.max(8, inner - width(lead.head) - width(tail));
-    meta = line([{ text: `${lead.head}${shortTitle(lead.title, room)}${tail}`, color: 'magenta' }]);
-  } else if (pr.tickets.length >= 2) {
-    meta = line([{ text: branches, color: 'magenta' }]);
-  } else {
-    meta = line([{ text: branches }]);
-  }
-
-  const { ci } = pr;
-  const ciColor = ci.total === 0 ? undefined : ci.fail > 0 ? 'red' : ci.pending > 0 ? 'yellow' : 'green';
-  const chip = stateChip(pr, s);
-  const summary = line([
-    { text: ciText(ci, s), color: ciColor },
-    { text: ' · ' },
-    { text: chip.text, color: chip.color, bold: true },
-    ...(pr.tickets.length === 0 ? [{ text: ` · ${s.noTickets}` }] : []),
+  const n = pr.tickets.length;
+  const d = pr.tickets.filter(t => t.status === 'merged' || t.status === 'done').length;
+  const tail = ` ${s.ticketCount(d, n)}${pr.spec ? ` · Spec #${pr.spec.number}` : ''}`;
+  const fixed = width(prefix) + 2 + width(tail);
+  const cells = Math.min(BAR, Math.max(MIN_BAR, room - fixed - 8));
+  const title = truncate(pr.title, Math.max(8, room - fixed - cells));
+  const filled = n === 0 ? 0 : Math.round((cells * d) / n);
+  return line([
+    { text: prefix, color: 'cyan', bold: true },
+    { text: ` ${title} ` },
+    ...(filled > 0 ? [{ text: '█'.repeat(filled), color: 'green' }] : []),
+    ...(filled < cells ? [{ text: '░'.repeat(cells - filled), dim: true }] : []),
+    { text: tail },
   ]);
+};
 
+// agent-monitor's figures, written the way its own panel writes them: `86.2k`, `12m34s`, `$1.25`. Copies of agent-monitor's
+// formatTokens / formatDuration / formatMoney (its logic.ts and cost.ts): change both together (docs/adr/0001-cross-mod-state.md).
+const tokenText = (n: number) => (n < 1000 ? String(n) : n < 1_000_000 ? `${(n / 1000).toFixed(1)}k` : `${(n / 1_000_000).toFixed(1)}M`);
+const timeText = (ms: number) => {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(sec / 60);
+  return sec < 60 ? `${sec}s` : m < 60 ? `${m}m${String(sec % 60).padStart(2, '0')}s` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`;
+};
+const moneyText = (usd: number) => (usd > 0 && usd < 0.005 ? '<$0.01' : `$${usd.toFixed(2)}`);
+
+/**
+ * Header line 2's runs: `◐ N running`, N the tickets in progress; then, with agent-monitor's `stats` for this PR,
+ * ` · ≈$ · tokens · time (subagents only)` (no `≈$` when no price is known) and ` · blocked ×N` when hooks refused any.
+ */
+export const statusParts = (pr: PrData, s: Strings, stats?: PrStat): CardPart[] => [
+  { text: '◐', color: STATUS_COLOR.doing },
+  { text: ` ${pr.tickets.filter(t => t.status === 'doing').length} ${s.status.doing}` },
+  ...(stats ? [
+    { text: ` · ${stats.cost === undefined ? '' : `≈${moneyText(stats.cost)} · `}${s.tokens(tokenText(stats.tokens))} · ${timeText(stats.ms)}` },
+    { text: ` ${s.agentsOnly}`, dim: true },
+    ...(stats.refusals > 0 ? [{ text: ` · ${s.refused(stats.refusals)}`, color: 'red' }] : []),
+  ] : []),
+];
+
+/**
+ * The card, top to bottom: two header lines (line 1 stays within `titleInner`, the width the refresh button
+ * leaves; line 2 is `statusParts`), then one line per ticket, `inner` cells wide. `footer` follows the link.
+ * `extra.stats` is this PR's subagent totals read from agent-monitor (undefined when absent: line 2 stays `◐ N running`).
+ */
+export function cardLines(
+  pr: PrData, nowMs: number, inner: number, s: Strings, titleInner = inner, extra: { stats?: PrStat } = {},
+): { lines: CardLine[]; footer: string } {
+  const subjects = ticketSubjects(pr.tickets);
   return {
-    lines: [...title, meta, summary, ...sortTickets(pr.tickets).map(t => ticketLine(t, subjects.get(t.number) ?? t.title, s, inner))],
+    lines: [
+      headLine(pr, s, titleInner),
+      line(statusParts(pr, s, extra.stats)),
+      ...sortTickets(pr.tickets).map(t => ticketLine(t, subjects.get(t.number) ?? t.title, s, inner)),
+    ],
     footer: s.fetched(relTime(pr.fetchedAt, nowMs, s)),
   };
 }

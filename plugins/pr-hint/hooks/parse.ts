@@ -219,14 +219,15 @@ export function ticketBranches(n: number, names: readonly string[]): string[] {
 }
 
 /**
- * PR commit headlines -> tickets they merged: `<type>(#N): ...`, the CJK form `<type>（<scope>）：<text> #N`
- * (the number ends the headline), or a merge headline naming a `/N-` branch. Body mentions never count.
+ * PR commit headlines -> tickets they merged: `<type>(#N): ...`, `<type>(<scope>): <text> (#N)` (a fast-forward
+ * merge leaves only these), the CJK form `<type>（<scope>）：<text> #N` (the number ends the headline), or a merge
+ * headline naming a `/N-` branch. Body mentions never count.
  */
 export function mergedByCommits(headlines: readonly string[], numbers: readonly number[]): Set<number> {
   const wanted = new Set(numbers);
   const out = new Set<number>();
   for (const h of headlines) {
-    const m = /^[a-z]+\(#(\d+)\):/.exec(h) ?? /^[a-z]+（[^）]+）：.*\s#(\d+)$/.exec(h);
+    const m = /^[a-z]+\(#(\d+)\):/.exec(h) ?? /\s\(#(\d+)\)$/.exec(h) ?? /^[a-z]+（[^）]+）：.*\s#(\d+)$/.exec(h);
     if (m && wanted.has(Number(m[1]))) out.add(Number(m[1]));
     if (!h.startsWith('Merge')) continue;
     for (const b of h.matchAll(/\/(\d+)-/g)) if (wanted.has(Number(b[1]))) out.add(Number(b[1]));

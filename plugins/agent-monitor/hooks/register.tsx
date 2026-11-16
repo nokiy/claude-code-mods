@@ -1,31 +1,28 @@
-// The hooks module of agent-monitor: tracks subagents from the engine's events, keeps the session state, and draws the band above the prompt
-// and the /sub pane. The engine's `$` and the state atoms stay in this file (a validator follows them nowhere else); the decisions live in nav.ts, settings.ts and patches.ts.
+// The hooks module of agent-monitor: tracks subagents from the engine's events, keeps the session state, and draws the band above the prompt and the /sub pane. The engine's `$` and the state atoms stay in this file (a validator follows them nowhere else); the decisions live in nav.ts, settings.ts and patches.ts.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentMonitorDraft, AgentMonitorRec, MainEdit } from '../types'
+import type { AgentMonitorDraft, AgentMonitorRec, MainEdit, PrStat } from '../types'
 import { alertLines, dueToasts } from './alertlines'
-import { MAX_MAIN, editedPath, normPath, reasonOf } from './alerts'
-import { DEFAULTS, readConfig } from './config'
-import type { Config } from './config'
+import { MAX_MAIN } from './alerts'
+import { DEFAULTS, readConfig, type Config } from './config'
+import { groupByPr, statsByPr } from './groups'
+import { MAX_PROJECTS, historyRecs, indexKey, projectDir, refreshProject, seedCache, staleIndexes, toIndex, withHistory, type TxEntry } from './history'
 import { inScope } from './logic'
-import { CLOSED, pageStr, parsePage, ringKeyOf, siteFlags, subEffects } from './nav'
-import type { NavPatch, Placement } from './nav'
-import { agentLaunched, blank, clean, editDelta, onAgentResult, onComplete, onSpawn, onStep, onStepEnd, onToolEnd, onToolStart } from './patches'
+import { CLOSED, pageStr, parseElementKey, parsePage, ringKeyOf, siteFlags, subEffects, type NavPatch, type Placement } from './nav'
+import { blank, clean, editedPaths, onComplete, onStep, onStepEnd, onToolUses } from './patches'
+import type { Mode } from './pages'
 import { bandTree, panel } from './render'
-import { configKey, draftFromConfig, saveEffects, toggleDraft } from './settings'
-import type { SettingKey } from './settings'
-import { pickLang, strings } from './strings'
-import type { Strings } from './strings'
+import { configKey, draftFromConfig, saveEffects, toggleDraft, type SettingKey } from './settings'
+import { refreshIndex, type PrCache, type PrIndex, type PrView } from './prindex'
+import { pickLang, strings, type Strings } from './strings'
 import { parseSubArg } from './subarg'
 import { mergeBackfill, recsFromMessages } from './backfill'
-import { buildViews, reconcile, seedRec, settled, withoutGhosts } from './views'
-import type { Board } from './views'
+import { buildViews, reconcile, seedRec, settled, withoutGhosts, type Board } from './views'
 
 const PANE = 'sub'
 
-// State in the session (`$.state`, typed by ../types/index.d.ts), so a hot reload keeps it: the records, the main loop's edits, and the panel's
-// flags, page, focus ring, settings draft and this session's placement.
+// State in the session (`$.state`, typed by ../types/index.d.ts), so a hot reload keeps it: the records, the main loop's edits, and the panel's flags, page, focus ring, settings draft, placement, mode and open groups.
 const agents = atom({ plugin: 'agent-monitor', key: 'agents' } as const, {} as Record<string, AgentMonitorRec>)
 const mainEdits = atom({ plugin: 'agent-monitor', key: 'mainEdits' } as const, [] as MainEdit[])
 const historyOpen = atom({ plugin: 'agent-monitor', key: 'historyOpen' } as const, false)
@@ -35,11 +32,12 @@ const focusKey = atom({ plugin: 'agent-monitor', key: 'focusKey' } as const, nul
 const ringKey = atom({ plugin: 'agent-monitor', key: 'ringKey' } as const, null as string | null)
 const draft = atom({ plugin: 'agent-monitor', key: 'draft' } as const, null as AgentMonitorDraft | null)
 const sessionPlacement = atom({ plugin: 'agent-monitor', key: 'sessionPlacement' } as const, null as Placement | null)
-
+const mode = atom({ plugin: 'agent-monitor', key: 'mode' } as const, 'pr' as Mode)
+const expanded = atom({ plugin: 'agent-monitor', key: 'expanded' } as const, {} as Record<string, boolean>)
+const prStats = atom({ plugin: 'agent-monitor', key: 'prStats' } as const, {} as Record<string, PrStat>)
 
 type Recs = Record<string, AgentMonitorRec>
-// The settings (plugin.json userConfig); a change in /config or on the settings page reloads the module, so register() sets it afresh.
-let cfg: Config = DEFAULTS
+let cfg: Config = DEFAULTS // the settings (plugin.json userConfig); a change in /config or on the settings page reloads the module, so register() sets it afresh
 // The UI strings: the language option is read once per load (it needs the session's settings and LANG), English until then.
 let langOption: unknown = 'auto'
 let t: Strings = strings('en')
@@ -49,8 +47,8 @@ const ensureLang = ($: EngineInterface) => (langLoad ??= (async () => {
 })())
 
 async function readNav($: EngineInterface) {
-  const [v, f, r, d, band, pane, session] = await Promise.all([read($, view), read($, focusKey), read($, ringKey), read($, draft), read($, historyOpen), read($, paneOpen), read($, sessionPlacement)])
-  return { page: parsePage(v), focusKey: f, ringKey: r, draft: d, band, pane, session }
+  const [v, f, r, d, band, pane, session, m, open] = await Promise.all([read($, view), read($, focusKey), read($, ringKey), read($, draft), read($, historyOpen), read($, paneOpen), read($, sessionPlacement), read($, mode), read($, expanded)])
+  return { page: parsePage(v), focusKey: f, ringKey: r, draft: d, band, pane, session, mode: m, expanded: open }
 }
 
 async function writeNav($: EngineInterface, p: NavPatch) {
@@ -63,19 +61,18 @@ async function writeNav($: EngineInterface, p: NavPatch) {
   if (p.session !== undefined) await update($, sessionPlacement, () => p.session ?? null)
 }
 
-// Read-modify-write one record. An agent with no record yet starts one only when `$.agent.list()` names it or `spawned` says the engine just
-// started it (an engine fork or workflow agent is no subagent: no row). Returns whether a record was written.
-async function track($: EngineInterface, id: string, fn: (r: AgentMonitorRec) => AgentMonitorRec, spawned = false): Promise<boolean> {
+// Read-modify-write one record. An agent with no record yet starts one only when `$.agent.list()` names it, with its type and description from there (an engine fork or workflow agent is no subagent: no row). Returns whether a record was written.
+async function track($: EngineInterface, id: string, fn: (r: AgentMonitorRec) => AgentMonitorRec): Promise<boolean> {
   const known = (await read($, agents))[id] !== undefined
-  const seed = known || spawned ? undefined : seedRec((await $.agent.list()).find(a => a.id === id))
-  if (!known && !spawned && !seed) return false
+  const seed = known ? undefined : seedRec((await $.agent.list()).find(a => a.id === id))
+  if (!known && !seed) return false
   await update($, agents, (all: Recs) => ({ ...all, [id]: clean(fn({ ...(all[id] ?? seed ?? blank()) })) }))
   return true
 }
 
 async function loadBoard($: EngineInterface): Promise<Board> {
-  const views = buildViews(await read($, agents), await $.agent.list(), await $.clock.now(), { stallMs: cfg.stallMs, main: await read($, mainEdits), prices: cfg.prices })
-  return { views, cwd: await $.session.cwd(), cfg, t }
+  const views = buildViews(withHistory(await read($, agents), history), await $.agent.list(), await $.clock.now(), { stallMs: cfg.stallMs, main: await read($, mainEdits), prices: cfg.prices })
+  return { views, cwd: await $.session.cwd(), cfg, t, prs: prView }
 }
 
 // A main-loop edit takes part in conflicts only while a subagent runs, so it is kept only then.
@@ -93,14 +90,85 @@ async function settleStale($: EngineInterface) {
   await update($, agents, (all: Recs) => settled(all, new Map(stale), now))
 }
 
-// Agents the mod never saw spawn come back from the main conversation (its Agent tool uses and task notifications).
+// Subagents of every session of this project come from their transcripts (history.ts): the entries live in this load, seeded once per load from the project's index in the store. `current`: only this session's folder (the 1 s tick), else the whole project directory. Only a full refresh writes the index, once, and only when an entry changed since the last write.
+const txCache = new Map<string, TxEntry>()
+const txSeeded = new Set<string>() // projects whose stored index this load has read
+let txDirty = false
+let history: Recs = {}
+async function readHistory($: EngineInterface, current = false) {
+  try {
+    const project = projectDir((await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`, await $.session.root())
+    const seeded = !txSeeded.has(project) && (txSeeded.add(project), seedCache(txCache, project, await $.store.get(indexKey(project))))
+    const tail = async (path: string, from: number) => ((r) => ({ text: r.stdout, truncated: r.isStdoutTruncated }))(await $.process.run(['tail', '-c', `+${from + 1}`, path]))
+    const io = { list: (p: string) => $.fs.list(p), read: (p: string) => $.fs.read(p), tail }
+    const changed = await refreshProject(io, project, txCache, current ? await $.session.id() : undefined)
+    txDirty ||= changed
+    if (!current && txDirty) {
+      txDirty = false
+      await saveIndex($, project)
+    }
+    if (!changed && !seeded) return
+    history = historyRecs(txCache)
+    $.ui.invalidate('ui.render')
+  } catch { /* no transcript readable now: the live records still stand */ }
+}
+
+// One set for this project's index; past MAX_PROJECTS indexes the least recently written go. Best effort: a refused write costs a re-read in the next load.
+async function saveIndex($: EngineInterface, project: string) {
+  const key = indexKey(project)
+  try {
+    await $.store.set(key, toIndex(txCache, project, await $.clock.now()))
+    const others = (await $.store.keys()).filter(k => k.startsWith('txIndex:') && k !== key)
+    if (others.length < MAX_PROJECTS) return
+    const ats = await Promise.all(others.map(async k => ({ key: k, at: Number((await $.store.get(k) as { at?: unknown } | undefined)?.at) || 0 })))
+    for (const k of staleIndexes([{ key, at: Infinity }, ...ats])) await $.store.delete(k)
+  } catch { /* store full or refused */ }
+}
+
+// The per-file transcript keys of older builds (`transcript:<path>`, `transcript.v2:<path>`), deleted once per load; no other key is touched.
+let migrated = false
+async function dropPerFileKeys($: EngineInterface) {
+  if (migrated) return
+  migrated = true
+  try {
+    for (const k of await $.store.keys()) if (k.startsWith('transcript:') || k.startsWith('transcript.v2:')) await $.store.delete(k)
+  } catch { /* tried again in the next load */ }
+}
+
+const prCache: PrCache = {} // the PR index (prindex.ts: `gh pr list` on an interval, last good kept in the store) and the session's branch, for the PR mode
+let prView: PrView = { prs: [] }
+async function refreshPrs($: EngineInterface) {
+  const io = { run: (a: string[]) => $.process.run(a), load: (k: string) => $.store.get(k), save: (k: string, v: PrIndex) => $.store.set(k, v) }
+  prView = await refreshIndex(io, prCache, await $.clock.now(), await $.session.cwd())
+  await publish($)
+  $.ui.invalidate('ui.render')
+}
+
+// The per-PR subagent totals other mods read (docs/adr/0001-cross-mod-state.md), written only when they change: each write redraws the readers.
+async function publish($: EngineInterface, views?: Board['views']) {
+  const next = statsByPr(groupByPr(views ?? (await loadBoard($)).views, prView.prs))
+  if (JSON.stringify(next) !== JSON.stringify(await read($, prStats))) await update($, prStats, () => next)
+}
+
+// Agents the mod never saw spawn come back from the main conversation (its Agent tool uses and task notifications), earlier ones from the transcripts. Only the transcripts are awaited (an unchanged project is a listing); the PR index (git and gh, seconds on a slow network) and the conversation land in the background and redraw.
 async function backfill($: EngineInterface) {
+  void refreshPrs($).catch(() => {})
+  void fromConversation($)
+  await readHistory($)
+  await publish($)
+}
+
+async function fromConversation($: EngineInterface) {
   try {
     const found = recsFromMessages(await $.session.messages())
     const recs = await read($, agents)
-    if (mergeBackfill(recs, found) !== recs) await update($, agents, (all: Record<string, AgentMonitorRec>) => mergeBackfill(all, found))
+    if (mergeBackfill(recs, found) === recs) return
+    await update($, agents, (all: Record<string, AgentMonitorRec>) => mergeBackfill(all, found))
+    await publish($)
+    $.ui.invalidate('ui.render')
   } catch { /* the conversation is not readable now: the live records still stand */ }
 }
+
 // One tick a second while an agent runs; one toast per agent per conflict / stall (`warned:<agentId>:<kind>` in the store, `told` its memory in this load).
 const told = new Set<string>()
 async function warn($: EngineInterface, board: Board) {
@@ -111,17 +179,21 @@ async function warn($: EngineInterface, board: Board) {
     if (!seen) $.ui.toast(d.text, { timeoutMs: 8000 })
   }
 }
-let timer: { cancel: () => void } | undefined
+
+let timer:{ cancel: () => void } | undefined
 function stopTimer() {
-  try { timer?.cancel() } catch { /* already gone */ }
+  try {
+    timer?.cancel()
+  } catch { /* already gone */ }
   timer = undefined
 }
+
 function ensureTimer($: EngineInterface) {
   timer ??= $.clock.every(1000, async () => {
     try {
-      await settleStale($)
+      await Promise.all([settleStale($), readHistory($, true)])
       const board = await loadBoard($)
-      await warn($, board)
+      await Promise.all([warn($, board), publish($, board.views)])
       if (!board.views.some(v => v.status === 'running')) stopTimer()
       $.ui.invalidate('ui.render')
     } catch { stopTimer() } // a later event starts a fresh timer
@@ -139,8 +211,10 @@ async function ensureCommand($: EngineInterface) {
     } catch { /* name refused: try the next */ }
   }
 }
-const paneUp = async ($: EngineInterface) => (await $.ui.panes()).some(p => p.id === PANE)
+
+const paneUp =async ($: EngineInterface) => (await $.ui.panes()).some(p => p.id === PANE)
 const openPane = ($: EngineInterface) => $.ui.open({ id: PANE, title: t.paneTitle, focus: true, closeOnEscape: true })
+
 // Put the panel at `where` (`right`: the pane, `top`: the band above the prompt; null: down), taking it from the other place.
 async function setSite($: EngineInterface, where: Placement | null) {
   await writeNav($, siteFlags(where))
@@ -182,24 +256,25 @@ function actsOf($: EngineInterface) {
     close: () => void setSite($, null),
     toggle: (key: SettingKey) => void update($, draft, (d: AgentMonitorDraft | null) => (d ? toggleDraft(d, key) : d)),
     save: () => void saveSettings($),
+    mode: (m: Mode) => void update($, mode, () => m),
+    fold: (key: string, open: boolean) => void update($, expanded, (x: Record<string, boolean>) => ({ ...x, [key]: open })),
   }
 }
 
 // What a site draws from; a running agent keeps the timer going.
 async function screen($: EngineInterface) {
-  const nav = await readNav($)
-  const board = await loadBoard($)
+  const [nav, board] = await Promise.all([readNav($), loadBoard($)])
   if (board.views.some(v => v.status === 'running')) ensureTimer($)
   return { nav, board }
 }
 
-// The mod acts everywhere, or only when the session cwd is inside the `scope` setting (session.start says, else the first hook asks).
-// Every hook goes through `active`, so the language is read before anything is drawn.
+// The mod acts everywhere, or only when the session cwd is inside the `scope` setting (session.start says, else the first hook asks). Every hook goes through `active`, so the language is read before anything is drawn.
 let scoped: boolean | undefined
 const active = async ($: EngineInterface) => {
   await ensureLang($)
   return (scoped ??= inScope(await $.session.cwd(), cfg.scope))
 }
+
 let backfilled = false
 let priceToasted = false
 export const register: Register = (on, options) => {
@@ -210,6 +285,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await ensureLang($)
     scoped = inScope(e.cwd, cfg.scope)
+    void dropPerFileKeys($) // a one-off clean-up of up to a few thousand keys: the session does not wait for it
     if (scoped) {
       await ensureCommand($)
       if ((await $.store.get('placement')) != null) await $.store.delete('placement') // the old remembered placement: `lastPlacement` replaces it
@@ -224,7 +300,7 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     if (await active($)) {
       await ensureCommand($) // a hot reload may have dropped it
-      if (!backfilled) await backfill($) // once per load; /sub backfills again, and an Agent result is a second way in
+      void (backfilled ? refreshPrs($) : backfill($)) // backfill once per load, not holding the turn (a first scan reads every transcript); /sub backfills again; later turns refresh the PR index when due
       backfilled = true
       if (cfg.pricesBad && !priceToasted) { priceToasted = true; $.ui.toast(t.pricesBad, { timeoutMs: 8000 }) }
     }
@@ -241,10 +317,10 @@ export const register: Register = (on, options) => {
     return next(e)
   })
   for (const command of ['sub', 'subs']) on('command.run', { command }, async ($, e, next) => ((await active($)) ? runSub($, e.args) : next(e)))
-  // The ring moved onto a row's Button: remembered (focusKey), so a page change can put it back. Every move in our pane or band, onto any
-  // element or off all of them, is written to ringKey, which drives the selected-row highlight.
+  // The ring moved onto a row's or group's Button: remembered (focusKey), so a page change can put it back. Every move in our pane or band, onto any element or off all of them, is written to ringKey, which drives the selected-row highlight.
   on('ui.focus', async ($, e, next) => {
-    if (e.element?.startsWith('row:') && (await read($, focusKey)) !== e.element) await update($, focusKey, () => e.element ?? null)
+    const kind = parseElementKey(e.element)?.kind
+    if ((kind === 'row' || kind === 'group') && (await read($, focusKey)) !== e.element) await update($, focusKey, () => e.element ?? null)
     if (e.requestId === PANE || e.component === 'AbovePrompt') {
       const key = ringKeyOf(e)
       if ((await read($, ringKey)) !== key) {
@@ -255,65 +331,31 @@ export const register: Register = (on, options) => {
     return next(e)
   })
   on('ui.close', async ($, e, next) => (e.id === PANE && e.origin.kind !== 'unload' && (await Promise.all([update($, paneOpen, () => false), update($, ringKey, () => null)])), next(e)))
-  // agent.spawn resolves with the new agentId: the id every later turn.step / tool.call carries.
-  on('agent.spawn', async ($, e, next) => {
-    const r = await next(e)
-    if (!(await active($)) || !r.agentId) return r
-    const now = await $.clock.now()
-    await track($, r.agentId, p => onSpawn(p, e, r.model, now), true)
-    ensureTimer($)
-    $.ui.invalidate('ui.render')
-    return r
-  })
-  // Model, effort and token usage come from a subagent's own steps (agentId is absent on main).
+  // Everything live comes from the model's steps, never from hooking tool calls or spawns (either keeps Code Mode off). A subagent's
+  // first step starts its record (`$.agent.list()` names it); each step brings model, effort and usage, and the tool calls it asks
+  // for (activity, counts, edited paths; Code Mode's are one `REPL` each). A main-loop step's edits feed the conflict check.
+  // The step streams through untouched.
   on('turn.step', async function* ($, e, next) {
     if (!(await active($))) return yield* next(e)
     const id = e.agentId
     const now = await $.clock.now()
     const tracked = id ? await track($, id, p => onStep(p, e, now)) : false
-    if (tracked) ensureTimer($)
-    const result = yield* next(e)
-    if (id && tracked) {
-      const u = result.usage
-      const done = await $.clock.now()
-      await track($, id, p => onStepEnd(p, u ?? undefined, done))
-    }
-    return result
-  })
-  on('tool.call', async ($, e, next) => {
-    if (!(await active($))) return next(e)
-    const id = e.agentId
-    const tool = String(e.tool)
-    const input = e as unknown as Record<string, unknown>
-    const path = editedPath(tool, input)
-    const file = path ? normPath(path, await $.session.cwd()) : undefined
-    const now = await $.clock.now()
-    if (!id && file) await noteMainEdit($, file, now)
-    // pendingTool is set before the call runs and cleared once it returns (or throws); the result says whether it was refused.
-    const tracked = id ? await track($, id, p => onToolStart(p, tool, input, file, now, t)) : false
-    let r: Awaited<ReturnType<typeof next>> | undefined
-    try {
-      r = await next(e)
-    } finally {
-      if (id && tracked) {
-        const done = await $.clock.now()
-        await track($, id, p => onToolEnd(p, tool, reasonOf(r), done, editDelta(file, r)))
-      }
-    }
-    const launched = agentLaunched(e, r as { result?: unknown; isError?: boolean })
-    if (launched) {
-      const at = await $.clock.now()
-      await track($, launched.res.agentId, p => onAgentResult(p, launched.call, launched.res, at), true)
+    if (tracked) {
+      ensureTimer($)
       $.ui.invalidate('ui.render')
     }
-    return r
+    const result = yield* next(e)
+    if (id && !tracked) return result
+    const done = await $.clock.now()
+    const cwd = result.toolUses.length > 0 ? await $.session.cwd() : ''
+    if (id) await track($, id, p => onToolUses(onStepEnd(p, result.usage ?? undefined, done), result.toolUses, cwd, t))
+    else for (const path of editedPaths(result.toolUses, cwd)) await noteMainEdit($, path, done)
+    return result
   })
   on('turn.complete', async ($, e, next) => {
-    if (!(await active($))) return next(e)
-    if (e.agentId) {
-      const now = await $.clock.now()
-      if (await track($, e.agentId, p => onComplete(p, e.reason, now))) $.ui.invalidate('ui.render')
-    }
+    if (!(await active($)) || !e.agentId) return next(e) // the main loop's turn ends no subagent
+    const now = await $.clock.now()
+    if (await track($, e.agentId, p => onComplete(p, e.reason, now, e.answer))) $.ui.invalidate('ui.render')
     return next(e)
   })
   // The band above the prompt: the panel while `/sub top` is open, else the running agents, one row each.

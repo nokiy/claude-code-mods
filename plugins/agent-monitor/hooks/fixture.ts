@@ -3,6 +3,6 @@ import type { View } from './views'
 
 export const view = (over: Partial<View> = {}): View => ({
   id: 'x', type: 'worker', task: 'task', desc: '', status: 'running',
-  files: [], editCount: 0, toolCounts: {}, denied: 0, reasons: [], clashes: [], recent: [], fileLines: {}, skills: [],
+  files: [], editCount: 0, toolCounts: {}, denied: 0, refusals: 0, reasons: [], clashes: [], recent: [], fileLines: {}, skills: [],
   ...over,
 })

@@ -3,13 +3,13 @@ import { DEFAULT_STALL_MS } from './alerts'
 import { DEFAULT_PRICES, parsePrices } from './cost'
 import type { Prices } from './cost'
 
-// Table columns the user can hide (# Status Type Task are always there).
-export type Columns = { tier: boolean; edits: boolean; rounds: boolean; tokens: boolean; time: boolean; alerts: boolean }
+// What the user can hide: the tier, cost (ctx% · tokens · $) and time columns, the alert `!` (# desc type are always there).
+export type Columns = { tier: boolean; cost: boolean; time: boolean; alerts: boolean }
 // `last`: /sub opens where it was last put (and remembers a /sub top|right); `right` / `top`: that place at every session start.
 export type PlacementMode = 'last' | 'right' | 'top'
 export type Config = { scope: string; stallMs: number; autoBand: boolean; alertsBlock: boolean; toasts: boolean; placement: PlacementMode; columns: Columns; prices: Prices; pricesBad: boolean }
 
-export const ALL_COLUMNS: Columns = { tier: true, edits: true, rounds: true, tokens: true, time: true, alerts: true }
+export const ALL_COLUMNS: Columns = { tier: true, cost: true, time: true, alerts: true }
 export const DEFAULTS: Config = { scope: '', stallMs: DEFAULT_STALL_MS, autoBand: true, alertsBlock: true, toasts: true, placement: 'last', columns: ALL_COLUMNS, prices: DEFAULT_PRICES, pricesBad: false }
 
 type Options = Readonly<Record<string, unknown>>
@@ -29,7 +29,8 @@ export function readConfig(o: Options): Config {
     alertsBlock: flag(o, 'alertsBlock'),
     toasts: flag(o, 'toasts'),
     placement: o.defaultPlacement === 'top' || o.defaultPlacement === 'right' ? o.defaultPlacement : 'last',
-    columns: { tier: flag(o, 'colTier'), edits: flag(o, 'colEdits'), rounds: flag(o, 'colRounds'), tokens: flag(o, 'colTokens'), time: flag(o, 'colTime'), alerts: flag(o, 'colAlerts') },
+    // The cost column keeps its first setting name, colTokens.
+    columns: { tier: flag(o, 'colTier'), cost: flag(o, 'colTokens'), time: flag(o, 'colTime'), alerts: flag(o, 'colAlerts') },
     prices,
     pricesBad: bad,
   }

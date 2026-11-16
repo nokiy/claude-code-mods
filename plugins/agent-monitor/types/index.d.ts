@@ -1,8 +1,12 @@
 // Session state contract of agent-monitor: one record per subagent, the panel's page and focus, the settings draft, the session's
-// placement override and the main loop's recent edits, kept in `$.state` so a hot reload keeps them.
+// placement override, the main loop's recent edits and the per-PR totals published to other mods (`prStats`), kept in `$.state` so a
+// hot reload keeps them.
 
-/** One distinct denied / errored tool result, deduped by its first line. */
-export type Denial = { text: string; n: number }
+/**
+ * One distinct denied / errored tool result, deduped by its first line and kind; `at`: when that reason was first seen (absent when
+ * unknown); `failed`: the tool ran and its result is an error (absent: a hook refused the call).
+ */
+export type Denial = { text: string; n: number; at?: number; failed?: true }
 
 /** A file the main loop (no agentId) edited; kept only while some subagent was running. */
 export type MainEdit = { path: string; at: number }
@@ -10,9 +14,7 @@ export type MainEdit = { path: string; at: number }
 /** The settings page's unsaved copy of the options: a column per flag, the other switches, the placement mode, the stall threshold in minutes. */
 export type AgentMonitorDraft = {
   tier: boolean
-  edits: boolean
-  rounds: boolean
-  tokens: boolean
+  cost: boolean
   time: boolean
   alerts: boolean
   alertsBlock: boolean
@@ -34,17 +36,22 @@ export type AgentMonitorRec = {
   task: string
   /** The spawn prompt, cut to 300 characters. */
   prompt?: string
-  /** Model id or alias of the latest step (or the spawn). */
+  /** Model id or alias of the latest step (or the transcript). */
   model?: string
   /** Effort of the latest step. */
   effort?: string | number
-  /** Model id of the latest turn.step only: what the tier check compares the description prefix with. */
+  /**
+   * Model id of the latest turn.step only (a record read from its transcript alone: the transcript's latest assistant line): what the
+   * tier check compares the description prefix with.
+   */
   actualModel?: string
-  /** Effort of the latest turn.step only. */
+  /** Effort of the latest turn.step only (a record read from its transcript alone: the transcript's latest effort). */
   actualEffort?: string | number
+  /** Set on a record whose model and effort come from its transcript (no step tracked): the tier shown never borrows the description prefix's effort. */
+  fromTranscript?: true
   /** Model rounds (turn.step count). Meaningful only when `watched`. */
   steps: number
-  /** True when agent.spawn was seen: the step count is complete. */
+  /** True when the record began at a turn's first step (or a transcript counted them all): the step count is complete. */
   watched: boolean
   /** Latest step's input + cache tokens. */
   context: number
@@ -64,33 +71,42 @@ export type AgentMonitorRec = {
   /** Longest finished turn.step, in ms. */
   longestStepMs?: number
   status: 'running' | 'done' | 'failed' | 'unknown'
-  /** Chinese activity text of the latest tool call. */
+  /** Activity text (UI language) of the latest tool call a step asked for. */
   activity?: string
   /** The latest ten activity texts, oldest first. */
   recent?: string[]
-  /** Absolute paths this agent's Edit/Write/MultiEdit/NotebookEdit calls named (deduped, at most 50). */
+  /** Absolute paths this agent's Edit/Write/MultiEdit/NotebookEdit calls named (deduped, at most 50): from its steps, else its transcript. */
   files?: string[]
-  /** Lines added / removed per edited path, from the tool results that carried a patch (at most 50 paths). */
+  /** Lines added / removed per edited path, from the transcript's tool results that carried a patch (at most 50 paths). */
   lines?: Record<string, { add: number; del: number }>
   /** Names of the skills the agent called (at most 20). */
   skills?: string[]
   /** Edited-file count from the Agent result's toolStats; the only file figure of a backfilled agent (paths unknown). */
   editCount?: number
-  /** First five lines of the agent's result (Agent tool result or background notification). */
+  /** First five lines of the agent's report (its turn.complete answer, else the Agent tool result or background notification). */
   result?: string
-  /** Time of the latest turn.step or tool.call start / finish. */
+  /** Time of the latest turn.step start or end. */
   lastEventAt?: number
-  /** Tool of the oldest tool.call still awaiting its result. */
+  /** The first tool call the latest step asked for, until the next step begins or the turn ends. */
   pendingTool?: string
-  /** Tool calls awaiting their result, per tool name (several run at once when the model asks for them together). */
-  pendingCalls?: Record<string, number>
-  /** Tool calls per tool name; a backfilled agent gets Read / Search / Bash / Edit / Other from toolStats. */
+  /** Tool calls per tool name, as the steps asked for them (Code Mode: `REPL`); a backfilled agent gets Read / Search / Bash / Edit / Other from toolStats. */
   toolCounts?: Record<string, number>
-  /** Denied or errored tool results. */
+  /** Refused (a hook's deny) or errored tool results: the alert's ×N, from the transcript (`toolDenialKind` lines, `is_error` results). */
   denied?: number
+  /** Hook denials only (`toolDenialKind` lines in the transcript): what the PR's published `refusals` adds up. */
+  refusals?: number
   /** Their reasons, deduped by first line (at most 10 distinct). */
   reasons?: Denial[]
+  /** The branch on the agent's transcript's first line: what the attribution rule (hooks/attribution.ts) reads. */
+  branch?: string
 }
+
+/**
+ * One PR's subagent totals, published for other mods (docs/adr/0001-cross-mod-state.md): tokens, estimated cost in USD (absent when
+ * no agent's model has a price), wall time in ms (the union of the agents' spans), tool calls a hook refused. Canonical;
+ * pr-hint mirrors it in plugins/pr-hint/types/index.d.ts.
+ */
+export type PrStat = { tokens: number; cost?: number; ms: number; refusals: number }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -113,6 +129,12 @@ declare module 'claude-code' {
       sessionPlacement: 'top' | 'right' | null
       /** The main loop's recent file edits, for conflicts with a running subagent. */
       mainEdits: MainEdit[]
+      /** Published (pr-hint reads it): subagent totals per PR, keyed by the PR number as a string; only PRs with subagents (hooks/groups.ts `statsByPr`). */
+      prStats: Record<string, PrStat>
+      /** The table's mode: `pr` (grouped by PR, the default) or `agent` (one flat list). */
+      mode: 'pr' | 'agent'
+      /** PR-mode groups opened or closed by hand (`pr:<n>` / `other` -> open); a group not named here follows the default (the first group open). */
+      expanded: Record<string, boolean>
     }
   }
 }

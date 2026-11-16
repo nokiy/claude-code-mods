@@ -128,11 +128,14 @@ export function tierLabel(model: string | undefined, effort: string | number | u
 }
 
 // `sonnet.med`: full model word, a dot and the short effort; unknown effort -> bare `sonnet`; unknown model -> an em dash.
-// Real model+effort wins; the description prefix fills what the step has not said (as resolveTier).
-export function tierName(model: string | undefined, effort: string | number | undefined, desc: string): string {
-  const r = resolveTier(model, effort, desc)
+export function tierWords(r: { model?: string; effort?: string }): string {
   if (!r.model) return '—'
   return r.effort ? `${r.model}.${EFFORT_SHORT[r.effort]}` : r.model
+}
+
+// tierWords of the real model+effort; the description prefix fills what the step has not said (as resolveTier).
+export function tierName(model: string | undefined, effort: string | number | undefined, desc: string): string {
+  return tierWords(resolveTier(model, effort, desc))
 }
 
 // ---- numbers ----
@@ -154,6 +157,22 @@ export function formatDuration(ms: number): string {
   const m = Math.floor(s / 60)
   if (m < 60) return `${m}m${String(s % 60).padStart(2, '0')}s`
   return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`
+}
+
+// Elapsed time as `m:ss` (`1:05`), `h:mm:ss` from an hour on: the time of the rows and the live band.
+export function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const ss = String(s % 60).padStart(2, '0')
+  const m = Math.floor(s / 60)
+  return m < 60 ? `${m}:${ss}` : `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}:${ss}`
+}
+
+// The context window of a model id: 1M when the id names it (`[1m]`), else 200k.
+export const contextWindow = (model: string | undefined): number => (/\[1m\]/i.test(model ?? '') ? 1_000_000 : 200_000)
+
+// How full the context is, in whole percent (at most 100); undefined when nothing is known.
+export function ctxPercent(context: number | undefined, model: string | undefined): number | undefined {
+  return context && context > 0 ? Math.min(100, Math.round((context * 100) / contextWindow(model))) : undefined
 }
 
 // Local wall-clock time as HH:MM:SS.
@@ -189,6 +208,7 @@ export function activityText(tool: string, input: Record<string, unknown>, t: Pi
     case 'Grep': return `${v} "${truncate(one(input.pattern), 24)}"`
     case 'Glob': return `${v} ${one(input.pattern)}`
     case 'Bash': return `${v} ${truncate(one(input.description || input.command), 24)}`
+    case 'REPL': return `${v} ${truncate(one(input.description || input.code), 24)}` // Code Mode: every call is one script
     case 'WebFetch': return `${v} ${host(input.url)}`
     case 'WebSearch': return `${v} "${truncate(one(input.query), 24)}"`
     case 'Skill': return `${v} ${one(input.skill)}`
