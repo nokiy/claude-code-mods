@@ -24,7 +24,10 @@ export type ListAgent = { id: string; type: string; status: string; description:
  * prints, what `gh pr list` prints (null: gh fails, exit 1), the usage and tool calls a model step answers with. `ghCalls` counts gh runs; `ghGate`, when
  * set, holds every gh answer until it resolves (a slow network). Reset by wire().
  */
-export const st = { session: 'cur', agents: [] as ListAgent[], branch: 'dev', gh: '[]' as string | null, ghCalls: 0, ghGate: null as Promise<unknown> | null, usage: {} as Record<string, number>, toolUses: [] as ToolUse[] }
+export const st = {
+  session: 'cur', agents: [] as ListAgent[], branch: 'dev', gh: '[]' as string | null, ghCalls: 0, ghGate: null as Promise<unknown> | null,
+  usage: {} as Record<string, number>, toolUses: [] as ToolUse[],
+}
 
 /** One row of `gh pr list --json …` with every field the mod may ask for; `closes` go into the body as `Closes #N` lines. */
 export const ghPr = (number: number, title: string, headRefName: string, closes: number[] = [], state = 'OPEN', isDraft = false) =>
@@ -89,12 +92,16 @@ export type StoreTally = { gets: number; sets: string[]; deletes: string[]; keys
 
 /**
  * `$.store` answered from `entries` (a Map the test may inspect), as `mock.store` does, with every call counted in the returned tally
- * (`reset()` zeroes it). Use in place of `mock.store`.
+ * (`reset()` zeroes it). Use in place of `mock.store`. `hold`, when it gives a promise for a key, holds that get until it resolves.
  */
-export function countStore(on: On, seed: Readonly<Record<string, unknown>> = {}) {
+export function countStore(on: On, seed: Readonly<Record<string, unknown>> = {}, hold?: (key: string) => Promise<unknown> | undefined) {
   const entries = new Map(Object.entries(seed).map(([k, v]) => [k, JSON.parse(JSON.stringify(v)) as unknown]))
   const tally: StoreTally = { gets: 0, sets: [], deletes: [], keys: 0, bytesSet: 0 }
-  on('store.get', async (_$, e) => { tally.gets++; return { value: entries.get(e.key) } })
+  on('store.get', async (_$, e) => {
+    tally.gets++
+    await hold?.(e.key)
+    return { value: entries.get(e.key) }
+  })
   on('store.set', async (_$, e) => {
     const text = JSON.stringify(e.value)
     tally.sets.push(e.key)
@@ -110,11 +117,17 @@ export function countStore(on: On, seed: Readonly<Record<string, unknown>> = {})
 
 /** The /sub pane as the terminal docks it. */
 export const mountPane = ($: Dollar, bodyColumns = 120) =>
-  $.ui.mount({ plugin: 'agent-monitor', surface: 'terminal', component: 'Pane', requestId: 'sub', props: { title: 'Subagents', isFocused: true, bodyColumns, placement: 'dock' } as never, viewport: { columns: 160, rows: 50 } })
+  $.ui.mount({
+    plugin: 'agent-monitor', surface: 'terminal', component: 'Pane', requestId: 'sub',
+    props: { title: 'Subagents', isFocused: true, bodyColumns, placement: 'dock' } as never, viewport: { columns: 160, rows: 50 },
+  })
 
 /** The band above the prompt, 100 columns wide. */
 export const mountBand = ($: Dollar, bodyColumns = 100) =>
-  $.ui.mount({ plugin: 'agent-monitor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 20, bodyColumns } as never, viewport: { columns: 160, rows: 50 } })
+  $.ui.mount({
+    plugin: 'agent-monitor', surface: 'terminal', component: 'AbovePrompt',
+    props: { hasSurvey: false, isWorking: true, maxRows: 20, bodyColumns } as never, viewport: { columns: 160, rows: 50 },
+  })
 
 export type StepUsage = { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
 

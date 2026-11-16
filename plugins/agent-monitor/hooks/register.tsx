@@ -14,7 +14,7 @@ import { blank, clean, editedPaths, onComplete, onStep, onStepEnd, onToolUses } 
 import type { Mode } from './pages'
 import { bandTree, panel } from './render'
 import { configKey, draftFromConfig, saveEffects, toggleDraft, type SettingKey } from './settings'
-import { refreshIndex, type PrCache, type PrIndex, type PrView } from './prindex'
+import { loadStored, refreshIndex, type PrCache, type PrIndex, type PrView } from './prindex'
 import { pickLang, strings, type Strings } from './strings'
 import { parseSubArg } from './subarg'
 import { mergeBackfill, recsFromMessages } from './backfill'
@@ -92,13 +92,27 @@ async function settleStale($: EngineInterface) {
 
 // Subagents of every session of this project come from their transcripts (history.ts): the entries live in this load, seeded once per load from the project's index in the store. `current`: only this session's folder (the 1 s tick), else the whole project directory. Only a full refresh writes the index, once, and only when an entry changed since the last write.
 const txCache = new Map<string, TxEntry>()
-const txSeeded = new Set<string>() // projects whose stored index this load has read
+const txSeeds = new Map<string, Promise<boolean>>() // per project: this load's one read of its stored index (whether it added entries)
 let txDirty = false
 let history: Recs = {}
-async function readHistory($: EngineInterface, current = false) {
+const projectOf = async ($: EngineInterface) => projectDir((await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`, await $.session.root())
+// Every caller waits for the same read, so a refresh never starts on a cache the index has yet to fill.
+function seedHistory($: EngineInterface, project: string): Promise<boolean> {
+  let seed = txSeeds.get(project)
+  if (!seed) txSeeds.set(project, (seed = (async () => seedCache(txCache, project, await $.store.get(indexKey(project))))().catch(() => false)))
+  return seed
+}
+// A full scan already under way is joined, not run twice (session.start's background backfill and a quick /sub, say).
+let fullScan: Promise<void> | undefined
+function readHistory($: EngineInterface, current = false): Promise<void> {
+  if (current) return scanHistory($, true)
+  return (fullScan ??= scanHistory($, false).finally(() => { fullScan = undefined }))
+}
+async function scanHistory($: EngineInterface, current: boolean) {
   try {
-    const project = projectDir((await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`, await $.session.root())
-    const seeded = !txSeeded.has(project) && (txSeeded.add(project), seedCache(txCache, project, await $.store.get(indexKey(project))))
+    const project = await projectOf($)
+    const first = !txSeeds.has(project)
+    const seeded = (await seedHistory($, project)) && first
     const tail = async (path: string, from: number) => ((r) => ({ text: r.stdout, truncated: r.isStdoutTruncated }))(await $.process.run(['tail', '-c', `+${from + 1}`, path]))
     const io = { list: (p: string) => $.fs.list(p), read: (p: string) => $.fs.read(p), tail }
     const changed = await refreshProject(io, project, txCache, current ? await $.session.id() : undefined)
@@ -137,17 +151,38 @@ async function dropPerFileKeys($: EngineInterface) {
 
 const prCache: PrCache = {} // the PR index (prindex.ts: `gh pr list` on an interval, last good kept in the store) and the session's branch, for the PR mode
 let prView: PrView = { prs: [] }
-async function refreshPrs($: EngineInterface) {
-  const io = { run: (a: string[]) => $.process.run(a), load: (k: string) => $.store.get(k), save: (k: string, v: PrIndex) => $.store.set(k, v) }
-  prView = await refreshIndex(io, prCache, await $.clock.now(), await $.session.cwd())
-  await publish($)
-  $.ui.invalidate('ui.render')
+const prIo = ($: EngineInterface) => ({ run: (a: string[]) => $.process.run(a), load: (k: string) => $.store.get(k), save: (k: string, v: PrIndex) => $.store.set(k, v) })
+// One refresh at a time: a second caller joins the one in flight (gh is run once).
+let prRefresh: Promise<void> | undefined
+function refreshPrs($: EngineInterface): Promise<void> {
+  return (prRefresh ??= (async () => {
+    prView = await refreshIndex(prIo($), prCache, await $.clock.now(), await $.session.cwd())
+    await publish($)
+    $.ui.invalidate('ui.render')
+  })().finally(() => { prRefresh = undefined }))
 }
 
 // The per-PR subagent totals other mods read (docs/adr/0001-cross-mod-state.md), written only when they change: each write redraws the readers.
 async function publish($: EngineInterface, views?: Board['views']) {
   const next = statsByPr(groupByPr(views ?? (await loadBoard($)).views, prView.prs))
   if (JSON.stringify(next) !== JSON.stringify(await read($, prStats))) await update($, prStats, () => next)
+}
+
+// At session start, before any turn: the per-PR totals from what the store already holds (the transcript index, the PR index), so a
+// reader's card has them at once; session.start runs the backfill right after, in the same background chain, which corrects them (the
+// stored index is written on a full refresh only, so it lags). Published only when both are stored and nothing is published yet: a hot
+// reload runs this too, and a value already there stands until that refresh. Reads no transcript, runs no process.
+async function publishStored($: EngineInterface) {
+  try {
+    if (!(await seedHistory($, await projectOf($)))) return
+    history = historyRecs(txCache)
+    $.ui.invalidate('ui.render')
+    await loadStored(prIo($), prCache, await $.session.cwd())
+    if (!prCache.index) return
+    prView = { prs: prCache.index.prs, branch: prCache.branch } // the cache, not the stored copy: a refresh may have landed meanwhile
+    if (Object.keys(await read($, prStats)).length > 0) return
+    await publish($)
+  } catch { /* the backfill that follows publishes */ }
 }
 
 // Agents the mod never saw spawn come back from the main conversation (its Agent tool uses and task notifications), earlier ones from the transcripts. Only the transcripts are awaited (an unchanged project is a listing); the PR index (git and gh, seconds on a slow network) and the conversation land in the background and redraw.
@@ -287,6 +322,8 @@ export const register: Register = (on, options) => {
     scoped = inScope(e.cwd, cfg.scope)
     void dropPerFileKeys($) // a one-off clean-up of up to a few thousand keys: the session does not wait for it
     if (scoped) {
+      backfilled = true // done here, so the first turn does not run it again
+      void publishStored($).then(() => backfill($)).catch(() => {}) // one chain the session does not wait for: stored figures, then the refresh
       await ensureCommand($)
       if ((await $.store.get('placement')) != null) await $.store.delete('placement') // the old remembered placement: `lastPlacement` replaces it
       if (await read($, paneOpen)) { // a reload: the pane the state says is open comes back holding the keyboard, the ring where it was
@@ -300,7 +337,7 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     if (await active($)) {
       await ensureCommand($) // a hot reload may have dropped it
-      void (backfilled ? refreshPrs($) : backfill($)) // backfill once per load, not holding the turn (a first scan reads every transcript); /sub backfills again; later turns refresh the PR index when due
+      void (backfilled ? refreshPrs($) : backfill($)) // backfill once per load (session.start's chain, else here), not holding the turn (a first scan reads every transcript); /sub backfills again; later turns refresh the PR index when due
       backfilled = true
       if (cfg.pricesBad && !priceToasted) { priceToasted = true; $.ui.toast(t.pricesBad, { timeoutMs: 8000 }) }
     }

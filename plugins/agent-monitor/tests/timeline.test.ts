@@ -154,6 +154,24 @@ test('detail page: a Code Mode agent\'s edited files and +/− counts come from 
   expect(all.some(s => s.includes('✎ src/lex.ts') && s.includes('+3') && s.includes('−1'))).toBe(true)
 })
 
+// Code Mode: every call is one `REPL` script, so a stalled agent's line names what its pending script was doing (its description);
+// an ordinary tool keeps its name (#46: the stuck call is named).
+test('stall: a Code Mode agent idle on a script names the script; an ordinary tool keeps its name', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  wire(on)
+  await $.session.start({ cwd: ROOT } as never)
+  st.agents = [listed('c1', 'worker', 'tidy the lexer'), listed('b1', 'worker', 'run the tests')]
+  const script = { name: 'REPL', input: { code: "await $`bun test`", description: 'Fix the lexer' } }
+  await step($, 'c1', 'claude-sonnet-5-5', { input_tokens: 1000, output_tokens: 100 }, undefined, [script])
+  await step($, 'b1', 'claude-sonnet-5-5', { input_tokens: 1000, output_tokens: 100 }, undefined, [{ name: 'Bash', input: { command: 'bun test' } }])
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.advance(4 * 60_000)
+  const all = await texts(await mountPane($))
+  expect(all.some(s => s.includes('idle for 4m (Script Fix the lexer not returned)'))).toBe(true)
+  expect(all.some(s => s.includes('idle for 4m (Bash not returned)'))).toBe(true)
+})
+
 // Finished subagents of an earlier session, all described op.high, seen in a fresh session through the project index an older build
 // stored (entries without effort, no version): the files are read again, and each row and alert says what ran, never the prefix's effort.
 test('history: op.high that ran sonnet at low effort reads sonnet.low with `!` and its ≠ line; no effort known reads the bare model', async ($, on) => {

@@ -76,9 +76,9 @@ export const padStart = (text: string, width: number) => ' '.repeat(Math.max(0, 
 
 // ---- model / effort ----
 
-// Effort -> low | medium | high. Numbers are thinking-token budgets.
-export function effortName(effort: string | number | undefined): string | undefined {
-  if (effort === undefined) return undefined
+// Effort -> low | medium | high. Numbers are thinking-token budgets; null (none said) is no effort.
+export function effortName(effort: string | number | null | undefined): string | undefined {
+  if (effort === undefined || effort === null) return undefined
   if (typeof effort === 'number') return effort < 2048 ? 'low' : effort < 16000 ? 'medium' : 'high'
   if (effort === 'low' || effort === 'medium') return effort
   return effort === 'high' || effort === 'xhigh' || effort === 'max' ? 'high' : undefined

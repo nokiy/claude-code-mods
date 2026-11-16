@@ -21,7 +21,8 @@ export type View = {
   desc: string
   status: Status
   model?: string
-  effort?: string | number
+  /** null: known to be none (a record read from its transcript); the description prefix fills only an undefined one. */
+  effort?: string | number | null
   rounds?: number
   tokens?: number
   /** Latest step's input + cache tokens: the context fill. */
@@ -42,8 +43,6 @@ export type View = {
   /** Model and effort of the latest turn.step. */
   actualModel?: string
   actualEffort?: string | number
-  /** Model and effort are the transcript's (no step tracked): what ran, never filled from the description prefix. */
-  fromTranscript?: true
   /** Detail page: the spawn prompt, the latest activity texts (oldest first), the longest step, token parts, lines changed per path, skills, the report. */
   prompt?: string
   recent: string[]
@@ -79,9 +78,9 @@ export function effectiveStatus(rec: Status | undefined, listStatus: string | un
   return rec ?? 'running'
 }
 
-// The tier a row shows, as full words: the record's model and effort. The description prefix fills what no step has said yet, save on
-// a record read from its transcript, which says what ran: there an unknown effort stays unknown (bare `sonnet`).
-export const shownTier = (v: Pick<View, 'model' | 'effort' | 'desc' | 'fromTranscript'>) => resolveTier(v.model, v.effort, v.fromTranscript ? '' : v.desc)
+// The tier a row shows, as full words: the record's model and effort. The description prefix fills what no step has said yet, save an
+// effort settled as null (a record read from its transcript, which says what ran): there it stays unknown (bare `sonnet`).
+export const shownTier = (v: Pick<View, 'model' | 'effort' | 'desc'>) => resolveTier(v.model, v.effort ?? undefined, v.effort === null ? '' : v.desc)
 
 // Newest start first, whatever the status. No start time: after those with one; ties and unknowns by agentId.
 export function orderViews<T extends { id: string; startedAt?: number }>(rows: T[]): T[] {
@@ -173,7 +172,6 @@ export function buildViews(recs: Record<string, AgentMonitorRec>, list: ListAgen
       reasons: r?.reasons ?? [],
       actualModel: r?.actualModel,
       actualEffort: r?.actualEffort,
-      fromTranscript: r?.fromTranscript,
       prompt: r?.prompt,
       recent: r?.recent ?? [],
       longestStepMs: r?.longestStepMs,

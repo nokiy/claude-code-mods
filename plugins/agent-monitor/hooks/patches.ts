@@ -34,7 +34,11 @@ export function onStep(p: Rec, step: { model: string; effort?: string | number; 
     watched: p.watched || (p.steps === 0 && step.index === 0),
     steps: p.steps + 1,
     status: 'running',
-    ...(ended ? { startedAt: now, finishedAt: undefined, durationMs: undefined, tokens: undefined, context: 0, output: 0, spent: undefined, byModel: undefined, longestStepMs: undefined } : { startedAt: p.startedAt ?? now, finishedAt: undefined, durationMs: undefined }),
+    finishedAt: undefined,
+    durationMs: undefined,
+    ...(ended
+      ? { startedAt: now, tokens: undefined, context: 0, output: 0, spent: undefined, byModel: undefined, longestStepMs: undefined }
+      : { startedAt: p.startedAt ?? now }),
   }
 }
 
@@ -73,17 +77,22 @@ export const editedPaths = (uses: readonly ToolUse[], cwd: string): string[] =>
     return path ? [normPath(path, cwd)] : []
   })
 
+// Code Mode's only tool: every call is one script, so its name says nothing; the script's activity text (its description) does.
+const CODE_MODE_TOOL = 'REPL'
+
 // The tool calls a step of the agent asked for, about to run: each one's activity line (the latest is the live one, the last ten
 // kept), counted, an edited path remembered, a skill named. The first call is the pending one until the next step or the turn's end
-// (both clear it): a step proves the calls of the one before it came back.
+// (both clear it): a step proves the calls of the one before it came back. It is named by its tool, a Code Mode script by its activity.
 export function onToolUses(p: Rec, uses: readonly ToolUse[], cwd: string, t: Pick<Strings, 'verb'>): Rec {
-  let r: Rec = { ...p, pendingTool: uses[0]?.name }
-  for (const use of uses) {
+  let r: Rec = { ...p, pendingTool: undefined }
+  for (const [i, use] of uses.entries()) {
     const input = inputOf(use)
     const activity = activityText(use.name, input, t)
+    if (i === 0) r.pendingTool = use.name === CODE_MODE_TOOL ? activity : use.name
     const skill = use.name === 'Skill' && typeof input.skill === 'string' ? input.skill : undefined
     const skills = r.skills ?? []
-    const [path] = editedPaths([use], cwd)
+    const edited = editedPath(use.name, input)
+    const path = edited ? normPath(edited, cwd) : undefined
     r = {
       ...r,
       activity,
@@ -94,26 +103,6 @@ export function onToolUses(p: Rec, uses: readonly ToolUse[], cwd: string, t: Pic
     }
   }
   return r
-}
-
-// Lines added and removed by one Edit / Write result: its patch's `+` / `-` lines (per call, unlike `gitDiff`, which is against HEAD);
-// a created file with no patch counts its lines. undefined when the result says nothing.
-export function diffStat(result: unknown): { add: number; del: number } | undefined {
-  const r = result as { type?: string; content?: unknown; structuredPatch?: { lines?: string[] }[] } | null | undefined
-  if (!r || typeof r !== 'object') return undefined
-  let add = 0
-  let del = 0
-  if (Array.isArray(r.structuredPatch)) {
-    for (const h of r.structuredPatch) {
-      for (const l of h.lines ?? []) {
-        if (l.startsWith('+')) add++
-        else if (l.startsWith('-')) del++
-      }
-    }
-  }
-  if (add + del > 0) return { add, del }
-  if (r.type === 'create' && typeof r.content === 'string') return { add: r.content === '' ? 0 : r.content.split('\n').length, del: 0 }
-  return undefined
 }
 
 // An Agent tool result as the main conversation keeps it (backfill.ts): the agent it started and, once it finished in the

@@ -2,21 +2,36 @@
 // read, through the whole mod: fake transcripts and a fake `gh pr list` (testkit.ts), the value taken from the mod's own writes.
 import { expect, mock, test } from 'claude-code/testing'
 
-import { PROJECT, ROOT, ghPr, listed, mountPane, st, step, wire } from './testkit'
+import { PROJECT, ROOT, countStore, ghPr, listed, mountPane, st, step, wire } from './testkit'
 import type { Dollar } from './testkit'
 import { agentFiles, assistantLine, fakeFs, jsonl, userLine } from './transcripts'
+import { indexKey, refreshProject, toIndex } from '../hooks/history'
+import type { TxEntry } from '../hooks/history'
+import { parsePrList, prIndexKey } from '../hooks/prindex'
 
 const NOW = Date.parse('2026-10-03T09:00:00Z')
 const opus = (id: string, at: string, input: number, output: number) => ({ id, model: 'claude-opus-5-5', usage: { input_tokens: input, output_tokens: output }, at })
 // Two agents on PR #49 whose spans overlap: a1 09:58–10:01, a2 10:00–10:02 (its last line is a hook refusal at 10:02), so the PR's
 // wall time is 4 min while the sum of the two is 5. a2 was refused twice. Opus 5.5 is $4 in, $20 out per million.
-const A1 = { sessionId: 's1', agentId: 'a1', type: 'worker', desc: 'build the index', branch: 'feature/43-pr-mode', at: '2026-10-01T09:58:00.000Z', steps: [opus('m1', '2026-10-01T10:01:00.000Z', 40_000, 2_000)] }
-const A2 = { sessionId: 's1', agentId: 'a2', type: 'reviewer', desc: 'review the spec', branch: 'spec/36-pr-agent-views', at: '2026-10-01T10:00:00.000Z', steps: [opus('m1', '2026-10-01T10:01:30.000Z', 10_000, 1_000)], denials: ['PreToolUse:Bash hook error: no rm', 'PreToolUse:Edit hook error: locked'] }
+const A1 = {
+  sessionId: 's1', agentId: 'a1', type: 'worker', desc: 'build the index', branch: 'feature/43-pr-mode', at: '2026-10-01T09:58:00.000Z',
+  steps: [opus('m1', '2026-10-01T10:01:00.000Z', 40_000, 2_000)],
+}
+const A2 = {
+  sessionId: 's1', agentId: 'a2', type: 'reviewer', desc: 'review the spec', branch: 'spec/36-pr-agent-views', at: '2026-10-01T10:00:00.000Z',
+  steps: [opus('m1', '2026-10-01T10:01:30.000Z', 10_000, 1_000)],
+  denials: ['PreToolUse:Bash hook error: no rm', 'PreToolUse:Edit hook error: locked'],
+}
 // One agent on dev (Other: never published); PR #38 is the session's branch but has no agent (not published either).
 const A3 = { sessionId: 's1', agentId: 'a3', type: 'Explore', desc: 'look around', branch: 'dev', at: '2026-10-01T07:00:00.000Z' }
 const PRS = [ghPr(49, 'PR card and agents', 'spec/36-pr-agent-views', [43, 44]), ghPr(38, 'Pass next', 'feature/38-pass-next', [38], 'MERGED')]
 // The main session's own transcript, beside the session folder, with usage that must not count.
-const MAIN = { [`${PROJECT}/s1.jsonl`]: jsonl([userLine({ sessionId: 's1', agentId: '', branch: 'spec/36-pr-agent-views' }), assistantLine({ sessionId: 's1', agentId: '' }, opus('mm', '2026-10-01T10:00:30.000Z', 900_000, 90_000))]) }
+const MAIN = {
+  [`${PROJECT}/s1.jsonl`]: jsonl([
+    userLine({ sessionId: 's1', agentId: '', branch: 'spec/36-pr-agent-views' }),
+    assistantLine({ sessionId: 's1', agentId: '' }, opus('mm', '2026-10-01T10:00:30.000Z', 900_000, 90_000)),
+  ]),
+}
 
 type Run = [Dollar, Parameters<typeof wire>[0]]
 type Stats = Record<string, { tokens: number; cost?: number; ms: number; refusals: number }>
@@ -117,4 +132,98 @@ test('the group row shows the same time as the published value: wall time, not t
   const { pub } = await start($, on, {})
   expect(pub.value?.['49']?.ms).toBe(4 * 60_000)
   expect(await groupRow($)).toMatch(/\s4m00s\s/)
+})
+
+// A fresh session, before any turn: the store holds the project's transcript index and the PR index an earlier session wrote.
+async function stored(agents: readonly (typeof A1 | typeof A2 | typeof A3)[] = [A1, A2, A3], prAt = NOW) {
+  const fs = fakeFs(Object.assign({}, ...agents.map(a => agentFiles(PROJECT, a))) as Record<string, string>)
+  const cache = new Map<string, TxEntry>()
+  await refreshProject({ list: async d => fs.list(d), read: async p => fs.read(p), tail: async (p, from) => fs.tail(p, from) }, PROJECT, cache)
+  return { [indexKey(PROJECT)]: toIndex(cache, PROJECT, NOW), [prIndexKey(ROOT)]: { at: prAt, prs: parsePrList(JSON.stringify(PRS)) } }
+}
+
+// A fresh session (no input yet) over the store's indexes and the transcripts `files` on disk. `pub.values`: every prStats write in
+// order; `pub.ghAtFirst`: the gh runs made by the time of the first.
+async function fresh($: Run[0], on: Run[1], seed: Record<string, unknown>, files: Record<string, string> = {}, hold?: Parameters<typeof countStore>[2]) {
+  const clock = mock.clock(on, { now: NOW })
+  const store = countStore(on, seed, hold)
+  const fs = wire(on, fakeFs(files))
+  st.gh = null
+  const pub = { value: undefined as Stats | undefined, writes: 0, values: [] as Stats[], ghAtFirst: undefined as number | undefined }
+  on('state.set', async (_$, e, next) => {
+    if (e.plugin === 'agent-monitor' && e.key === 'prStats') {
+      Object.assign(pub, { value: e.value as Stats, writes: pub.writes + 1, ghAtFirst: pub.ghAtFirst ?? st.ghCalls })
+      pub.values.push(e.value as Stats)
+    }
+    return next(e)
+  })
+  return { clock, store, fs, pub }
+}
+const onDisk = { ...agentFiles(PROJECT, A1), ...agentFiles(PROJECT, A2), ...agentFiles(PROJECT, A3) }
+const figures = (s: Stats[string] | undefined) => ({ ...s, cost: s?.cost?.toFixed(6) })
+const ALL = { tokens: 53_000, cost: '0.260000', ms: 4 * 60_000, refusals: 2 }
+
+// pr-hint's card reads the value at once: the first write carries the stored figures, before gh runs or any transcript is read.
+test('session start publishes what the store already holds first, before any turn, reading no transcript and running no gh', async ($, on) => {
+  const { clock, fs, pub } = await fresh($, on, await stored())
+  await $.session.start({ cwd: ROOT } as never)
+  await clock.settle()
+  expect(figures(pub.values[0]?.['49'])).toEqual(ALL)
+  expect(fs.tally.reads.size).toBe(0)
+  expect(pub.ghAtFirst).toBe(0)
+})
+
+// The stored index is written only on a full refresh, so it lags (here it holds a1 alone): the same background chain then runs the
+// refresh the first turn would, so with no input at all the value ends as /sub gives it; the first turn does not repeat it.
+test('session start, no input: the published value ends as /sub\'s refresh gives it; the first turn does not refresh again', async ($, on) => {
+  on('turn.start', async (_$, e) => e as never)
+  const { clock, fs, pub } = await fresh($, on, await stored([A1]), onDisk)
+  await $.session.start({ cwd: ROOT } as never)
+  await clock.settle()
+  expect(pub.values[0]?.['49']?.tokens).toBe(42_000) // the stored figures, at once
+  expect(figures(pub.value?.['49'])).toEqual(ALL)
+  fs.reset()
+  await $.turn.start({ turnId: 't0' } as never)
+  await clock.settle()
+  expect(fs.tally.lists).toEqual([])
+  const writes = pub.writes
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  expect(figures(pub.value?.['49'])).toEqual(ALL)
+  expect(pub.writes).toBe(writes)
+})
+
+test('session start with nothing stored and nothing on disk publishes nothing', async ($, on) => {
+  const { clock, pub } = await fresh($, on, {})
+  await $.session.start({ cwd: ROOT } as never)
+  await clock.settle()
+  expect(pub.writes).toBe(0)
+})
+
+// A hot reload runs session.start again with the value already published, and the stored index may lag (here it holds a1 alone):
+// its figures are never written over the value; only the transcript refresh that follows writes. (The PR index is due and gh held,
+// so its own refresh, which publishes whatever the history holds then, cannot write first.)
+test('session start keeps a value already published (a reload): a lagging stored index never overwrites it', async ($, on) => {
+  const good: Stats = { 49: { tokens: 1, ms: 1, refusals: 0 } }
+  on('state.get', async (_$, e, next) => (e.plugin === 'agent-monitor' && e.key === 'prStats' ? { value: { value: good, version: 1 } } as never : next(e)))
+  const { clock, pub } = await fresh($, on, await stored([A1], NOW - 10 * 60_000), onDisk)
+  let answer = () => {}
+  st.ghGate = new Promise<void>(r => { answer = r })
+  await $.session.start({ cwd: ROOT } as never)
+  await clock.advance(1000)
+  expect(pub.values.some(v => v['49']?.tokens === 42_000)).toBe(false)
+  expect(figures(pub.values[0]?.['49'])).toEqual(ALL)
+  answer()
+  await clock.settle()
+})
+
+test('session start does not wait for the stored index', async ($, on) => {
+  let open = () => {}
+  const gate = new Promise<void>(r => { open = r })
+  const { clock } = await fresh($, on, await stored(), {}, key => (key.startsWith('txIndex:') ? gate : undefined))
+  let started = false
+  await Promise.race([$.session.start({ cwd: ROOT } as never).then(() => { started = true }), clock.advance(1000)])
+  expect(started).toBe(true)
+  open()
+  await clock.settle()
 })

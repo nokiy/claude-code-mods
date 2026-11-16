@@ -1,11 +1,13 @@
 import { test, expect } from 'claude-code/testing'
 
 import type { AgentMonitorRec } from '../types'
-import { diffStat, editedPaths, onComplete, onStep, onStepEnd, onToolUses } from './patches'
+import { editedPaths, onComplete, onStep, onStepEnd, onToolUses } from './patches'
 import type { ToolUse } from './patches'
 import { strings } from './strings'
 
-const usage = (input: number, output: number, cacheRead: number, cacheWrite: number) => ({ input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite })
+const usage = (input: number, output: number, cacheRead: number, cacheWrite: number) => ({
+  input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite,
+})
 
 const uses = (p: AgentMonitorRec, list: ToolUse[], cwd = '/p') => onToolUses(p, list, cwd, strings('zh'))
 const call = (name: string, input: Record<string, unknown>): ToolUse => ({ name, input })
@@ -56,7 +58,7 @@ test('onToolUses: each call counted with its activity, edited paths (deduped, ma
 
 test('onToolUses: Code Mode\'s REPL call reads as a script with its description; odd arguments are no arguments', () => {
   const r = uses(rec, [{ name: 'REPL', input: { code: 'await $`ls`.text()', description: 'List the files' } }])
-  expect(r).toMatchObject({ activity: '脚本 List the files', toolCounts: { REPL: 1 }, pendingTool: 'REPL' })
+  expect(r).toMatchObject({ activity: '脚本 List the files', toolCounts: { REPL: 1 }, pendingTool: '脚本 List the files' })
   expect(onToolUses(rec, [{ name: 'REPL', input: { code: 'await $`ls`.text()' } }], '/p', strings('en')).activity).toBe('Script await $`ls`.text()')
   expect(uses(rec, [{ name: 'Edit', input: null }, { name: 'Write', input: 'x' }])).toMatchObject({ toolCounts: { Edit: 1, Write: 1 } })
   expect(uses(rec, [{ name: 'Edit', input: null }]).files).toBeUndefined()
@@ -89,12 +91,4 @@ test('onToolUses: the last ten activity texts, skill names (deduped, capped)', (
   expect(uses(rec, [call('Read', { file_path: '/a' })]).skills).toBeUndefined()
   expect(uses(rec, Array.from({ length: 25 }, (_, i) => call('Skill', { skill: `s${i}` }))).skills).toHaveLength(20)
   expect(uses(rec, [call('Bash', { command: 'x'.repeat(500) })]).recent?.[0]?.length).toBeLessThanOrEqual(120)
-})
-
-test('diffStat: lines changed by one edit result', () => {
-  expect(diffStat({ structuredPatch: [{ lines: [' ctx', '-old', '+new1', '+new2'] }, { lines: ['+x'] }] })).toEqual({ add: 3, del: 1 })
-  expect(diffStat({ type: 'create', content: 'a\nb\nc', structuredPatch: [] })).toEqual({ add: 3, del: 0 })
-  expect(diffStat({ type: 'update', structuredPatch: [] })).toBeUndefined()
-  expect(diffStat({ gitDiff: { additions: 99, deletions: 99 }, structuredPatch: [{ lines: ['+a'] }] })).toEqual({ add: 1, del: 0 }) // gitDiff is against HEAD, not this call
-  expect(diffStat(undefined)).toBeUndefined()
 })

@@ -5,7 +5,7 @@
 import type { AgentMonitorRec, AgentSpent } from '../types'
 import { addDenial, addFile } from './alerts'
 import { plusSpent, spentTotal } from './cost'
-import { parseDescription } from './logic'
+import { effortName, parseDescription } from './logic'
 import { clean } from './patches'
 import { emptyRollup, feed, utf8Bytes } from './transcript'
 import type { Rollup } from './transcript'
@@ -92,21 +92,24 @@ async function refreshFile(io: TxIo, path: string, f: Listing, cache: Map<string
  */
 export type TxIndex = { v: number; at: number; files: Record<string, TxEntry> }
 /**
- * The shape of a stored entry; raised when an entry gains a field that entries stored before cannot have (2: the rollup's effort). An
- * index of any other version seeds nothing, so its files are read again and the next full refresh writes it anew.
+ * The shape of a stored entry; raised when entries stored before cannot be trusted (2: the rollup's effort; 3: the effort taken from the
+ * line that set the model, and the edits kept whole). An index of any other version seeds nothing, so its files are read again and the
+ * next full refresh writes it anew.
  */
-export const INDEX_VERSION = 2
+export const INDEX_VERSION = 3
 export const indexKey = (project: string) => `txIndex:${project}`
 export const MAX_INDEX_BYTES = 256 * 1024
 export const MAX_PROJECTS = 6
-/** Per stored entry: the latest few refusals and errored results, their texts cut short (the counts stay whole), and the first few edited paths. */
+/**
+ * Per stored entry: the latest few refusals and errored results, their texts cut short (the counts stay whole). The edits are kept whole,
+ * already capped at MAX_FILES paths by the rollup, so a reloaded record and a resumed rollup see what a fresh read sees. Worst case that
+ * is some 50 long paths (a few KiB) in one entry: toIndex still stops at MAX_INDEX_BYTES, and an entry left out is only read again.
+ */
 const KEPT = 5
 const KEPT_TEXT = 120
-const KEPT_EDITS = 10
 
 const short = (xs: Rollup['refusals']) => xs.slice(-KEPT).map(x => ({ ...x, text: x.text.slice(0, KEPT_TEXT) }))
-const fewEdits = (edits: Rollup['edits']) => (edits === undefined ? {} : { edits: Object.fromEntries(Object.entries(edits).slice(0, KEPT_EDITS)) })
-const stored = (e: TxEntry): TxEntry => ({ ...e, roll: { ...e.roll, refusals: short(e.roll.refusals), errors: short(e.roll.errors), ...fewEdits(e.roll.edits) } })
+const stored = (e: TxEntry): TxEntry => ({ ...e, roll: { ...e.roll, refusals: short(e.roll.refusals), errors: short(e.roll.errors) } })
 
 /** The project's cached entries as its stored index: newest first (by mtime), as many as fit in MAX_INDEX_BYTES. */
 export function toIndex(cache: ReadonlyMap<string, TxEntry>, project: string, now: number): TxIndex {
@@ -191,11 +194,11 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
       task: parseDescription(desc).task,
       prompt: r.prompt,
       model: r.model,
-      effort: r.effort,
-      // The transcript is the record of the steps: its latest model and effort are what ran, for the tier check and the tier shown.
+      // The transcript is the record of the steps: its latest model and effort are what ran, for the tier check and the tier shown. An
+      // effort it does not name (or names in no known word) is settled as null, so the tier shown never borrows the description prefix's.
+      effort: effortName(r.effort) === undefined ? null : r.effort,
       actualModel: r.model,
       actualEffort: r.effort,
-      fromTranscript: true,
       steps: r.steps,
       watched: true,
       context: last ? spentTotal(last) - last.output : 0,
@@ -235,7 +238,7 @@ export function withHistory(recs: Record<string, AgentMonitorRec>, history: Reco
     if (!rec) { out[id] = h; continue }
     const live = clean(rec)
     const ran = live.actualModel !== undefined
-      ? { effort: live.effort, actualEffort: live.actualEffort, fromTranscript: undefined }
+      ? { effort: live.effort, actualEffort: live.actualEffort }
       : { model: h.model ?? live.model, effort: h.effort }
     const files = (live.files ?? []).reduce(addFile, h.files ?? []) // the transcript's edits and the steps' paths, deduped, capped
     out[id] = clean({ ...h, ...live, ...ran, ...(files.length > 0 ? { files } : {}), denied: h.denied, refusals: h.refusals, reasons: h.reasons })
