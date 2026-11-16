@@ -48,8 +48,14 @@ const asIndex = (v: unknown): PrIndex | undefined => {
   return i && typeof i === 'object' && typeof i.at === 'number' && Array.isArray(i.prs) ? i : undefined
 }
 
-/** In-load memory: the last good index and the session's branch. */
-export type PrCache = { index?: PrIndex; branch?: string; loaded?: boolean }
+/** In-load memory: the last good index, the session's branch, and the one read of the stored index (shared by every caller). */
+export type PrCache = { index?: PrIndex; branch?: string; load?: Promise<PrIndex | undefined> }
+
+/** The stored index, read from the store once per load into the cache (an index already in memory wins); runs no process. */
+export function loadStored(io: Pick<PrIo, 'load'>, cache: PrCache, cwd: string): Promise<PrIndex | undefined> {
+  cache.load ??= io.load(prIndexKey(cwd)).then(asIndex, () => undefined).then(stored => (cache.index ??= stored))
+  return cache.load
+}
 
 /**
  * Bring the cache up to date at `now`: the branch read every call; the index loaded once from the store, fetched again when older than
@@ -61,10 +67,7 @@ export async function refreshIndex(io: PrIo, cache: PrCache, now: number, cwd: s
     const b = await io.run(GIT_BRANCH)
     cache.branch = b.exitCode === 0 ? b.stdout.trim() || undefined : undefined
   } catch { /* no git here: no current branch */ }
-  if (!cache.loaded) {
-    cache.loaded = true
-    cache.index ??= asIndex(await io.load(key).catch(() => undefined))
-  }
+  await loadStored(io, cache, cwd)
   if (!cache.index || now - cache.index.at >= PR_INDEX_TTL) {
     try {
       const r = await io.run(GH_PR_LIST)
