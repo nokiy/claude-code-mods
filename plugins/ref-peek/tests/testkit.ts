@@ -1,5 +1,6 @@
 // Shared mocks of the whole-mod suites: synthetic gh, git and haiku answers beneath the plugin, the engine's stand-ins, mount helpers and a call tally.
 import { mock, test } from 'claude-code/testing';
+import type { ToolUse } from '../hooks/repo';
 
 type On = Parameters<typeof mock.env>[0];
 export type Dollar = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[0];
@@ -27,6 +28,7 @@ const freshState = () => ({
   modelGate: null as Promise<void> | null,
   remotes: { '/work/app': 'git@github.com:o/r.git' } as Record<string, string>,
   cwd: '/work/app',
+  toolUses: [] as ToolUse[],
 });
 const freshTally = () => ({ gh: 0, ghRunning: 0, ghPeak: 0, model: 0, git: 0, prompts: [] as string[], ghPaths: [] as string[] });
 
@@ -90,9 +92,24 @@ export function wire(on: On) {
     return { value: st.modelReply === null ? { isAnswered: false, reason: 'empty-reply', usage: USAGE } : { isAnswered: true, text: st.modelReply, usage: USAGE } } as never;
   });
   on('ui.render', { component: 'AssistantMessage' }, async (_$, e) => ({ type: 'Text', children: [e.props.text] }) as never);
-  on('tool.call', async () => ({ result: {} }) as never);
+  // A model step streams one chunk and asks for `st.toolUses`.
+  on('turn.step', async function* (_$, e) {
+    yield { kind: 'text', index: 0, text: 'ok' } as never;
+    return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: st.toolUses, stopReason: 'tool_use', usage: null } as never;
+  });
   return mock.clock(on, { now: NOW });
 }
+
+/** One model step asking for these tool calls, as the engine streams it beneath the plugin; resolves to the chunks that came out. */
+export async function step($: Dollar, toolUses: ToolUse[], agentId?: string): Promise<unknown[]> {
+  st.toolUses = toolUses;
+  const chunks: unknown[] = [];
+  for await (const c of $.turn.step({ turnId: 't', index: 0, model: 'sonnet', messageCount: 1, agentId } as never)) chunks.push(c);
+  return chunks;
+}
+
+export const bash = (command: string): ToolUse => ({ name: 'Bash', input: { command, description: 'x' } });
+export const repl = (code: string): ToolUse => ({ name: 'REPL', input: { code } });
 
 type Block = { text: string; id?: string; isFirstOfReply?: boolean; surface?: 'terminal' | 'desktop'; viewport?: object; props?: object };
 
