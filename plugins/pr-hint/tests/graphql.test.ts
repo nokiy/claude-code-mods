@@ -1,7 +1,7 @@
 // Tests the GraphQL unwrapping (PR node, closing issues, labels, CI contexts, by-number issues) on answers shaped like GitHub's, and that the parsers read the result as `gh pr view` was read.
 import { expect, test } from 'claude-code/testing';
 import { PR_ARGS, PR_QUERY, branchHead, isCurrentPr, issuesQuery, parseGraphql, parseIssues, splitIssues } from '../hooks/graphql';
-import { closingNumbers, parsePr, prHead } from '../hooks/parse';
+import { closingNumbers, mergedByCommits, parsePr, prHead } from '../hooks/parse';
 
 const issue = (number: number, labels: string[] = []) => ({
   number, title: `t${number}`, state: 'OPEN', body: '', labels: { nodes: labels.map(name => ({ name })) },
@@ -12,7 +12,7 @@ const answer = (over: object = {}) => JSON.stringify({
       pullRequests: {
         nodes: [{
           number: 444, title: 'gateway', state: 'OPEN', isDraft: true, baseRefName: 'dev', headRefName: 'spec/428-gateway', url: 'u', body: '',
-          commits: { nodes: [{ commit: { messageHeadline: 'feat(#429): a' } }, { commit: { messageHeadline: 'Merge x/430-y' } }] },
+          commits: { nodes: [{ commit: { message: 'feat(#429): a\n\nbody' } }, { commit: { message: 'Merge x/430-y' } }] },
           statusCheckRollup: { contexts: { nodes: [{ status: 'COMPLETED', conclusion: 'SKIPPED' }, { state: 'FAILURE' }] } },
           closingIssuesReferences: { nodes: [issue(428, ['enhancement', 'spec']), issue(429)] },
           ...over,
@@ -36,6 +36,28 @@ test('the PR node reads like gh pr view: CI, headlines, head, closing issues', (
   expect(pr).toMatchObject({ number: 444, isDraft: true, base: 'dev', head: 'spec/428-gateway', url: 'u', ci: { ok: 1, fail: 1, pending: 0, total: 2 } });
   expect(prHead(json)).toEqual({ headRef: 'spec/428-gateway', headlines: ['feat(#429): a', 'Merge x/430-y'] });
   expect(closingNumbers(json)).toEqual([428, 429]);
+});
+
+// GitHub cuts messageHeadline to ~70 characters with "…", which loses a trailing (#N) and the branch of a long Merge
+// headline; the query asks the whole message and the headline is its first line, never the body.
+const commitsOf = (...messages: string[]) => ({ commits: { nodes: messages.map(message => ({ commit: { message } })) } });
+test('a commit title over 70 characters still names its ticket; the query never asks the cut messageHeadline', () => {
+  const long = 'feat(pr-hint): card line 2 shows subagent cost, tokens, time and refusals from agent-monitor (#45)';
+  const merge = "Merge remote-tracking branch 'origin/spec/36-pr-agent-views' into feature/46-alert-timeline";
+  expect(long.length).toBeGreaterThan(70);
+  expect(merge.length).toBeGreaterThan(70);
+  const json = prOf(answer(commitsOf(`${long}\n\nRefs #41`, `${merge}\r\n\n# Conflicts:\n#\tplugins/x`)))!;
+  const { headlines } = prHead(json);
+  expect(headlines).toEqual([long, merge]);
+  expect([...mergedByCommits(headlines, [45, 46])].sort((a, b) => a - b)).toEqual([45, 46]);
+  expect(PR_QUERY).toContain('commit{message}');
+  expect(PR_QUERY).not.toContain('messageHeadline');
+});
+
+test('a commit body never counts: a body ending (#47) or a Merge body naming /48- leaves both unmerged', () => {
+  const json = prOf(answer(commitsOf('chore: tidy\n\nsee feat(x): y (#47)', "Merge branch 'dev' into spec/1-x\n\n# Conflicts:\n#\tfeature/48-x/a.ts")))!;
+  expect(prHead(json).headlines).toEqual(['chore: tidy', "Merge branch 'dev' into spec/1-x"]);
+  expect(mergedByCommits(prHead(json).headlines, [47, 48]).size).toBe(0);
 });
 
 test('the Spec is the issue labelled spec; the rest are tickets', () => {
