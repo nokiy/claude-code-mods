@@ -2,9 +2,11 @@
 // in, the /sub pane's Alerts block, Enter on a row, `b` back (testkit.ts).
 import { expect, mock, test } from 'claude-code/testing'
 
-import { PROJECT, ROOT, listed, mountPane, rowKeys, st, step, wire } from './testkit'
+import { PROJECT, ROOT, countStore, listed, mountPane, rowKeys, st, step, wire } from './testkit'
 import type { Dollar } from './testkit'
-import { agentFiles, fakeFs } from './transcripts'
+import { agentFiles, agentPaths, fakeFs } from './transcripts'
+import { indexKey, refreshProject, toIndex } from '../hooks/history'
+import type { TxEntry } from '../hooks/history'
 import { formatClock } from '../hooks/logic'
 
 const T0 = Date.parse('2026-10-03T09:00:00Z')
@@ -89,7 +91,10 @@ test('Alerts block: a transcript agent refused twice by a hook reads ×2 with th
 test('a hook refusal reads denied, an errored tool result reads error; each at its own time, in time order', async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
-  const a1 = { sessionId: 'cur', agentId: 'a1', type: 'worker', desc: 'build it', at: at(0), errors: ['Exit code 1\nmake: *** [all] Error 2'], erroredAt: at(10_000), denials: [RULE], deniedAt: at(20_000) }
+  const a1 = {
+    sessionId: 'cur', agentId: 'a1', type: 'worker', desc: 'build it', at: at(0),
+    errors: ['Exit code 1\nmake: *** [all] Error 2'], erroredAt: at(10_000), denials: [RULE], deniedAt: at(20_000),
+  }
   wire(on, fakeFs(agentFiles(PROJECT, a1)))
   await $.session.start({ cwd: ROOT } as never)
   st.agents = [listed('a1', 'worker', 'build it')]
@@ -133,11 +138,13 @@ test('a main-loop step that edits a file a running subagent edited is a conflict
 test('detail page: a Code Mode agent\'s edited files and +/− counts come from its transcript', async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
-  const c1 = { sessionId: 'cur', agentId: 'c1', type: 'worker', desc: 'tidy the lexer', at: at(0), edits: [{ path: `${ROOT}/src/lex.ts`, lines: [' a', '-b', '+c', '+d'] }, { path: `${ROOT}/src/lex.ts`, lines: ['+e'] }] }
+  const lex = `${ROOT}/src/lex.ts`
+  const c1 = { sessionId: 'cur', agentId: 'c1', type: 'worker', desc: 'tidy the lexer', at: at(0), edits: [{ path: lex, lines: [' a', '-b', '+c', '+d'] }, { path: lex, lines: ['+e'] }] }
   wire(on, fakeFs(agentFiles(PROJECT, c1)))
   await $.session.start({ cwd: ROOT } as never)
   st.agents = [listed('c1', 'worker', c1.desc)]
-  await step($, 'c1', 'claude-sonnet-5-5', { input_tokens: 1000, output_tokens: 100 }, undefined, [{ name: 'REPL', input: { code: "await edit('src/lex.ts', 'b', 'c')", description: 'Fix the lexer' } }])
+  const script = { name: 'REPL', input: { code: "await edit('src/lex.ts', 'b', 'c')", description: 'Fix the lexer' } }
+  await step($, 'c1', 'claude-sonnet-5-5', { input_tokens: 1000, output_tokens: 100 }, undefined, [script])
   await $.command.run({ command: 'sub', args: '' } as never)
   await clock.settle()
   const ui = await mountPane($)
@@ -145,4 +152,38 @@ test('detail page: a Code Mode agent\'s edited files and +/− counts come from 
   const all = await texts(ui)
   expect(all.some(s => s.startsWith('   → Script Fix the lexer'))).toBe(true)
   expect(all.some(s => s.includes('✎ src/lex.ts') && s.includes('+3') && s.includes('−1'))).toBe(true)
+})
+
+// Finished subagents of an earlier session, all described op.high, seen in a fresh session through the project index an older build
+// stored (entries without effort, no version): the files are read again, and each row and alert says what ran, never the prefix's effort.
+test('history: op.high that ran sonnet at low effort reads sonnet.low with `!` and its ≠ line; no effort known reads the bare model', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  const low = { sessionId: 'old', agentId: 'o1', type: 'worker', desc: 'op.high · build the dashboard', model: 'claude-sonnet-5-5', steps: [{ id: 'm1', effort: 'low' }] }
+  const bare = { sessionId: 'old', agentId: 'o2', type: 'worker', desc: 'op.high · sketch the page', model: 'claude-sonnet-5-5' }
+  const same = { sessionId: 'old', agentId: 'o3', type: 'worker', desc: 'op.high · check the build', model: 'claude-opus-5-5' }
+  const fs = fakeFs({ ...agentFiles(PROJECT, low), ...agentFiles(PROJECT, bare), ...agentFiles(PROJECT, same) })
+  const cache = new Map<string, TxEntry>()
+  await refreshProject({ list: async d => fs.list(d), read: async p => fs.read(p), tail: async (p, from) => fs.tail(p, from) }, PROJECT, cache)
+  const old = JSON.parse(JSON.stringify(toIndex(cache, PROJECT, 1))) as { v?: number; files: Record<string, TxEntry> }
+  delete old.v
+  for (const e of Object.values(old.files)) delete e.roll.effort
+  countStore(on, { [indexKey(PROJECT)]: old })
+  wire(on, fs)
+  fs.reset()
+  await $.session.start({ cwd: ROOT } as never)
+  await $.command.run({ command: 'sub', args: '' } as never)
+  await clock.settle()
+  expect(fs.tally.reads.get(agentPaths(PROJECT, low).jsonl)).toBe(1)
+  const ui = await mountPane($)
+  await ui.press({ key: 'mode:agent' })
+  const all = await texts(ui)
+  const row = (task: string) => all.find(s => s.startsWith('  ●') && s.includes(task)) ?? ''
+  expect(row('build the')).toMatch(/worker\s+sonnet\.low\s.*!$/)
+  expect(row('sketch the')).toMatch(/worker\s+sonnet\s.*!$/)
+  expect(row('check the')).toMatch(/worker\s+opus\s/)
+  expect(row('check the')).not.toMatch(/!$/)
+  const tier = all.filter(s => /^ \d\d:\d\d:\d\d ≠ tier /.test(s)) // whole timeline lines, not their parts
+  expect(tier.some(s => s.includes('described op.high · ran sonnet.low'))).toBe(true)
+  expect(tier.some(s => s.endsWith('described op.high · ran sonnet'))).toBe(true)
+  expect(tier).toHaveLength(2)
 })

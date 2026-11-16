@@ -5,7 +5,7 @@ import type { Clash, Stall, TierCheck } from './alerts'
 import type { Config } from './config'
 import { DEFAULT_PRICES, agentCost } from './cost'
 import type { Prices } from './cost'
-import { parseDescription } from './logic'
+import { parseDescription, resolveTier } from './logic'
 import { clean } from './patches'
 import type { PrView } from './prindex'
 import type { Strings } from './strings'
@@ -42,6 +42,8 @@ export type View = {
   /** Model and effort of the latest turn.step. */
   actualModel?: string
   actualEffort?: string | number
+  /** Model and effort are the transcript's (no step tracked): what ran, never filled from the description prefix. */
+  fromTranscript?: boolean
   /** Detail page: the spawn prompt, the latest activity texts (oldest first), the longest step, token parts, lines changed per path, skills, the report. */
   prompt?: string
   recent: string[]
@@ -76,6 +78,10 @@ export function effectiveStatus(rec: Status | undefined, listStatus: string | un
   if (listStatus !== undefined && FAILED.has(listStatus)) return 'failed'
   return rec ?? 'running'
 }
+
+// The tier a row shows, as full words: the record's model and effort. The description prefix fills what no step has said yet, save on
+// a record read from its transcript, which says what ran: there an unknown effort stays unknown (bare `sonnet`).
+export const shownTier = (v: Pick<View, 'model' | 'effort' | 'desc' | 'fromTranscript'>) => resolveTier(v.model, v.effort, v.fromTranscript ? '' : v.desc)
 
 // Newest start first, whatever the status. No start time: after those with one; ties and unknowns by agentId.
 export function orderViews<T extends { id: string; startedAt?: number }>(rows: T[]): T[] {
@@ -167,6 +173,7 @@ export function buildViews(recs: Record<string, AgentMonitorRec>, list: ListAgen
       reasons: r?.reasons ?? [],
       actualModel: r?.actualModel,
       actualEffort: r?.actualEffort,
+      fromTranscript: r?.fromTranscript,
       prompt: r?.prompt,
       recent: r?.recent ?? [],
       longestStepMs: r?.longestStepMs,

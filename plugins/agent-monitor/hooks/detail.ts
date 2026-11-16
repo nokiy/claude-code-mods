@@ -5,9 +5,10 @@ import { alertClock, alertLines, flagSegs } from './alertlines'
 import { formatMoney, tokenSplit } from './cost'
 import type { Seg } from './alertlines'
 import { GLYPH } from './layout'
-import { agentRef, cellWidth, effortLabel, firstLines, formatClock, formatDuration, formatTokens, padEnd, padStart, resolveTier } from './logic'
+import { agentRef, cellWidth, effortLabel, firstLines, formatClock, formatDuration, formatTokens, padEnd, padStart } from './logic'
 import { PALETTE, effortStyle, modelColor, statusColor, typeStyle } from './palette'
 import type { Strings } from './strings'
+import { shownTier } from './views'
 import type { View } from './views'
 
 export const PROMPT_LINES = 3
@@ -32,7 +33,12 @@ const endOf = (v: View): number | undefined => (v.status === 'running' ? undefin
 // The Tokens section: cache-hit input, other input (fresh + cache writes), output, and the estimated cost, numbers right-aligned.
 function tokenLines(v: View, t: Strings): Seg[][] {
   const s = tokenSplit(v.spent!)
-  const rows: [string, string][] = [[t.tokenRows.hit, formatTokens(s.hit)], [t.tokenRows.miss, formatTokens(s.miss)], [t.tokenRows.out, formatTokens(s.out)], [t.tokenRows.cost, `≈ ${formatMoney(v.cost)}`]]
+  const rows: [string, string][] = [
+    [t.tokenRows.hit, formatTokens(s.hit)],
+    [t.tokenRows.miss, formatTokens(s.miss)],
+    [t.tokenRows.out, formatTokens(s.out)],
+    [t.tokenRows.cost, `≈ ${formatMoney(v.cost)}`],
+  ]
   const labelW = Math.max(...rows.map(([l]) => cellWidth(l)))
   const numW = Math.max(...rows.map(([, n]) => cellWidth(n)))
   return rows.map(([l, n]) => body(`${padEnd(l, labelW)}  ${padStart(n, numW)}`))
@@ -42,7 +48,7 @@ function tokenLines(v: View, t: Strings): Seg[][] {
 // lines of the alert timeline: time and cause), then Tokens, Tools, Skills, Result. `peers` are all the views (newest first), to name
 // the other side of a conflict.
 export function detailLines(v: View, cwd: string, t: Strings, peers: readonly View[] = []): Seg[][] {
-  const tier = resolveTier(v.model, v.effort, v.desc)
+  const tier = shownTier(v)
   const eff = effortLabel(tier.effort)
   const red = v.tier ? PALETTE.red : undefined
   const ts = typeStyle(v.type)
@@ -59,8 +65,15 @@ export function detailLines(v: View, cwd: string, t: Strings, peers: readonly Vi
 
   const flags = flagSegs(v)
   const end = endOf(v)
-  const when = [v.startedAt === undefined ? undefined : `${formatClock(v.startedAt)} → ${end === undefined ? (v.status === 'running' ? t.inProgress : '—') : formatClock(end)}`, v.elapsedMs === undefined ? undefined : t.took(formatDuration(v.elapsedMs)), v.rounds === undefined ? undefined : t.roundsN(v.rounds), v.longestStepMs === undefined ? undefined : t.longestStep(formatDuration(v.longestStepMs))]
-  lines.push(head(t.sec.steps), [fg('   '), { text: `${GLYPH[v.status]} ${v.status}`, color: statusColor(v.status) }, gray(when.filter(Boolean).map(w => `   ${w}`).join('')), ...(flags.length > 0 ? [fg('   '), ...flags] : [])])
+  const span = v.startedAt === undefined ? undefined : `${formatClock(v.startedAt)} → ${end === undefined ? (v.status === 'running' ? t.inProgress : '—') : formatClock(end)}`
+  const when = [
+    span,
+    v.elapsedMs === undefined ? undefined : t.took(formatDuration(v.elapsedMs)),
+    v.rounds === undefined ? undefined : t.roundsN(v.rounds),
+    v.longestStepMs === undefined ? undefined : t.longestStep(formatDuration(v.longestStepMs)),
+  ]
+  const status = { text: `${GLYPH[v.status]} ${v.status}`, color: statusColor(v.status) }
+  lines.push(head(t.sec.steps), [fg('   '), status, gray(when.filter(Boolean).map(w => `   ${w}`).join('')), ...(flags.length > 0 ? [fg('   '), ...flags] : [])])
   for (const step of v.recent.slice(-RECENT_SHOWN)) lines.push([gray('   → '), fg(step)])
 
   if (v.files.length > 0 || v.editCount > 0) {

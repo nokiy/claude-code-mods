@@ -4,9 +4,10 @@ import { ALERT_MARK, alerted } from './alertlines'
 import { ALL_COLUMNS } from './config'
 import type { Columns } from './config'
 import { formatMoney, totalCost } from './cost'
-import { cellWidth, ctxPercent, effortLabel, effortName, formatDuration, formatElapsed, modelName, padEnd, padStart, parseDescription, resolveTier, tokensOrDash, truncate } from './logic'
+import { cellWidth, ctxPercent, effortLabel, effortName, formatDuration, formatElapsed, modelName, padEnd, padStart, parseDescription, tokensOrDash, truncate } from './logic'
 import { elementKey } from './nav'
 import { PALETTE } from './palette'
+import { shownTier } from './views'
 import type { Status, View } from './views'
 
 export const GLYPH: Record<Status, string> = { running: '◐', done: '●', failed: '✗', unknown: '?' }
@@ -64,7 +65,7 @@ export type RowText = {
 }
 
 export function rowText(v: View): RowText {
-  const t = resolveTier(v.model, v.effort, v.desc)
+  const t = shownTier(v)
   const eff = effortLabel(t.effort)
   const f = figures(v)
   return {
@@ -89,7 +90,8 @@ export function rowText(v: View): RowText {
 // Widths in cells; 0 = the column is off (hidden by the settings, or no room). `alert`: 1 when some row has an alert (its red `!` ends
 // the row), else 0.
 export type Layout = { status: number; task: number; type: number; tier: number; cost: number; time: number; alert: number }
-export type Cell = { text: string; kind: 'index' | 'status' | 'task' | 'type' | 'model' | 'effort' | 'cost' | 'tokens' | 'time' | 'alert'; status?: Status; key?: string; n?: number; bad?: boolean; color?: string }
+export type CellKind = 'index' | 'status' | 'task' | 'type' | 'model' | 'effort' | 'cost' | 'tokens' | 'time' | 'alert'
+export type Cell = { text: string; kind: CellKind; status?: Status; key?: string; n?: number; bad?: boolean; color?: string }
 
 const maxW = (min: number, items: string[]) => items.reduce((m, s) => Math.max(m, cellWidth(s)), min)
 
@@ -145,7 +147,8 @@ export const markLabel = (selected: boolean): string => (selected ? MARK : NO_MA
 
 // The column-header row (drawn gray), same widths as the rows; the names stay English in both languages.
 export function headerCells(l: Layout): Cell[] {
-  return cells(l, { status: 'done', glyph: '#', type: 'type', model: 'tier', effort: '', task: 'desc', ctx: '', tokens: '', money: '', time: 'time', tokN: 0, bad: false, alert: false }, { cost: 'cost' })
+  const head: RowText = { status: 'done', glyph: '#', type: 'type', model: 'tier', effort: '', task: 'desc', ctx: '', tokens: '', money: '', time: 'time', tokN: 0, bad: false, alert: false }
+  return cells(l, head, { cost: 'cost' })
 }
 
 export type HeaderSeg = { text: string; color: string; bold?: boolean }

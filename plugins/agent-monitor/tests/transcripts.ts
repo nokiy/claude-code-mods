@@ -4,8 +4,8 @@
 import { utf8Bytes } from '../hooks/transcript'
 
 export type FakeUsage = { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
-/** One assistant message: `id` repeats across lines of a streamed message, the last line holding the final usage. */
-export type FakeStep = { id: string; model?: string; usage?: FakeUsage; at?: string }
+/** One assistant message: `id` repeats across lines of a streamed message, the last line holding the final usage; `effort` (top-level on the line) only when given. */
+export type FakeStep = { id: string; model?: string; usage?: FakeUsage; at?: string; effort?: string }
 export type FakeAgent = {
   sessionId: string
   agentId: string
@@ -33,10 +33,16 @@ const ids = (a: Pick<FakeAgent, 'sessionId' | 'agentId'>) => ({ sessionId: a.ses
 const usage = (u: FakeUsage = {}) => ({ input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, ...u })
 
 export const userLine = (a: FakeAgent) =>
-  JSON.stringify({ ...ids(a), parentUuid: null, type: 'user', timestamp: a.at ?? '2026-10-01T10:00:00.000Z', cwd: a.cwd ?? '/work/repo', gitBranch: a.branch ?? 'dev', message: { role: 'user', content: a.prompt ?? 'do the task' } })
+  JSON.stringify({
+    ...ids(a), parentUuid: null, type: 'user', timestamp: a.at ?? '2026-10-01T10:00:00.000Z', cwd: a.cwd ?? '/work/repo', gitBranch: a.branch ?? 'dev',
+    message: { role: 'user', content: a.prompt ?? 'do the task' },
+  })
 
 export const assistantLine = (a: Pick<FakeAgent, 'sessionId' | 'agentId'>, s: FakeStep, model = 'claude-opus-4-5') =>
-  JSON.stringify({ ...ids(a), type: 'assistant', timestamp: s.at ?? '2026-10-01T10:01:00.000Z', message: { id: s.id, role: 'assistant', model: s.model ?? model, usage: usage(s.usage), content: [{ type: 'text', text: 'ok' }] } })
+  JSON.stringify({
+    ...ids(a), type: 'assistant', timestamp: s.at ?? '2026-10-01T10:01:00.000Z', ...(s.effort === undefined ? {} : { effort: s.effort }),
+    message: { id: s.id, role: 'assistant', model: s.model ?? model, usage: usage(s.usage), content: [{ type: 'text', text: 'ok' }] },
+  })
 
 export const denialLine = (a: Pick<FakeAgent, 'sessionId' | 'agentId'>, text: string, at = '2026-10-01T10:02:00.000Z', kind = 'permission-rule') =>
   JSON.stringify({ ...ids(a), type: 'user', timestamp: at, toolDenialKind: kind, message: { role: 'user', content: [{ type: 'tool_result', is_error: true, content: text, tool_use_id: 'toolu_x' }] } })

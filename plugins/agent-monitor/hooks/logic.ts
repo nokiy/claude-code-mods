@@ -128,11 +128,14 @@ export function tierLabel(model: string | undefined, effort: string | number | u
 }
 
 // `sonnet.med`: full model word, a dot and the short effort; unknown effort -> bare `sonnet`; unknown model -> an em dash.
-// Real model+effort wins; the description prefix fills what the step has not said (as resolveTier).
-export function tierName(model: string | undefined, effort: string | number | undefined, desc: string): string {
-  const r = resolveTier(model, effort, desc)
+export function tierWords(r: { model?: string; effort?: string }): string {
   if (!r.model) return '—'
   return r.effort ? `${r.model}.${EFFORT_SHORT[r.effort]}` : r.model
+}
+
+// tierWords of the real model+effort; the description prefix fills what the step has not said (as resolveTier).
+export function tierName(model: string | undefined, effort: string | number | undefined, desc: string): string {
+  return tierWords(resolveTier(model, effort, desc))
 }
 
 // ---- numbers ----

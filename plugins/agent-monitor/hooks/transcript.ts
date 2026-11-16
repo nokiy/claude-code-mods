@@ -24,6 +24,8 @@ export type Rollup = {
   prompt?: string
   /** Model of the latest assistant message. */
   model?: string
+  /** Effort of the latest assistant line that carries one (its top-level `effort`); absent when the transcript never says. */
+  effort?: string | number
   /** First and latest line timestamps (ms). */
   startedAt?: number
   lastAt?: number
@@ -62,6 +64,7 @@ type Line = {
   gitBranch?: string
   cwd?: string
   toolDenialKind?: string
+  effort?: unknown
   message?: { id?: string; model?: string; usage?: Record<string, number | null | undefined>; content?: unknown }
   toolUseResult?: unknown
 }
@@ -135,7 +138,8 @@ function addLine(r: Rollup, l: Line): Rollup {
     const same = r.open?.id === m.id
     if (same && r.open) byModel[r.open.model] = plusSpent(byModel[r.open.model] ?? ZERO, r.open.usage, -1)
     byModel[m.model] = plusSpent(byModel[m.model] ?? ZERO, usage)
-    Object.assign(out, { byModel, model: m.model, steps: r.steps + (same ? 0 : 1), open: { id: m.id, model: m.model, usage } })
+    const effort = typeof l.effort === 'string' || typeof l.effort === 'number' ? { effort: l.effort } : {} // a line without it keeps the last
+    Object.assign(out, { byModel, model: m.model, ...effort, steps: r.steps + (same ? 0 : 1), open: { id: m.id, model: m.model, usage } })
   }
   return out
 }

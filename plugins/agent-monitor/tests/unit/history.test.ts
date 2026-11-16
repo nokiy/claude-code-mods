@@ -160,3 +160,35 @@ test('edits: a transcript\'s edited paths and line counts fill a record whose st
   const old = new Map([[path, { ...entry, roll: { ...entry.roll, edits: undefined } }]])
   expect(historyRecs(old).e1?.files).toBeUndefined()
 })
+
+test('effort: a record read from its transcript says what ran; an index stored before the field is not seeded, so the file is read again', async () => {
+  const a = { sessionId: 's1', agentId: 'a1', type: 'worker', desc: 'op.high · build it', model: 'claude-sonnet-5-5', steps: [{ id: 'm1', effort: 'low' }] }
+  const fs = fakeFs(agentFiles(PROJECT, a))
+  const cache = new Map<string, TxEntry>()
+  await refreshProject(ioOf(fs), PROJECT, cache)
+  expect(historyRecs(cache).a1).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'low', actualModel: 'claude-sonnet-5-5', actualEffort: 'low', fromTranscript: true })
+  // An older build's index: same sizes and times, its entries without effort, no version.
+  const old = JSON.parse(JSON.stringify(toIndex(cache, PROJECT, 1))) as { v?: number; files: Record<string, TxEntry> }
+  delete old.v
+  for (const e of Object.values(old.files)) delete e.roll.effort
+  const fresh = new Map<string, TxEntry>()
+  expect(seedCache(fresh, PROJECT, old)).toBe(false)
+  fs.reset()
+  expect(await refreshProject(ioOf(fs), PROJECT, fresh)).toBe(true)
+  expect(fs.tally.reads.get(agentPaths(PROJECT, a).jsonl)).toBe(1)
+  expect(historyRecs(fresh).a1?.effort).toBe('low')
+})
+
+test('withHistory: a step-tracked record keeps its own model and effort; one no step tracked takes what its transcript says ran', async () => {
+  const a = { sessionId: 's1', agentId: 'a1', type: 'worker', desc: 'op.high · build it', model: 'claude-sonnet-5-5', steps: [{ id: 'm1', effort: 'low' }] }
+  const cache = new Map<string, TxEntry>()
+  await refreshProject(ioOf(fakeFs(agentFiles(PROJECT, a))), PROJECT, cache)
+  const h = historyRecs(cache)
+  const base = { type: 'worker', desc: a.desc, task: 'build it', context: 0, output: 0 }
+  const stepped = withHistory({ a1: { ...base, steps: 1, watched: true, status: 'running', model: 'claude-opus-5-5', actualModel: 'claude-opus-5-5' } }, h).a1
+  expect(stepped).toMatchObject({ model: 'claude-opus-5-5', actualModel: 'claude-opus-5-5' })
+  expect([stepped?.effort, stepped?.actualEffort, stepped?.fromTranscript]).toEqual([undefined, undefined, undefined])
+  // A backfilled record (from the conversation, no step seen): the transcript's model and effort.
+  const filled = withHistory({ a1: { ...base, steps: 0, watched: false, status: 'done', model: 'sonnet' } }, h).a1
+  expect(filled).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'low', actualModel: 'claude-sonnet-5-5', actualEffort: 'low', fromTranscript: true })
+})

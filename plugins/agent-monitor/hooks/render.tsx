@@ -3,8 +3,9 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import { alertClock, alertLines, alertMark, capAlerts, segsWidth } from './alertlines'
-import { capRows, cellWidth, collapse, fitRow, resolveTier, tierName } from './logic'
+import { capRows, cellWidth, collapse, fitRow, tierWords } from './logic'
 import type { Strings } from './strings'
+import { shownTier } from './views'
 import type { Board, View } from './views'
 import type { Columns } from './config'
 import { computeLayout, ctxBar, figures, headerCells, headerSegs, isSelected, markLabel, rowParts, rowText, rule, runningText, statsText } from './layout'
@@ -35,7 +36,8 @@ export function bandRows(ui: Ui, running: View[], cols: number, maxRows: number,
   const { Box, Text } = ui
   const { shown, hidden } = capRows(running.length, maxRows)
   const rows = running.slice(0, shown).map(v => {
-    const tier = tierName(v.model, v.effort, v.desc)
+    const shown = shownTier(v)
+    const tier = tierWords(shown)
     const flags = alerts ? alertMark(v) : []
     const stats = statsText(v)
     const fixed = cellWidth(`◐ ${v.type} · ${tier} · `) + cellWidth(stats) + (flags.length > 0 ? 3 + segsWidth(flags) : 0)
@@ -46,7 +48,7 @@ export function bandRows(ui: Ui, running: View[], cols: number, maxRows: number,
         <Text color={statusColor('running')}>◐ </Text>
         <Text color={ts.color} bold>{v.type}</Text>
         <Text color={gray}>{' · '}</Text>
-        <Text color={v.tier ? red : modelColor(resolveTier(v.model, v.effort, v.desc).model)}>{tier}</Text>
+        <Text color={v.tier ? red : modelColor(shown.model)}>{tier}</Text>
         <Text color={gray}>{' · '}</Text>
         <Text color={fg}>{fit.task}</Text>
         <Text>{'   '}</Text>

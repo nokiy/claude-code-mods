@@ -90,7 +90,12 @@ async function refreshFile(io: TxIo, path: string, f: Listing, cache: Map<string
  * under indexKey(project), written once per full refresh: its newest entries up to MAX_INDEX_BYTES, at most MAX_PROJECTS projects kept,
  * so the indexes stay under 1.5 MiB in all. A file left out (older than the newest that fit) is read again in a new load.
  */
-export type TxIndex = { at: number; files: Record<string, TxEntry> }
+export type TxIndex = { v: number; at: number; files: Record<string, TxEntry> }
+/**
+ * The shape of a stored entry; raised when an entry gains a field that entries stored before cannot have (2: the rollup's effort). An
+ * index of any other version seeds nothing, so its files are read again and the next full refresh writes it anew.
+ */
+export const INDEX_VERSION = 2
 export const indexKey = (project: string) => `txIndex:${project}`
 export const MAX_INDEX_BYTES = 256 * 1024
 export const MAX_PROJECTS = 6
@@ -117,7 +122,7 @@ export function toIndex(cache: ReadonlyMap<string, TxEntry>, project: string, no
     bytes += n
     files[name] = s
   }
-  return { at: now, files }
+  return { v: INDEX_VERSION, at: now, files }
 }
 
 const isEntry = (e: unknown): e is TxEntry => {
@@ -125,9 +130,10 @@ const isEntry = (e: unknown): e is TxEntry => {
   return !!x && typeof x === 'object' && typeof x.offset === 'number' && typeof x.size === 'number' && !!x.roll && Array.isArray(x.roll.refusals) && Array.isArray(x.roll.errors)
 }
 
-/** Fill the cache from a stored index (paths it already holds stay); whether anything was added. Anything else stored adds nothing. */
+/** Fill the cache from a stored index of this version (paths it already holds stay); whether anything was added. Anything else stored adds nothing. */
 export function seedCache(cache: Map<string, TxEntry>, project: string, value: unknown): boolean {
-  const files = (value as TxIndex | undefined)?.files
+  const index = value as Partial<TxIndex> | undefined
+  const files = index?.v === INDEX_VERSION ? index.files : undefined
   if (!files || typeof files !== 'object') return false
   let added = false
   for (const [name, e] of Object.entries(files)) {
@@ -185,6 +191,11 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
       task: parseDescription(desc).task,
       prompt: r.prompt,
       model: r.model,
+      effort: r.effort,
+      // The transcript is the record of the steps: its latest model and effort are what ran, for the tier check and the tier shown.
+      actualModel: r.model,
+      actualEffort: r.effort,
+      fromTranscript: true,
       steps: r.steps,
       watched: true,
       context: last ? spentTotal(last) - last.output : 0,
@@ -211,7 +222,8 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
 /**
  * The hook records with the history added: by agentId, one record each; the hook record's fields win, history fills the rest, save the
  * refusals and errored results (`denied`, `refusals`, `reasons`), which the transcript holds with their times and kinds: a record kept
- * from an older build has neither.
+ * from an older build has neither. Model and effort: a step-tracked record (a turn.step set its `actualModel`) keeps its own; any other
+ * (backfilled from the conversation) takes what the transcript says ran.
  */
 export function withHistory(recs: Record<string, AgentMonitorRec>, history: Record<string, AgentMonitorRec>): Record<string, AgentMonitorRec> {
   const ids = Object.keys(history)
@@ -219,7 +231,13 @@ export function withHistory(recs: Record<string, AgentMonitorRec>, history: Reco
   const out = { ...recs }
   for (const id of ids) {
     const h = history[id]!
-    out[id] = recs[id] ? { ...h, ...clean(recs[id]), denied: h.denied, refusals: h.refusals, reasons: h.reasons } : h
+    const rec = recs[id]
+    if (!rec) { out[id] = h; continue }
+    const live = clean(rec)
+    const ran = live.actualModel !== undefined
+      ? { effort: live.effort, actualEffort: live.actualEffort, fromTranscript: undefined }
+      : { model: h.model ?? live.model, effort: h.effort }
+    out[id] = clean({ ...h, ...live, ...ran, denied: h.denied, refusals: h.refusals, reasons: h.reasons })
   }
   return out
 }

@@ -75,3 +75,13 @@ test('rollup: at most 50 edited paths; a path already counted still adds up', ()
   expect(Object.keys(roll.edits ?? {})).toHaveLength(50)
   expect(roll.edits?.['/w/f0.ts']).toEqual({ add: 1, del: 1 })
 })
+
+test('rollup: effort from the assistant lines\' top-level field, the latest wins; a line without it keeps the last one', () => {
+  const text = agentTranscript({
+    ...A,
+    steps: [{ id: 'm1', effort: 'high' }, { id: 'm2', model: 'claude-sonnet-5-5', effort: 'low' }, { id: 'm3', model: 'claude-sonnet-5-5' }],
+  })
+  expect(feed(emptyRollup(), text).roll).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'low' })
+  // A transcript that never says its effort: none.
+  expect(feed(emptyRollup(), agentTranscript(A)).roll.effort).toBeUndefined()
+})
