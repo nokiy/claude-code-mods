@@ -1,6 +1,7 @@
 // Shared fixtures and mocks for the register, refresh and location test suites: synthetic `gh api graphql` and git answers, the session directory, mount helpers and a call tally.
 // Harness rules: every ui.render mount needs a test hook beneath the plugin (`engineLines`), or the mount throws; a ui.render
 // hook must return a tree, never null (`next(e)` always resolves to one, see `RenderResultOf` in .claude-plugin/types/claude-code/index.d.ts).
+import type { RenderPropsOf } from 'claude-code';
 import { mock, test } from 'claude-code/testing';
 
 // The PR as the card reads it; `gql` wraps it into GraphQL's nodes shape. `linked` is the closing issues GitHub links.
@@ -19,7 +20,10 @@ export const SPEC = {
   labels: [{ name: 'enhancement' }, { name: 'spec' }],
 };
 export const PROPS = { isDraft: false, isWorking: false, hint: '▸▸ bypass permissions on' };
-export const BAND_PROPS = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100 } as never;
+// The band at rest, 100 columns wide and 20 rows tall (the window one row short, for the `n more` row), the main conversation in view.
+export const BAND_PROPS: RenderPropsOf['AbovePrompt'] = {
+  hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { offset: 0, bodyRows: 19 }, view: {},
+};
 export const VIEWPORT = { columns: 160, rows: 50 };
 export const done = { isStdoutTruncated: false, isStderrTruncated: false };
 
@@ -31,7 +35,8 @@ type On = Parameters<typeof mock.env>[0];
 // `closing` is the PR's linked issues, `issues` extra issues by number, `headlines` the PR's commit headlines, `branches` the `git branch -a` answer.
 export const BRANCHES = 'dev\nspec/12-dark-mode\nfeat/7-theme-toggle\nworktree-7-x\n';
 export const st = {
-  dir: '/tmp/x', root: null as string | null, ghFails: false, cwdFails: false, refs: 'refs/heads/dev aaa\n', issue7: ISSUE as unknown, gate: null as Promise<void> | null, linked: true, branch: 'dev', ghBranch: null as string | null,
+  dir: '/tmp/x', root: null as string | null, ghFails: false, cwdFails: false, refs: 'refs/heads/dev aaa\n', issue7: ISSUE as unknown,
+  gate: null as Promise<void> | null, linked: true, branch: 'dev', ghBranch: null as string | null,
   closing: PR.closingIssuesReferences as number[], issues: {} as Record<number, unknown>, headlines: [] as string[], branches: BRANCHES,
 };
 // gql counts PR requests, issues the follow-up by-number requests.
@@ -44,7 +49,8 @@ const issueOf = (n: number) => st.issues[n] ?? (n === 12 ? SPEC : n === 7 ? st.i
 const gql = (query: string) => {
   if (query.includes('pullRequests(')) {
     const nodes = st.linked ? st.closing.map(n => labelled(issueOf(n))) : [];
-    const pr = { ...PR, commits: { nodes: st.headlines.map(messageHeadline => ({ commit: { messageHeadline } })) }, statusCheckRollup: { contexts: { nodes: PR.statusCheckRollup } }, closingIssuesReferences: { nodes } };
+    const commits = { nodes: st.headlines.map(messageHeadline => ({ commit: { messageHeadline } })) };
+    const pr = { ...PR, commits, statusCheckRollup: { contexts: { nodes: PR.statusCheckRollup } }, closingIssuesReferences: { nodes } };
     return { data: { repository: { pullRequests: { nodes: [pr] } } } };
   }
   const nums = [...query.matchAll(/i(\d+):issue/g)].map(m => Number(m[1]));

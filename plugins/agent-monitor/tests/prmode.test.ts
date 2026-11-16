@@ -15,7 +15,12 @@ const A1 = { sessionId: 's1', agentId: 'a1', type: 'worker', desc: 'build the in
 const A2 = { sessionId: 's1', agentId: 'a2', type: 'reviewer', desc: 'review the spec', branch: 'spec/36-pr-agent-views', at: '2026-10-01T09:00:00.000Z', steps: step('09', 10_000, 1_000) }
 const A3 = { sessionId: 's2', agentId: 'a3', type: 'Explore', desc: 'map the card', branch: 'feature/38-pass-next', at: '2026-10-01T08:00:00.000Z', steps: step('08', 10, 5) }
 const A4 = { sessionId: 's2', agentId: 'a4', type: 'Explore', desc: 'look around', branch: 'dev', at: '2026-10-01T07:00:00.000Z' }
-const PRS = [ghPr(49, 'PR card and agents', 'spec/36-pr-agent-views', [43, 44]), ghPr(38, 'Pass next', 'feature/38-pass-next', [38], 'MERGED'), ghPr(50, 'Retro', 'adhoc/retro', [], 'MERGED'), ghPr(30, 'Closed one', 'feature/30-x', [30], 'CLOSED')]
+const PRS = [
+  ghPr(49, 'PR card and agents', 'spec/36-pr-agent-views', [43, 44]),
+  ghPr(38, 'Pass next', 'feature/38-pass-next', [38], 'MERGED'),
+  ghPr(50, 'Retro', 'adhoc/retro', [], 'MERGED'),
+  ghPr(30, 'Closed one', 'feature/30-x', [30], 'CLOSED'),
+]
 
 type Run = [Dollar, Parameters<typeof wire>[0]]
 async function openSub($: Run[0], on: Run[1], branch = 'feature/44-row-layout', stored: Record<string, unknown> = {}) {
@@ -73,7 +78,8 @@ test('a group row\'s PR state reads Draft (yellow), Ready (magenta) or Merged (g
   await clock.settle()
   const ui = await mountPane($)
   const texts = await ui.findAll({ type: 'Text' })
-  for (const [title, word, color] of [['#60 Drafted', 'Draft', 'yellow'], ['#61 Readied', 'Ready', 'magenta'], ['#62 Landed', 'Merged', 'green']]) {
+  const states: [title: string, word: string, color: string][] = [['#60 Drafted', 'Draft', 'yellow'], ['#61 Readied', 'Ready', 'magenta'], ['#62 Landed', 'Merged', 'green']]
+  for (const [title, word, color] of states) {
     expect(await rowOf(ui, title)).toMatch(new RegExp(`\\s${word}\\s*$`))
     expect(texts.find(t => t.text.trim() === word)?.props.color).toBe(color)
   }

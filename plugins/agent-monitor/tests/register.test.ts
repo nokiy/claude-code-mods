@@ -174,15 +174,15 @@ test('/sub opens at once while gh is slow; the PR groups come in when it answers
   st.ghGate = new Promise<void>(r => { answer = r })
   st.gh = JSON.stringify([ghPr(7, 'Lexer', 'feature/7-lexer')])
   await $.session.start({ cwd: ROOT } as never)
-  const opened = await Promise.race([$.command.run({ command: 'sub', args: '' } as never).then(() => true), new Promise<boolean>(r => setTimeout(() => r(false), 300))])
-  expect(opened).toBe(true)
+  let opened = false
+  void $.command.run({ command: 'sub', args: '' } as never).then(() => { opened = true })
   await clock.settle()
+  expect(opened).toBe(true) // gh has not answered yet
   const ui = await mountPane($)
   const before = await listKeys(ui)
   expect(before).toContain('group:other')
   expect(before).not.toContain('group:pr:7')
   answer()
-  await new Promise(r => setTimeout(r, 50)) // the gh answer lands outside the mock clock
   await clock.settle()
   expect(st.ghCalls).toBe(1)
   expect(await listKeys(ui)).toContain('group:pr:7') // redrawn when the index lands
