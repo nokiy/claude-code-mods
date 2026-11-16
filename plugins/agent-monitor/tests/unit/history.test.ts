@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 
-import { MAX_INDEX_BYTES, MAX_PROJECTS, MAX_WHOLE, historyRecs, projectDir, refreshProject, seedCache, staleIndexes, toIndex, withHistory } from '../../hooks/history'
+import { INDEX_VERSION, MAX_INDEX_BYTES, MAX_PROJECTS, MAX_WHOLE, historyRecs, projectDir, refreshProject, seedCache, staleIndexes, toIndex, withHistory } from '../../hooks/history'
 import type { TxEntry, TxIo } from '../../hooks/history'
 import { MAX_FILES } from '../../hooks/alerts'
 import { agentFiles, agentPaths, assistantLine, fakeFs, jsonl } from '../transcripts'
@@ -141,7 +141,7 @@ test('refresh: with a session id only that session\'s subagents are listed', asy
   expect(Object.keys(historyRecs(cache))).toEqual(['a2'])
 })
 
-test('edits: a transcript\'s edited paths and line counts fill a record whose steps named none; a stored index keeps the first ten', async () => {
+test('edits: a transcript\'s edited paths and line counts fill a record whose steps named none; a stored index keeps them all', async () => {
   const edits = Array.from({ length: 12 }, (_, i) => ({ path: `/w/f${i}.ts`, lines: ['+a', '-b'] }))
   const fs = fakeFs(agentFiles(PROJECT, { sessionId: 's1', agentId: 'e1', type: 'worker', desc: 'edit things', edits }))
   const cache = new Map<string, TxEntry>()
@@ -159,7 +159,8 @@ test('edits: a transcript\'s edited paths and line counts fill a record whose st
   expect(withHistory({ e1: { ...live, files: many } }, h).e1?.files).toHaveLength(MAX_FILES)
   const fresh = new Map<string, TxEntry>()
   seedCache(fresh, PROJECT, JSON.parse(JSON.stringify(toIndex(cache, PROJECT, 1))))
-  expect(historyRecs(fresh).e1?.files).toHaveLength(10)
+  expect(historyRecs(fresh).e1?.files).toEqual(h.e1?.files)
+  expect(historyRecs(fresh).e1?.lines?.['/w/f11.ts']).toEqual({ add: 1, del: 1 })
   // An entry stored by an older build has no edits: no files, nothing breaks.
   const [path, entry] = [...cache][0]!
   const old = new Map([[path, { ...entry, roll: { ...entry.roll, edits: undefined } }]])
@@ -171,7 +172,7 @@ test('effort: a record read from its transcript says what ran; an index stored b
   const fs = fakeFs(agentFiles(PROJECT, a))
   const cache = new Map<string, TxEntry>()
   await refreshProject(ioOf(fs), PROJECT, cache)
-  expect(historyRecs(cache).a1).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'low', actualModel: 'claude-sonnet-5-5', actualEffort: 'low', fromTranscript: true })
+  expect(historyRecs(cache).a1).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'low', actualModel: 'claude-sonnet-5-5', actualEffort: 'low' })
   // An older build's index: same sizes and times, its entries without effort, no version.
   const old = JSON.parse(JSON.stringify(toIndex(cache, PROJECT, 1))) as { v?: number; files: Record<string, TxEntry> }
   delete old.v
@@ -192,8 +193,30 @@ test('withHistory: a step-tracked record keeps its own model and effort; one no 
   const base = { type: 'worker', desc: a.desc, task: 'build it', context: 0, output: 0 }
   const stepped = withHistory({ a1: { ...base, steps: 1, watched: true, status: 'running', model: 'claude-opus-5-5', actualModel: 'claude-opus-5-5' } }, h).a1
   expect(stepped).toMatchObject({ model: 'claude-opus-5-5', actualModel: 'claude-opus-5-5' })
-  expect([stepped?.effort, stepped?.actualEffort, stepped?.fromTranscript]).toEqual([undefined, undefined, undefined])
+  expect([stepped?.effort, stepped?.actualEffort]).toEqual([undefined, undefined])
   // A backfilled record (from the conversation, no step seen): the transcript's model and effort.
   const filled = withHistory({ a1: { ...base, steps: 0, watched: false, status: 'done', model: 'sonnet' } }, h).a1
-  expect(filled).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'low', actualModel: 'claude-sonnet-5-5', actualEffort: 'low', fromTranscript: true })
+  expect(filled).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'low', actualModel: 'claude-sonnet-5-5', actualEffort: 'low' })
+})
+
+test('effort: a transcript that names no effort settles it as null (known: none said), never left for the description prefix', async () => {
+  const a = { sessionId: 's1', agentId: 'a1', type: 'worker', desc: 'op.high · build it', model: 'claude-sonnet-5-5' }
+  const cache = new Map<string, TxEntry>()
+  await refreshProject(ioOf(fakeFs(agentFiles(PROJECT, a))), PROJECT, cache)
+  const h = historyRecs(cache)
+  expect(h.a1?.effort).toBeNull()
+  expect(h.a1?.actualEffort).toBeUndefined() // the tier check sees no effort, as before
+  // A step-tracked record keeps its own (unknown) effort: the prefix may still fill it on a live row.
+  const ran = { model: 'claude-sonnet-5-5', actualModel: 'claude-sonnet-5-5' }
+  const live = { type: 'worker', desc: a.desc, task: 'build it', context: 0, output: 0, steps: 1, watched: true, status: 'running' as const, ...ran }
+  expect(withHistory({ a1: live }, h).a1?.effort).toBeUndefined()
+})
+
+test('index: one stored before the effort pairing fix (version 2) seeds nothing, so its files are read again', async () => {
+  const cache = new Map<string, TxEntry>()
+  await refreshProject(ioOf(fakeFs(agentFiles(PROJECT, { sessionId: 's1', agentId: 'a1' }))), PROJECT, cache)
+  const index = JSON.parse(JSON.stringify(toIndex(cache, PROJECT, 1))) as { v: number }
+  expect(INDEX_VERSION).toBeGreaterThan(2)
+  expect(seedCache(new Map(), PROJECT, { ...index, v: 2 })).toBe(false)
+  expect(seedCache(new Map(), PROJECT, index)).toBe(true)
 })

@@ -38,8 +38,8 @@ export type AgentMonitorRec = {
   prompt?: string
   /** Model id or alias of the latest step (or the transcript). */
   model?: string
-  /** Effort of the latest step. */
-  effort?: string | number
+  /** Effort of the latest step; null: a record read from its transcript, whose latest step named none (the description prefix never fills it). */
+  effort?: string | number | null
   /**
    * Model id of the latest turn.step only (a record read from its transcript alone: the transcript's latest assistant line): what the
    * tier check compares the description prefix with.
@@ -47,8 +47,6 @@ export type AgentMonitorRec = {
   actualModel?: string
   /** Effort of the latest turn.step only (a record read from its transcript alone: the transcript's latest effort). */
   actualEffort?: string | number
-  /** Set on a record whose model and effort come from its transcript (no step tracked): the tier shown never borrows the description prefix's effort. */
-  fromTranscript?: true
   /** Model rounds (turn.step count). Meaningful only when `watched`. */
   steps: number
   /** True when the record began at a turn's first step (or a transcript counted them all): the step count is complete. */
