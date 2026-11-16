@@ -3,7 +3,7 @@
 // per-project index of those entries kept in the store across loads. The file access is handed in (TxIo, built from `$` in
 // register.tsx), so this stays pure; tested in tests/unit/history.test.ts and through the whole mod.
 import type { AgentMonitorRec, AgentSpent } from '../types'
-import { addDenial } from './alerts'
+import { addDenial, addFile } from './alerts'
 import { plusSpent, spentTotal } from './cost'
 import { parseDescription } from './logic'
 import { clean } from './patches'
@@ -222,8 +222,8 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
 /**
  * The hook records with the history added: by agentId, one record each; the hook record's fields win, history fills the rest, save the
  * refusals and errored results (`denied`, `refusals`, `reasons`), which the transcript holds with their times and kinds: a record kept
- * from an older build has neither. Model and effort: a step-tracked record (a turn.step set its `actualModel`) keeps its own; any other
- * (backfilled from the conversation) takes what the transcript says ran.
+ * from an older build has neither. `files`: the union of both lists, deduped and capped at MAX_FILES. Model and effort: a step-tracked
+ * record (a turn.step set its `actualModel`) keeps its own; any other (backfilled from the conversation) takes what the transcript says ran.
  */
 export function withHistory(recs: Record<string, AgentMonitorRec>, history: Record<string, AgentMonitorRec>): Record<string, AgentMonitorRec> {
   const ids = Object.keys(history)
@@ -237,7 +237,8 @@ export function withHistory(recs: Record<string, AgentMonitorRec>, history: Reco
     const ran = live.actualModel !== undefined
       ? { effort: live.effort, actualEffort: live.actualEffort, fromTranscript: undefined }
       : { model: h.model ?? live.model, effort: h.effort }
-    out[id] = clean({ ...h, ...live, ...ran, denied: h.denied, refusals: h.refusals, reasons: h.reasons })
+    const files = (live.files ?? []).reduce(addFile, h.files ?? []) // the transcript's edits and the steps' paths, deduped, capped
+    out[id] = clean({ ...h, ...live, ...ran, ...(files.length > 0 ? { files } : {}), denied: h.denied, refusals: h.refusals, reasons: h.reasons })
   }
   return out
 }

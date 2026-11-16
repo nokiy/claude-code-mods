@@ -43,7 +43,7 @@ export type View = {
   actualModel?: string
   actualEffort?: string | number
   /** Model and effort are the transcript's (no step tracked): what ran, never filled from the description prefix. */
-  fromTranscript?: boolean
+  fromTranscript?: true
   /** Detail page: the spawn prompt, the latest activity texts (oldest first), the longest step, token parts, lines changed per path, skills, the report. */
   prompt?: string
   recent: string[]

@@ -24,7 +24,7 @@ export type Rollup = {
   prompt?: string
   /** Model of the latest assistant message. */
   model?: string
-  /** Effort of the latest assistant line that carries one (its top-level `effort`); absent when the transcript never says. */
+  /** Effort of the latest assistant line, the one that set `model` (its top-level `effort`); absent when that line carries none. */
   effort?: string | number
   /** First and latest line timestamps (ms). */
   startedAt?: number
@@ -43,7 +43,7 @@ export type Rollup = {
   errors: Refusal[]
   /**
    * Lines added / removed per edited path, summed over the tool results that carry a patch (`toolUseResult.filePath` with its
-   * `structuredPatch`, or a created file's content): at most MAX_FILES paths. Absent in entries stored by older builds.
+   * `structuredPatch`, or a created file's content): at most MAX_FILES paths.
    */
   edits?: Record<string, { add: number; del: number }>
 }
@@ -138,8 +138,8 @@ function addLine(r: Rollup, l: Line): Rollup {
     const same = r.open?.id === m.id
     if (same && r.open) byModel[r.open.model] = plusSpent(byModel[r.open.model] ?? ZERO, r.open.usage, -1)
     byModel[m.model] = plusSpent(byModel[m.model] ?? ZERO, usage)
-    const effort = typeof l.effort === 'string' || typeof l.effort === 'number' ? { effort: l.effort } : {} // a line without it keeps the last
-    Object.assign(out, { byModel, model: m.model, ...effort, steps: r.steps + (same ? 0 : 1), open: { id: m.id, model: m.model, usage } })
+    const effort = typeof l.effort === 'string' || typeof l.effort === 'number' ? l.effort : undefined // paired with this line's model
+    Object.assign(out, { byModel, model: m.model, effort, steps: r.steps + (same ? 0 : 1), open: { id: m.id, model: m.model, usage } })
   }
   return out
 }

@@ -2,6 +2,7 @@ import { test, expect } from 'claude-code/testing'
 
 import { MAX_INDEX_BYTES, MAX_PROJECTS, MAX_WHOLE, historyRecs, projectDir, refreshProject, seedCache, staleIndexes, toIndex, withHistory } from '../../hooks/history'
 import type { TxEntry, TxIo } from '../../hooks/history'
+import { MAX_FILES } from '../../hooks/alerts'
 import { agentFiles, agentPaths, assistantLine, fakeFs, jsonl } from '../transcripts'
 import type { FakeFs } from '../transcripts'
 
@@ -148,10 +149,14 @@ test('edits: a transcript\'s edited paths and line counts fill a record whose st
   const h = historyRecs(cache)
   expect(h.e1?.files).toHaveLength(12)
   expect(h.e1?.lines?.['/w/f3.ts']).toEqual({ add: 1, del: 1 })
-  // A live record (Code Mode: its steps were REPL scripts) has no files: the transcript's stand; one with its own files keeps them.
+  // A live record (Code Mode: its steps were REPL scripts) has no files: the transcript's stand; one with its own files gets the union.
   const live = { type: 'worker', desc: 'edit things', task: 'edit things', steps: 2, watched: true, context: 0, output: 0, status: 'running' as const }
   expect(withHistory({ e1: live }, h).e1?.files).toHaveLength(12)
-  expect(withHistory({ e1: { ...live, files: ['/w/f0.ts'] } }, h).e1).toMatchObject({ files: ['/w/f0.ts'], lines: { '/w/f0.ts': { add: 1, del: 1 } } })
+  const both = withHistory({ e1: { ...live, files: ['/w/f0.ts', '/w/step-only.ts'] } }, h).e1
+  expect(both?.files).toEqual([...h.e1!.files!, '/w/step-only.ts'])
+  expect(both?.lines?.['/w/f0.ts']).toEqual({ add: 1, del: 1 })
+  const many = Array.from({ length: MAX_FILES }, (_, i) => `/w/live${i}.ts`)
+  expect(withHistory({ e1: { ...live, files: many } }, h).e1?.files).toHaveLength(MAX_FILES)
   const fresh = new Map<string, TxEntry>()
   seedCache(fresh, PROJECT, JSON.parse(JSON.stringify(toIndex(cache, PROJECT, 1))))
   expect(historyRecs(fresh).e1?.files).toHaveLength(10)

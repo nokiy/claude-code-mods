@@ -36,8 +36,8 @@ export function bandRows(ui: Ui, running: View[], cols: number, maxRows: number,
   const { Box, Text } = ui
   const { shown, hidden } = capRows(running.length, maxRows)
   const rows = running.slice(0, shown).map(v => {
-    const shown = shownTier(v)
-    const tier = tierWords(shown)
+    const tierOf = shownTier(v)
+    const tier = tierWords(tierOf)
     const flags = alerts ? alertMark(v) : []
     const stats = statsText(v)
     const fixed = cellWidth(`◐ ${v.type} · ${tier} · `) + cellWidth(stats) + (flags.length > 0 ? 3 + segsWidth(flags) : 0)
@@ -48,7 +48,7 @@ export function bandRows(ui: Ui, running: View[], cols: number, maxRows: number,
         <Text color={statusColor('running')}>◐ </Text>
         <Text color={ts.color} bold>{v.type}</Text>
         <Text color={gray}>{' · '}</Text>
-        <Text color={v.tier ? red : modelColor(shown.model)}>{tier}</Text>
+        <Text color={v.tier ? red : modelColor(tierOf.model)}>{tier}</Text>
         <Text color={gray}>{' · '}</Text>
         <Text color={fg}>{fit.task}</Text>
         <Text>{'   '}</Text>
