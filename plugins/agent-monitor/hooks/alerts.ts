@@ -69,7 +69,8 @@ export function findClashes(spans: readonly Span[], main: readonly MainEdit[]): 
 
 // ---- stall ----
 
-// level 1 at the threshold, 2 at twice it. `tool`: the first tool call the latest step asked for, while no later step has begun.
+// level 1 at the threshold, 2 at twice it. `tool`: the first tool call the latest step asked for, while no later step has begun (its
+// tool name; a Code Mode script: its activity text).
 export type Stall = { level: 1 | 2; idleMs: number; tool?: string }
 
 // Running agents only: idle since the latest turn.step start / end (the start when none was seen yet).

@@ -85,7 +85,10 @@ export type AgentMonitorRec = {
   result?: string
   /** Time of the latest turn.step start or end. */
   lastEventAt?: number
-  /** The first tool call the latest step asked for, until the next step begins or the turn ends. */
+  /**
+   * The first tool call the latest step asked for, until the next step begins or the turn ends: its tool name, or for a Code Mode
+   * `REPL` call its activity text (the script's description), since every call there is a REPL.
+   */
   pendingTool?: string
   /** Tool calls per tool name, as the steps asked for them (Code Mode: `REPL`); a backfilled agent gets Read / Search / Bash / Edit / Other from toolStats. */
   toolCounts?: Record<string, number>

@@ -5,7 +5,7 @@ import type { AgentSpent } from '../types'
 import { MAX_FILES } from './alerts'
 import { plusSpent } from './cost'
 import { clip } from './logic'
-import { MAX_PROMPT, diffStat } from './patches'
+import { MAX_PROMPT } from './patches'
 
 /**
  * One hook refusal (a line carrying `toolDenialKind`, `kind` its value) or errored tool result (an `is_error` tool_result on any other
@@ -67,6 +67,28 @@ type Line = {
   effort?: unknown
   message?: { id?: string; model?: string; usage?: Record<string, number | null | undefined>; content?: unknown }
   toolUseResult?: unknown
+}
+
+/**
+ * Lines added and removed by one Edit / Write result: its patch's `+` / `-` lines (per call, unlike `gitDiff`, which is against HEAD);
+ * a created file with no patch counts its lines. undefined when the result says nothing.
+ */
+export function diffStat(result: unknown): { add: number; del: number } | undefined {
+  const r = result as { type?: string; content?: unknown; structuredPatch?: { lines?: string[] }[] } | null | undefined
+  if (!r || typeof r !== 'object') return undefined
+  let add = 0
+  let del = 0
+  if (Array.isArray(r.structuredPatch)) {
+    for (const h of r.structuredPatch) {
+      for (const l of h.lines ?? []) {
+        if (l.startsWith('+')) add++
+        else if (l.startsWith('-')) del++
+      }
+    }
+  }
+  if (add + del > 0) return { add, del }
+  if (r.type === 'create' && typeof r.content === 'string') return { add: r.content === '' ? 0 : r.content.split('\n').length, del: 0 }
+  return undefined
 }
 
 // One edit result's lines joined to the path's sum; a new path past MAX_FILES is left out.

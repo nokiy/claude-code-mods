@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 
-import { emptyRollup, feed } from '../../hooks/transcript'
+import { diffStat, emptyRollup, feed } from '../../hooks/transcript'
 import { agentTranscript, assistantLine, editLine, jsonl, userLine } from '../transcripts'
 
 const A = { sessionId: 's1', agentId: 'a1' }
@@ -91,4 +91,12 @@ test('rollup: effort comes from the line that sets the model; a model line witho
   const roll = feed(emptyRollup(), text).roll
   expect(roll.model).toBe('claude-opus-5-5')
   expect(roll.effort).toBeUndefined()
+})
+
+test('diffStat: lines changed by one edit result', () => {
+  expect(diffStat({ structuredPatch: [{ lines: [' ctx', '-old', '+new1', '+new2'] }, { lines: ['+x'] }] })).toEqual({ add: 3, del: 1 })
+  expect(diffStat({ type: 'create', content: 'a\nb\nc', structuredPatch: [] })).toEqual({ add: 3, del: 0 })
+  expect(diffStat({ type: 'update', structuredPatch: [] })).toBeUndefined()
+  expect(diffStat({ gitDiff: { additions: 99, deletions: 99 }, structuredPatch: [{ lines: ['+a'] }] })).toEqual({ add: 1, del: 0 }) // gitDiff is against HEAD, not this call
+  expect(diffStat(undefined)).toBeUndefined()
 })
