@@ -84,11 +84,11 @@ const CODE_MODE_TOOL = 'REPL'
 // kept), counted, an edited path remembered, a skill named. The first call is the pending one until the next step or the turn's end
 // (both clear it): a step proves the calls of the one before it came back. It is named by its tool, a Code Mode script by its activity.
 export function onToolUses(p: Rec, uses: readonly ToolUse[], cwd: string, t: Pick<Strings, 'verb'>): Rec {
-  const first = uses[0]
-  let r: Rec = { ...p, pendingTool: first && (first.name === CODE_MODE_TOOL ? activityText(first.name, inputOf(first), t) : first.name) }
-  for (const use of uses) {
+  let r: Rec = { ...p, pendingTool: undefined }
+  for (const [i, use] of uses.entries()) {
     const input = inputOf(use)
     const activity = activityText(use.name, input, t)
+    if (i === 0) r.pendingTool = use.name === CODE_MODE_TOOL ? activity : use.name
     const skill = use.name === 'Skill' && typeof input.skill === 'string' ? input.skill : undefined
     const skills = r.skills ?? []
     const edited = editedPath(use.name, input)

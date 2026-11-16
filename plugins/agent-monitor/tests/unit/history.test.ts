@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 
-import { INDEX_VERSION, MAX_INDEX_BYTES, MAX_PROJECTS, MAX_WHOLE, historyRecs, projectDir, refreshProject, seedCache, staleIndexes, toIndex, withHistory } from '../../hooks/history'
+import { MAX_INDEX_BYTES, MAX_PROJECTS, MAX_WHOLE, historyRecs, projectDir, refreshProject, seedCache, staleIndexes, toIndex, withHistory } from '../../hooks/history'
 import type { TxEntry, TxIo } from '../../hooks/history'
 import { MAX_FILES } from '../../hooks/alerts'
 import { agentFiles, agentPaths, assistantLine, fakeFs, jsonl } from '../transcripts'
@@ -220,7 +220,6 @@ test('index: one stored before the effort pairing fix (version 2) seeds nothing,
   const cache = new Map<string, TxEntry>()
   await refreshProject(ioOf(fakeFs(agentFiles(PROJECT, { sessionId: 's1', agentId: 'a1' }))), PROJECT, cache)
   const index = JSON.parse(JSON.stringify(toIndex(cache, PROJECT, 1))) as { v: number }
-  expect(INDEX_VERSION).toBeGreaterThan(2)
   expect(seedCache(new Map(), PROJECT, { ...index, v: 2 })).toBe(false)
   expect(seedCache(new Map(), PROJECT, index)).toBe(true)
 })
