@@ -32,7 +32,7 @@ type On = Parameters<typeof mock.env>[0];
 // Mutable test state: the session's directory (a test moves it to stand for a cd or a /clear),
 // the `git for-each-ref` answer, ticket 7's issue, and whether GitHub links the closing issues (a PR into a non-default branch has none).
 // `root` is the repository root git reports (null: the session directory itself); `ghFails` makes every gh call exit 1 (a transient failure).
-// `closing` is the PR's linked issues, `issues` extra issues by number, `headlines` the PR's commit messages (whole; first line = headline), `branches` the `git branch -a` answer.
+// `closing` is the PR's linked issues, `issues` extra issues by number, `headlines` the PR's commit headlines (each sent as a one-line `message`), `branches` the `git branch -a` answer.
 export const BRANCHES = 'dev\nspec/12-dark-mode\nfeat/7-theme-toggle\nworktree-7-x\n';
 export const st = {
   dir: '/tmp/x', root: null as string | null, ghFails: false, cwdFails: false, refs: 'refs/heads/dev aaa\n', issue7: ISSUE as unknown,

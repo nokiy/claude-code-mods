@@ -38,8 +38,6 @@ test('the PR node reads like gh pr view: CI, headlines, head, closing issues', (
   expect(closingNumbers(json)).toEqual([428, 429]);
 });
 
-// GitHub cuts messageHeadline to ~70 characters with "…", which loses a trailing (#N) and the branch of a long Merge
-// headline; the query asks the whole message and the headline is its first line, never the body.
 const commitsOf = (...messages: string[]) => ({ commits: { nodes: messages.map(message => ({ commit: { message } })) } });
 test('a commit title over 70 characters still names its ticket; the query never asks the cut messageHeadline', () => {
   const long = 'feat(pr-hint): card line 2 shows subagent cost, tokens, time and refusals from agent-monitor (#45)';

@@ -6,7 +6,8 @@ type Json = Record<string, unknown>;
 
 // The one request per fetch: the current branch's PRs (open or merged, latest first) with their CI, commit messages
 // and closing issues. Commits ask the whole `message`, not `messageHeadline`: GitHub cuts that to ~70 characters with
-// "…", losing a trailing `(#N)` or a long Merge headline's branch (about 35 KB for 100 commits).
+// "…", losing a trailing `(#N)` or a long Merge headline's branch. The bodies cost an extra download of about 35 KB
+// for 100 commits.
 // `gh` fills {owner}, {repo} and {branch} from the session directory's repository and checked-out branch.
 export const REPO_ARGS = ['api', 'graphql', '-F', 'owner={owner}', '-F', 'name={repo}'];
 export const PR_ARGS = [...REPO_ARGS, '-F', 'branch={branch}'];
@@ -29,7 +30,6 @@ const nodes = (v: unknown): Json[] => {
   return Array.isArray(n) ? (n as Json[]) : [];
 };
 const flatIssue = (i: Json): Json => ({ ...i, labels: nodes(i.labels) });
-const firstLine = (v: unknown): string => (typeof v === 'string' ? v.split(/\r?\n/, 1)[0] ?? '' : '');
 
 /** The unwrapped PR node; `closingIssuesReferences` is already a plain array. */
 export type PrJson = Json & { closingIssuesReferences: Json[] };
@@ -38,8 +38,7 @@ export type PrAnswer = { ok: false } | { ok: true; pr: PrJson | null };
 
 /**
  * Unwraps the GraphQL answer into the shape the parsers read (what `gh pr view --json` gave):
- * commits, statusCheckRollup, closingIssuesReferences and labels become plain arrays; a commit's `messageHeadline` is
- * the first line of its whole message (the body never reaches the status rules).
+ * commits, statusCheckRollup, closingIssuesReferences and labels become plain arrays.
  * The PR is the first OPEN one whose head lives in this repository (a fork's PR of the same branch name is skipped),
  * else the first (latest) MERGED one; a CLOSED PR is never shown. Whether a MERGED one is still the branch's is
  * decided against local git (`isCurrentPr`).
@@ -56,7 +55,7 @@ export function parseGraphql(text: string): PrAnswer {
     ok: true,
     pr: {
       ...pr,
-      commits: nodes(pr.commits).map(n => ({ messageHeadline: firstLine((n.commit as Json | null)?.message) })),
+      commits: nodes(pr.commits).map(n => n.commit),
       statusCheckRollup: nodes(rollup?.contexts),
       closingIssuesReferences: nodes(pr.closingIssuesReferences).map(flatIssue),
     },
