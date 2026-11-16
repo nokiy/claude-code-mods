@@ -16,7 +16,7 @@ declare module 'claude-code' {
       revision: number;
       /** The open bubble: it stands at the link `href` of block `requestId` and shows `shown`. */
       peek: PeekState | null;
-      /** The repository this session last worked on, seen in its Bash calls. */
+      /** The repository this session last worked on, seen in its shell commands (Bash calls, or `$`…`` in Code Mode's REPL code). */
       lastRepo: string | null;
       /** The session directory's own repository. */
       originRepo: OriginRepo | null;

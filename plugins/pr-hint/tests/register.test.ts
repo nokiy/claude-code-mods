@@ -308,10 +308,15 @@ test('with a PR and an empty rest of the chain, the band shows the card alone', 
   await $.session.start({ cwd: '/tmp/x' } as never);
   await clock.settle();
   const band = await mountBand($);
-  const [card, rest] = ((await band.drawn()) as unknown as Node).children as Node[];
-  expect(card?.props?.borderStyle).toBe('round');
-  expect(card?.props?.display).toBe('none');
-  expect(rest?.children).toEqual([]);
+  // Found by path, not by position: the test harness may wrap the plugin's tree in Boxes of its own.
+  const toCard = pathTo(await band.drawn(), x => x.props?.borderStyle === 'round');
+  expect(toCard).not.toBeNull();
+  const card = toCard!.at(-1)!;
+  const [first, rest, ...more] = (toCard!.at(-2)!.children ?? []) as Node[];
+  expect(card.props?.display).toBe('none');
+  expect(first).toBe(card);
+  expect(rest?.children ?? []).toEqual([]);
+  expect(more).toEqual([]);
   await band.unmount();
 });
 
