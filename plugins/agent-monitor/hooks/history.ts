@@ -5,7 +5,7 @@
 import type { AgentMonitorRec, AgentSpent } from '../types'
 import { addDenial, addFile } from './alerts'
 import { plusSpent, spentTotal } from './cost'
-import { parseDescription } from './logic'
+import { effortName, parseDescription } from './logic'
 import { clean } from './patches'
 import { emptyRollup, feed, utf8Bytes } from './transcript'
 import type { Rollup } from './transcript'
@@ -195,8 +195,8 @@ export function historyRecs(cache: ReadonlyMap<string, TxEntry>): Record<string,
       prompt: r.prompt,
       model: r.model,
       // The transcript is the record of the steps: its latest model and effort are what ran, for the tier check and the tier shown. An
-      // effort it does not name is settled as null (none said), so the tier shown never borrows the description prefix's.
-      effort: r.effort ?? null,
+      // effort it does not name (or names in no known word) is settled as null, so the tier shown never borrows the description prefix's.
+      effort: effortName(r.effort) === undefined ? null : r.effort,
       actualModel: r.model,
       actualEffort: r.effort,
       steps: r.steps,

@@ -210,6 +210,10 @@ test('effort: a transcript that names no effort settles it as null (known: none 
   const ran = { model: 'claude-sonnet-5-5', actualModel: 'claude-sonnet-5-5' }
   const live = { type: 'worker', desc: a.desc, task: 'build it', context: 0, output: 0, steps: 1, watched: true, status: 'running' as const, ...ran }
   expect(withHistory({ a1: live }, h).a1?.effort).toBeUndefined()
+  // An effort the tier names do not know is no effort either: settled as null, not left for the prefix.
+  const odd = new Map<string, TxEntry>()
+  await refreshProject(ioOf(fakeFs(agentFiles(PROJECT, { ...a, steps: [{ id: 'm1', effort: 'turbo' }] }))), PROJECT, odd)
+  expect(historyRecs(odd).a1?.effort).toBeNull()
 })
 
 test('index: one stored before the effort pairing fix (version 2) seeds nothing, so its files are read again', async () => {

@@ -38,7 +38,7 @@ export type AgentMonitorRec = {
   prompt?: string
   /** Model id or alias of the latest step (or the transcript). */
   model?: string
-  /** Effort of the latest step; null: a record read from its transcript, whose latest step named none (the description prefix never fills it). */
+  /** Effort of the latest step; null: a record read from its transcript, whose latest step named none it knows (the description prefix never fills it). */
   effort?: string | number | null
   /**
    * Model id of the latest turn.step only (a record read from its transcript alone: the transcript's latest assistant line): what the
