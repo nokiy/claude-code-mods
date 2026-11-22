@@ -139,6 +139,58 @@ test('ticks while a read is slower than a tick: one scan at a time, the same byt
   expect(fs.tally.peak).toBe(1)
 })
 
+// A tick that never settles must not silence the timer: past TICK_STALE_MS (30 s) the next tick runs.
+test('a tick stuck on a read that never resolves: after 30 s the next tick runs', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-03T09:00:00Z') })
+  mock.store(on)
+  const live = { sessionId: 'cur', agentId: 'a9', type: 'worker', desc: 'fix the parser' }
+  const fs = wire(on, fakeFs(agentFiles(PROJECT, live)))
+  await $.session.start({ cwd: ROOT } as never)
+  await clock.settle()
+  st.agents = [listed('a9', 'worker', 'fix the parser')]
+  await step($, 'a9', 'claude-opus-4-5', { input_tokens: 10, output_tokens: 5 })
+  fs.append(agentPaths(PROJECT, live).jsonl, jsonl([assistantLine(live, { id: 'm2', usage: { input_tokens: 5, output_tokens: 1 } })]))
+  let open = () => {}
+  fs.gate = new Promise<void>(r => { open = r })
+  await clock.advance(1000) // this tick's read hangs
+  st.lists = 0
+  for (let i = 0; i < 28; i++) await clock.advance(1000)
+  expect(st.lists).toBe(0) // under 30 s: skipped
+  for (let i = 0; i < 3; i++) await clock.advance(1000)
+  expect(st.lists).toBeGreaterThan(0) // past 30 s: the next tick runs
+  fs.gate = null
+  open()
+  await clock.settle()
+})
+
+// The tick is the only current-session scan; two of them, let past a stuck tick, join the scan in flight instead of queueing new ones.
+test('current-session scans asked while one is in flight join it: one listing, the same bytes read once', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-03T09:00:00Z') })
+  mock.store(on)
+  const live = { sessionId: 'cur', agentId: 'a9', type: 'worker', desc: 'fix the parser' }
+  const fs = wire(on, fakeFs(agentFiles(PROJECT, live)))
+  await $.session.start({ cwd: ROOT } as never)
+  await clock.settle()
+  st.agents = [listed('a9', 'worker', 'fix the parser')]
+  await step($, 'a9', 'claude-opus-4-5', { input_tokens: 10, output_tokens: 5 })
+  const path = agentPaths(PROJECT, live).jsonl
+  const from = fs.files.get(path)!.bytes.length
+  fs.append(path, jsonl([assistantLine(live, { id: 'm2', usage: { input_tokens: 5, output_tokens: 1 } })]))
+  let open = () => {}
+  fs.gate = new Promise<void>(r => { open = r })
+  fs.reset()
+  await clock.advance(1000) // starts the scan, its read held
+  st.lists = 0
+  for (let i = 0; i < 62; i++) await clock.advance(1000) // two ticks past the stale mark ask for a scan
+  expect(st.lists).toBeGreaterThanOrEqual(2)
+  fs.gate = null
+  open()
+  await clock.settle()
+  expect(fs.tally.lists.filter(d => d === `${PROJECT}/cur/subagents`)).toHaveLength(1)
+  expect(fs.tally.ranges.filter(r => r.path === path && r.offset === from)).toHaveLength(1)
+  expect(fs.tally.peak).toBe(1)
+})
+
 // The store is one JSON file shared by every repository and session (4 MiB cap): /sub must not touch it when nothing changed.
 const FILES = [OLD1, OLD2, { sessionId: 'old3', agentId: 'a4', type: 'worker', desc: 'third', at: '2026-10-02T10:00:00.000Z' }]
 const txKeys = (keys: readonly string[]) => keys.filter(k => k.startsWith('transcript') || k.startsWith('txIndex:'))

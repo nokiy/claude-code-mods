@@ -21,11 +21,11 @@ export type ListAgent = { id: string; type: string; status: string; description:
 
 /**
  * Mutable answers: the session id `$.session.id()` gives, what `$.agent.list()` lists, the branch `git rev-parse --abbrev-ref HEAD`
- * prints, what `gh pr list` prints (null: gh fails, exit 1), the usage and tool calls a model step answers with. `ghCalls` counts gh runs; `ghGate`, when
+ * prints, what `gh pr list` prints (null: gh fails, exit 1), the usage and tool calls a model step answers with. `lists` counts `$.agent.list()` calls; `ghCalls` counts gh runs; `ghGate`, when
  * set, holds every gh answer until it resolves (a slow network). `procs`: the argv of every process run. Reset by wire().
  */
 export const st = {
-  session: 'cur', agents: [] as ListAgent[], branch: 'dev', gh: '[]' as string | null, ghCalls: 0, ghGate: null as Promise<unknown> | null,
+  session: 'cur', agents: [] as ListAgent[], lists: 0, branch: 'dev', gh: '[]' as string | null, ghCalls: 0, ghGate: null as Promise<unknown> | null,
   usage: {} as Record<string, number>, toolUses: [] as ToolUse[], procs: [] as string[][],
 }
 
@@ -48,7 +48,7 @@ function ghAnswer(argv: readonly string[], text: string): string {
  * Returns the fake fs, whose `tally` counts reads, ranges, listings and reads in flight.
  */
 export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
-  Object.assign(st, { session: 'cur', agents: [], branch: 'dev', gh: '[]', ghCalls: 0, ghGate: null, usage: {}, toolUses: [], procs: [] })
+  Object.assign(st, { session: 'cur', agents: [], lists: 0, branch: 'dev', gh: '[]', ghCalls: 0, ghGate: null, usage: {}, toolUses: [], procs: [] })
   mock.env(on, { HOME })
   on('settings.read', async () => ({ value: {} }))
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
@@ -63,7 +63,7 @@ export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
   on('session.root', async () => ({ value: ROOT }))
   on('session.id', async () => ({ value: st.session }))
   on('session.messages', async () => ({ value: [] }) as never)
-  on('agent.list', async () => ({ value: st.agents }) as never)
+  on('agent.list', async () => (st.lists++, { value: st.agents }) as never)
   // The engine's own band draws nothing; a model step answers with `st.usage` and asks for `st.toolUses` (set by `step`).
   on('ui.render', { component: 'AbovePrompt' }, async () => ({ type: 'Box', props: {}, children: [] }) as never)
   on('turn.step', async function* (_$, e) {
