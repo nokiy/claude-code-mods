@@ -48,10 +48,16 @@ async function readMeta(io: TxIo, path: string): Promise<TxMeta | undefined> {
 // read again next time), or the whole range when nothing else is left.
 const pastCut = (text: string, length: number) => utf8Bytes(text.replace(/\uFFFD+$/, '')) || length
 
-// Bring one file's entry up to date. Unchanged size and time: nothing is read. Otherwise read by ranges from the stored position on, the
-// rollup continued (a file now shorter than that position starts over), until the end, a short read with no complete line (a partial
-// last line), or MAX_READS reads. The position only moves to a line end, or past a cut character, so a read never starts inside one.
-// Returns whether the entry changed.
+// While `skip` (the position is inside a line longer than one read), the text through its newline is dropped: the bytes dropped, the
+// rest, and whether the line goes on past this text.
+function dropLong(text: string, skip: boolean): { used: number; rest: string; skip: boolean } {
+  const nl = skip ? text.indexOf('\n') : -1
+  return nl < 0 ? { used: 0, rest: text, skip } : { used: utf8Bytes(text.slice(0, nl + 1)), rest: text.slice(nl + 1), skip: false }
+}
+
+// Bring one file's entry up to date by ranged reads from its stored position (a file now shorter starts over), at most MAX_READS per
+// refresh. A position only ever moves to a line end or to just before a cut character, so every read starts on a character. Returns
+// whether the entry changed.
 async function refreshFile(io: TxIo, path: string, f: Listing, cache: Map<string, TxEntry>): Promise<boolean> {
   const e = cache.get(path)
   if (e && e.size === f.size && e.mtimeMs === f.mtimeMs) return false
@@ -62,20 +68,14 @@ async function refreshFile(io: TxIo, path: string, f: Listing, cache: Map<string
   let caught = false
   for (let i = 0; i < MAX_READS && offset < f.size; i++) {
     const length = Math.min(CHUNK, f.size - offset)
-    let text = await io.read(path, { offset, length })
-    let used = 0
-    const nl = skip ? text.indexOf('\n') : -1
-    if (nl >= 0) { // inside a line longer than one read: dropped through its newline
-      used = utf8Bytes(text.slice(0, nl + 1))
-      text = text.slice(nl + 1)
-      skip = false
-    }
-    const step = feed(roll, text)
+    const { used: dropped, rest, skip: inLong } = dropLong(await io.read(path, { offset, length }), skip)
+    const step = feed(roll, rest)
     roll = step.roll
-    used += step.bytes
+    skip = inLong
+    let used = dropped + step.bytes
     if (used === 0) {
-      if (length < CHUNK || text === '') { caught = true; break } // a partial last line: caught up
-      used = pastCut(text, length) // one line longer than a read, never parsed whole: stepped over, not read again
+      if (length < CHUNK || rest === '') { caught = true; break } // a partial last line: caught up
+      used = pastCut(rest, length) // one line longer than a read, never parsed whole: stepped over, not read again
       skip = true
     }
     offset += used
