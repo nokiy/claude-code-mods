@@ -212,7 +212,7 @@ async function fromConversation($: EngineInterface) {
   } catch { /* the conversation is not readable now: the live records still stand */ }
 }
 
-// One tick a second while an agent runs, skipped while the one before it still runs (`$.clock.every` does not wait for it); one toast per agent per conflict / stall (`warned:<agentId>:<kind>` in the store, `told` its memory in this load).
+// One toast per agent per conflict / stall (`warned:<agentId>:<kind>` in the store, `told` its memory in this load).
 const told = new Set<string>()
 async function warn($: EngineInterface, board: Board) {
   for (const d of cfg.toasts ? dueToasts(alertLines(board.views, board.cwd, t), told) : []) {
@@ -231,18 +231,24 @@ function stopTimer() {
   timer = undefined
 }
 
-let ticking = false
+// One tick a second while an agent runs. `$.clock.every` does not wait for a tick, and a tick slower than 1 s (a large transcript read)
+// must not stack on the one before it: a tick is skipped while another is in flight, unless that one started TICK_STALE_MS ago or more
+// (an awaited call that never settles must not silence the timer for good).
+const TICK_STALE_MS = 30_000
+let ticking: { at: number } | undefined
 function ensureTimer($: EngineInterface) {
   timer ??= $.clock.every(1000, async () => {
-    if (ticking) return
-    ticking = true
+    let mine: { at: number } | undefined
     try {
+      const now = await $.clock.now()
+      if (ticking && now - ticking.at < TICK_STALE_MS) return
+      ticking = mine = { at: now }
       await Promise.all([settleStale($), readHistory($, true)])
       const board = await loadBoard($)
       await Promise.all([warn($, board), publish($, board.views)])
       if (!board.views.some(v => v.status === 'running')) stopTimer()
       $.ui.invalidate('ui.render')
-    } catch { stopTimer() } finally { ticking = false } // a failed tick stops the timer: a later event starts a fresh one
+    } catch { stopTimer() } finally { if (mine && ticking === mine) ticking = undefined } // a failed tick stops the timer: a later event starts a fresh one
   })
 }
 
