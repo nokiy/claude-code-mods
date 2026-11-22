@@ -19,7 +19,7 @@ test('projectDir: every character but a letter or digit becomes a dash', () => {
   expect(projectDir('/Users/niko/.claude', '/Users/niko/AI_Workspace/a.b/claude-code-mods')).toBe('/Users/niko/.claude/projects/-Users-niko-AI-Workspace-a-b-claude-code-mods')
 })
 
-test('refresh: a small file is read whole once; an unchanged file is not read again', async () => {
+test('refresh: a small file is read in one range; an unchanged file is not read again', async () => {
   const a = { sessionId: 's1', agentId: 'a1', type: 'Explore', desc: 'so.med · map the code', model: 'claude-sonnet-4-5' }
   const fs = fakeFs(agentFiles(PROJECT, a))
   const cache = new Map<string, TxEntry>()

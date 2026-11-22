@@ -93,7 +93,7 @@ export const MAX_READ = 4 * 1024 * 1024
 
 /**
  * A transcript past one read: `before` steps, a filler line whose 3-byte character straddles the 4 MiB mark, a line longer than 4 MiB
- * (3-byte characters, the read that ends in it cutting one), then `after` steps. The two long lines carry no timestamp, so a rollup of
+ * (4-byte characters, the read that ends in it cutting one after its first byte), then `after` steps. The two long lines carry no timestamp, so a rollup of
  * the whole text gets nothing from them.
  */
 export function bigTranscript(a: FakeAgent, before: readonly FakeStep[], after: readonly FakeStep[]): string {
@@ -101,7 +101,7 @@ export function bigTranscript(a: FakeAgent, before: readonly FakeStep[], after: 
   const pre = '{"type":"progress","data":"'
   const pad = MAX_READ - utf8Bytes(head) - pre.length - 1 // the first 中 starts one byte before the mark
   const filler = `${pre}${'a'.repeat(pad)}${'中'.repeat(10)}"}`
-  const long = `${pre}${'中'.repeat(1_500_000)}"}`
+  const long = `${pre}${'😀'.repeat(1_200_000)}"}`
   return head + jsonl([filler, long, ...after.map(s => assistantLine(a, s, a.model))])
 }
 
