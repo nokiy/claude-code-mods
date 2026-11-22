@@ -1,6 +1,7 @@
 // [POS] The PR index of agent-monitor: recent open and merged PRs of the session's repository (number, title, state, draft flag, head
-// branch, closed tickets) from one `gh pr list`, cached in the store under the session directory and refreshed on an interval; a failed fetch keeps the last good index. The process
-// and store access is handed in (PrIo, built from `$` in register.tsx), so this stays pure.
+// branch, closed tickets) from one `gh pr list`, cached in the store under the session directory and refreshed on an interval; a failed
+// fetch keeps the last good index. At most MAX_PR_INDEXES directories keep one. The process and store access is handed in (PrIo, built
+// from `$` in register.tsx), so this stays pure.
 
 /**
  * One PR as the attribution rule reads it. `closes`: ticket numbers from GitHub's closing references, else the body's `Closes #N` lines.
@@ -17,14 +18,23 @@ export type PrIndex = { at: number; prs: PrEntry[] }
 export type PrView = { prs: PrEntry[]; branch?: string }
 
 /** The store is the plugin's, shared by every session in every repository: each session directory keeps its own index. */
-export const prIndexKey = (cwd: string) => `prIndex:${cwd}`
+export const PR_INDEX_PREFIX = 'prIndex:'
+export const prIndexKey = (cwd: string) => `${PR_INDEX_PREFIX}${cwd}`
+/** At most this many directories keep a stored index: the store is one file shared by every repository. */
+export const MAX_PR_INDEXES = 20
 /** A stored index younger than this is not fetched again. */
 export const PR_INDEX_TTL = 5 * 60 * 1000
 export const GH_PR_LIST = ['gh', 'pr', 'list', '--state', 'all', '--limit', '50', '--json', 'number,title,state,isDraft,headRefName,closingIssuesReferences,body']
 export const GIT_BRANCH = ['git', 'rev-parse', '--abbrev-ref', 'HEAD']
 
 type Run = { exitCode: number; stdout: string }
-export type PrIo = { run: (argv: string[]) => Promise<Run>; load: (key: string) => Promise<unknown>; save: (key: string, value: PrIndex) => Promise<void> }
+export type PrIo = {
+  run: (argv: string[]) => Promise<Run>
+  load: (key: string) => Promise<unknown>
+  save: (key: string, value: PrIndex) => Promise<void>
+  keys: () => Promise<readonly string[]>
+  drop: (key: string) => Promise<void>
+}
 
 // GitHub closing keywords followed by a same-repo `#N` (as pr-hint reads them; a PR into a non-default branch has no closing references).
 const CLOSES = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?[ \t]+#(\d+)\b/gi
@@ -48,6 +58,22 @@ const asIndex = (v: unknown): PrIndex | undefined => {
   return i && typeof i === 'object' && typeof i.at === 'number' && Array.isArray(i.prs) ? i : undefined
 }
 
+/** The stored index keys to delete so at most MAX_PR_INDEXES remain: `keep` always stays, then the newest by `at`; oldest first. */
+export function stalePrIndexes(indexes: readonly { key: string; at: number }[], keep: string): string[] {
+  const rest = indexes.filter(i => i.key !== keep).sort((a, b) => b.at - a.at)
+  return rest.slice(MAX_PR_INDEXES - 1).reverse().map(i => i.key)
+}
+
+// Delete the indexes past the cap after `key` was written. Best effort: a refused read or delete leaves the rest for the next fetch.
+async function prune(io: PrIo, key: string) {
+  try {
+    const others = (await io.keys()).filter(k => k.startsWith(PR_INDEX_PREFIX) && k !== key)
+    if (others.length < MAX_PR_INDEXES) return
+    const ats = await Promise.all(others.map(async k => ({ key: k, at: Number((await io.load(k) as { at?: unknown } | undefined)?.at) || 0 })))
+    for (const k of stalePrIndexes(ats, key)) await io.drop(k)
+  } catch { /* store refused: tried again on the next fetch */ }
+}
+
 /** In-load memory: the last good index, the session's branch, and the one read of the stored index (shared by every caller). */
 export type PrCache = { index?: PrIndex; branch?: string; load?: Promise<PrIndex | undefined> }
 
@@ -59,7 +85,8 @@ export function loadStored(io: Pick<PrIo, 'load'>, cache: PrCache, cwd: string):
 
 /**
  * Bring the cache up to date at `now`: the branch read every call; the index loaded once from the store, fetched again when older than
- * PR_INDEX_TTL. A failed or unusable fetch leaves the index (memory and store) as it was. Returns the view to draw from.
+ * PR_INDEX_TTL, then the other directories' indexes past MAX_PR_INDEXES deleted. A failed or unusable fetch leaves the index (memory and
+ * store) as it was. Returns the view to draw from.
  */
 export async function refreshIndex(io: PrIo, cache: PrCache, now: number, cwd: string): Promise<PrView> {
   const key = prIndexKey(cwd)
@@ -75,6 +102,7 @@ export async function refreshIndex(io: PrIo, cache: PrCache, now: number, cwd: s
       if (prs) {
         cache.index = { at: now, prs }
         await io.save(key, cache.index).catch(() => {})
+        await prune(io, key)
       }
     } catch { /* gh missing or timed out: the last index stands */ }
   }

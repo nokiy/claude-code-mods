@@ -1,5 +1,5 @@
 // The register-level harness of agent-monitor: the engine beneath the plugin answered from memory (session, settings, agent list,
-// conversation, and the file system and `tail` process through the fake fs of transcripts.ts), a store that counts its calls, plus mount helpers. The test kit has
+// conversation, and the file system through the fake fs of transcripts.ts), a store that counts its calls, plus mount helpers. The test kit has
 // no fs or process mock, so `wire` hooks those events on the test's `on`, as pr-hint's testkit does for `process.run`.
 import { mock, test } from 'claude-code/testing'
 
@@ -21,12 +21,12 @@ export type ListAgent = { id: string; type: string; status: string; description:
 
 /**
  * Mutable answers: the session id `$.session.id()` gives, what `$.agent.list()` lists, the branch `git rev-parse --abbrev-ref HEAD`
- * prints, what `gh pr list` prints (null: gh fails, exit 1), the usage and tool calls a model step answers with. `ghCalls` counts gh runs; `ghGate`, when
- * set, holds every gh answer until it resolves (a slow network). Reset by wire().
+ * prints, what `gh pr list` prints (null: gh fails, exit 1), the usage and tool calls a model step answers with. `lists` counts `$.agent.list()` calls; `ghCalls` counts gh runs; `ghGate`, when
+ * set, holds every gh answer until it resolves (a slow network). `procs`: the argv of every process run. Reset by wire().
  */
 export const st = {
-  session: 'cur', agents: [] as ListAgent[], branch: 'dev', gh: '[]' as string | null, ghCalls: 0, ghGate: null as Promise<unknown> | null,
-  usage: {} as Record<string, number>, toolUses: [] as ToolUse[],
+  session: 'cur', agents: [] as ListAgent[], lists: 0, branch: 'dev', gh: '[]' as string | null, ghCalls: 0, ghGate: null as Promise<unknown> | null,
+  usage: {} as Record<string, number>, toolUses: [] as ToolUse[], procs: [] as string[][],
 }
 
 /** One row of `gh pr list --json …` with every field the mod may ask for; `closes` go into the body as `Closes #N` lines. */
@@ -44,11 +44,11 @@ function ghAnswer(argv: readonly string[], text: string): string {
 
 /**
  * Answer every engine call agent-monitor makes, from memory: English UI, HOME, the session at ROOT, an empty conversation, `st`'s
- * session id and agent list, and the file system `fs` (`$.fs.list` / `$.fs.read`; `$.process.run(['tail', '-c', '+N', path])`).
- * Returns the fake fs, whose `tally` counts reads, tails and listings.
+ * session id and agent list, and the file system `fs` (`$.fs.list` / `$.fs.read`, whole or by byte range).
+ * Returns the fake fs, whose `tally` counts reads, ranges, listings and reads in flight.
  */
 export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
-  Object.assign(st, { session: 'cur', agents: [], branch: 'dev', gh: '[]', ghCalls: 0, ghGate: null, usage: {}, toolUses: [] })
+  Object.assign(st, { session: 'cur', agents: [], lists: 0, branch: 'dev', gh: '[]', ghCalls: 0, ghGate: null, usage: {}, toolUses: [], procs: [] })
   mock.env(on, { HOME })
   on('settings.read', async () => ({ value: {} }))
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
@@ -63,7 +63,7 @@ export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
   on('session.root', async () => ({ value: ROOT }))
   on('session.id', async () => ({ value: st.session }))
   on('session.messages', async () => ({ value: [] }) as never)
-  on('agent.list', async () => ({ value: st.agents }) as never)
+  on('agent.list', async () => (st.lists++, { value: st.agents }) as never)
   // The engine's own band draws nothing; a model step answers with `st.usage` and asks for `st.toolUses` (set by `step`).
   on('ui.render', { component: 'AbovePrompt' }, async () => ({ type: 'Box', props: {}, children: [] }) as never)
   on('turn.step', async function* (_$, e) {
@@ -71,18 +71,24 @@ export function wire(on: On, fs: FakeFs = fakeFs()): FakeFs {
   })
   on('turn.complete', async (_$, e) => ({ text: e.answer }))
   on('fs.list', async (_$, e) => ({ value: fs.list(e.path) }))
-  on('fs.read', async (_$, e) => ({ value: fs.read(e.path) }))
+  on('fs.read', async (_$, e) => {
+    const t = fs.tally
+    t.peak = Math.max(t.peak, ++t.inFlight)
+    try {
+      if (fs.gate) await fs.gate
+      return { value: fs.read(e.path, e.offset === undefined && e.length === undefined ? undefined : { offset: e.offset ?? 0, length: e.length ?? Infinity }) }
+    } finally { t.inFlight-- }
+  })
   on('process.run', async (_$, e) => {
-    const [cmd, , from, path] = e.argv
+    const [cmd] = e.argv
+    st.procs.push([...e.argv])
     if (cmd === 'git' && e.argv.join(' ') === 'git rev-parse --abbrev-ref HEAD') return { value: { exitCode: 0, stdout: `${st.branch}\n`, stderr: '', ...done } }
     if (cmd === 'gh') {
       st.ghCalls++
       if (st.ghGate) await st.ghGate
       return { value: st.gh === null ? { exitCode: 1, stdout: '', stderr: 'HTTP 502', ...done } : { exitCode: 0, stdout: ghAnswer(e.argv, st.gh), stderr: '', ...done } }
     }
-    if (cmd !== 'tail' || !path || !from) return { value: { exitCode: 1, stdout: '', stderr: 'unexpected command', ...done } }
-    const out = fs.tail(path, Number(from.slice(1)) - 1)
-    return { value: { exitCode: 0, stdout: out.text, stderr: '', ...done, isStdoutTruncated: out.truncated } }
+    return { value: { exitCode: 1, stdout: '', stderr: 'unexpected command', ...done } }
   })
   return fs
 }

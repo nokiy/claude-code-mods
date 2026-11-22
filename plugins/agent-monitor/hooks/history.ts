@@ -12,24 +12,26 @@ import type { Rollup } from './transcript'
 
 /** One directory entry, as `$.fs.list` gives it. */
 export type Listing = { name: string; kind: string; size: number; mtimeMs: number }
-/** The file access a scan needs; `tail` is the bytes from `from` on (truncated: more remain). */
+/**
+ * The file access a scan needs. `read`: the whole file (a meta file), or with `range` the text of those bytes, at most CHUNK of them
+ * (a character the range cuts reads as U+FFFD at that edge).
+ */
 export type TxIo = {
   list: (dir: string) => Promise<readonly Listing[]>
-  read: (path: string) => Promise<string>
-  tail: (path: string, from: number) => Promise<{ text: string; truncated: boolean }>
+  read: (path: string, range?: { offset: number; length: number }) => Promise<string>
 }
 /** The meta file beside a transcript (`agent-<id>.meta.json`); it has no model. */
 export type TxMeta = { agentType?: string; description?: string }
 /**
  * What is kept per transcript file in memory: never the transcript itself. `skip`: the read position is inside a line longer than one
- * process read, dropped through its newline.
+ * read, dropped through its newline.
  */
 export type TxEntry = { size: number; mtimeMs: number; offset: number; roll: Rollup; meta?: TxMeta; skip?: boolean }
 
-/** `$.fs.read` takes files up to 4 MiB; a larger one is read from its position on through a process. */
-export const MAX_WHOLE = 4 * 1024 * 1024
-/** At most this many process reads per file per refresh (each up to 4 MiB of output). */
-const MAX_TAILS = 8
+/** Bytes per ranged read: the most one `$.fs.read` answers. */
+export const CHUNK = 4 * 1024 * 1024
+/** At most this many ranged reads per file per refresh; a file not caught up by then is read on in the next. */
+export const MAX_READS = 8
 const FILE = /^agent-(.+)\.jsonl$/
 
 /** Where Claude Code keeps a project's transcripts: the root with every character but a letter or digit turned into `-`. */
@@ -42,43 +44,43 @@ async function readMeta(io: TxIo, path: string): Promise<TxMeta | undefined> {
   } catch { return undefined }
 }
 
-// Bring one file's entry up to date. Unchanged size and time: nothing is read. Up to 4 MiB: read whole and rolled up afresh. Larger:
-// read from the stored position on, the rollup continued (a file that shrank starts over). Returns whether the entry changed.
+// How far a full read with no newline moves the position: its text without the U+FFFD a cut last character reads as (that character is
+// read again next time), or the whole range when nothing else is left.
+const pastCut = (text: string, length: number) => utf8Bytes(text.replace(/\uFFFD+$/, '')) || length
+
+// While `skip` (the position is inside a line longer than one read), the text through its newline is dropped: the bytes dropped, the
+// rest, and whether the line goes on past this text.
+function dropLong(text: string, skip: boolean): { used: number; rest: string; skip: boolean } {
+  const nl = skip ? text.indexOf('\n') : -1
+  return nl < 0 ? { used: 0, rest: text, skip } : { used: utf8Bytes(text.slice(0, nl + 1)), rest: text.slice(nl + 1), skip: false }
+}
+
+// Bring one file's entry up to date by ranged reads from its stored position (a file now shorter starts over), at most MAX_READS per
+// refresh. A position only ever moves to a line end or to just before a cut character, so every read starts on a character. Returns
+// whether the entry changed.
 async function refreshFile(io: TxIo, path: string, f: Listing, cache: Map<string, TxEntry>): Promise<boolean> {
   const e = cache.get(path)
   if (e && e.size === f.size && e.mtimeMs === f.mtimeMs) return false
-  let roll: Rollup
-  let offset: number
-  let caught = true
-  let skip = false
-  if (f.size <= MAX_WHOLE) ({ roll, bytes: offset } = feed(emptyRollup(), await io.read(path)))
-  else {
-    const resume = e && e.offset <= f.size
-    roll = resume ? e.roll : emptyRollup()
-    offset = resume ? e.offset : 0
-    skip = resume ? e.skip === true : false
-    for (let i = 0; i < MAX_TAILS; i++) {
-      const chunk = await io.tail(path, offset)
-      let text = chunk.text
-      if (skip) { // inside a line longer than one read: drop it through its newline
-        const nl = text.indexOf('\n')
-        const cut = nl < 0 ? text : text.slice(0, nl + 1)
-        offset += utf8Bytes(cut)
-        text = text.slice(cut.length)
-        skip = nl < 0
-      }
-      const step = feed(roll, text)
-      roll = step.roll
-      offset += step.bytes
-      caught = !chunk.truncated
-      // A whole cut read with no newline: one line longer than a read, never parsed whole. Step over it rather than read it again.
-      if (!caught && step.bytes === 0 && text === chunk.text) {
-        offset += utf8Bytes(text)
-        skip = true
-      }
-      if (caught || chunk.text === '') break
+  const resume = e !== undefined && e.offset <= f.size
+  let roll = resume ? e.roll : emptyRollup()
+  let offset = resume ? e.offset : 0
+  let skip = resume && e.skip === true
+  let caught = false
+  for (let i = 0; i < MAX_READS && offset < f.size; i++) {
+    const length = Math.min(CHUNK, f.size - offset)
+    const { used: dropped, rest, skip: inLong } = dropLong(await io.read(path, { offset, length }), skip)
+    const step = feed(roll, rest)
+    roll = step.roll
+    skip = inLong
+    let used = dropped + step.bytes
+    if (used === 0) {
+      if (length < CHUNK || rest === '') { caught = true; break } // a partial last line: caught up
+      used = pastCut(rest, length) // one line longer than a read, never parsed whole: stepped over, not read again
+      skip = true
     }
+    offset += used
   }
+  caught ||= offset >= f.size
   // Not caught up: no size, so the next refresh reads on.
   const next: TxEntry = { size: caught ? f.size : -1, mtimeMs: f.mtimeMs, offset, roll, meta: e?.meta ?? (await readMeta(io, path)), ...(skip ? { skip } : {}) }
   cache.set(path, next)

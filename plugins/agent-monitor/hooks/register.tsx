@@ -102,19 +102,24 @@ function seedHistory($: EngineInterface, project: string): Promise<boolean> {
   if (!seed) txSeeds.set(project, (seed = (async () => seedCache(txCache, project, await $.store.get(indexKey(project))))().catch(() => false)))
   return seed
 }
-// A full scan already under way is joined, not run twice (session.start's background backfill and a quick /sub, say).
-let fullScan: Promise<void> | undefined
+// One scan at a time. A request while one is under way joins it, save a full one while a current-session scan runs: that waits for it,
+// then runs (and later requests join it). So the 1 s tick, session.start's background backfill and a quick /sub never read the same bytes twice.
+let scan: { full: boolean; done: Promise<void> } | undefined
 function readHistory($: EngineInterface, current = false): Promise<void> {
-  if (current) return scanHistory($, true)
-  return (fullScan ??= scanHistory($, false).finally(() => { fullScan = undefined }))
+  if (scan && (current || scan.full)) return scan.done
+  const before = scan?.done
+  const mine = { full: !current, done: (async () => { await before; await scanHistory($, current) })() }
+  scan = mine
+  const clear = () => { if (scan === mine) scan = undefined }
+  void mine.done.then(clear, clear)
+  return mine.done
 }
 async function scanHistory($: EngineInterface, current: boolean) {
   try {
     const project = await projectOf($)
     const first = !txSeeds.has(project)
     const seeded = (await seedHistory($, project)) && first
-    const tail = async (path: string, from: number) => ((r) => ({ text: r.stdout, truncated: r.isStdoutTruncated }))(await $.process.run(['tail', '-c', `+${from + 1}`, path]))
-    const io = { list: (p: string) => $.fs.list(p), read: (p: string) => $.fs.read(p), tail }
+    const io = { list: (p: string) => $.fs.list(p), read: (p: string, r?: { offset: number; length: number }) => (r ? $.fs.read(p, r) : $.fs.read(p)) }
     const changed = await refreshProject(io, project, txCache, current ? await $.session.id() : undefined)
     txDirty ||= changed
     if (!current && txDirty) {
@@ -151,7 +156,10 @@ async function dropPerFileKeys($: EngineInterface) {
 
 const prCache: PrCache = {} // the PR index (prindex.ts: `gh pr list` on an interval, last good kept in the store) and the session's branch, for the PR mode
 let prView: PrView = { prs: [] }
-const prIo = ($: EngineInterface) => ({ run: (a: string[]) => $.process.run(a), load: (k: string) => $.store.get(k), save: (k: string, v: PrIndex) => $.store.set(k, v) })
+const prIo = ($: EngineInterface) => ({
+  run: (a: string[]) => $.process.run(a), load: (k: string) => $.store.get(k), save: (k: string, v: PrIndex) => $.store.set(k, v),
+  keys: () => $.store.keys(), drop: (k: string) => $.store.delete(k),
+})
 // One refresh at a time: a second caller joins the one in flight (gh is run once).
 let prRefresh: Promise<void> | undefined
 function refreshPrs($: EngineInterface): Promise<void> {
@@ -204,7 +212,7 @@ async function fromConversation($: EngineInterface) {
   } catch { /* the conversation is not readable now: the live records still stand */ }
 }
 
-// One tick a second while an agent runs; one toast per agent per conflict / stall (`warned:<agentId>:<kind>` in the store, `told` its memory in this load).
+// One toast per agent per conflict / stall (`warned:<agentId>:<kind>` in the store, `told` its memory in this load).
 const told = new Set<string>()
 async function warn($: EngineInterface, board: Board) {
   for (const d of cfg.toasts ? dueToasts(alertLines(board.views, board.cwd, t), told) : []) {
@@ -223,15 +231,24 @@ function stopTimer() {
   timer = undefined
 }
 
+// One tick a second while an agent runs. `$.clock.every` does not wait for a tick, and a tick slower than 1 s (a large transcript read)
+// must not stack on the one before it: a tick is skipped while another is in flight, unless that one started TICK_STALE_MS ago or more
+// (an awaited call that never settles must not silence the timer for good).
+const TICK_STALE_MS = 30_000
+let ticking: { at: number } | undefined
 function ensureTimer($: EngineInterface) {
   timer ??= $.clock.every(1000, async () => {
+    let mine: { at: number } | undefined
     try {
+      const now = await $.clock.now()
+      if (ticking && now - ticking.at < TICK_STALE_MS) return
+      ticking = mine = { at: now }
       await Promise.all([settleStale($), readHistory($, true)])
       const board = await loadBoard($)
       await Promise.all([warn($, board), publish($, board.views)])
       if (!board.views.some(v => v.status === 'running')) stopTimer()
       $.ui.invalidate('ui.render')
-    } catch { stopTimer() } // a later event starts a fresh timer
+    } catch { stopTimer() } finally { if (mine && ticking === mine) ticking = undefined } // a failed tick stops the timer: a later event starts a fresh one
   })
 }
 

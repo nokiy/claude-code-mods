@@ -88,26 +88,46 @@ export const agentFiles = (projectDir: string, a: FakeAgent): Record<string, str
   return { [p.jsonl]: agentTranscript(a), [p.meta]: agentMeta(a) }
 }
 
+/** The most bytes one `$.fs.read` answers. */
+export const MAX_READ = 4 * 1024 * 1024
+
 /**
- * A file system in memory: absolute path -> text, with an optional `size` that stands for a file too large to build (keep such a
- * file ASCII: `tail` slices by character). `mtime` bumps on every write. `tally` counts whole reads, `tail` calls and listings per path.
+ * A transcript past one read: `before` steps, a filler line whose 3-byte character straddles the 4 MiB mark, a line longer than 4 MiB
+ * (4-byte characters, the read that ends in it cutting one after its first byte), then `after` steps. The two long lines carry no timestamp, so a rollup of
+ * the whole text gets nothing from them.
+ */
+export function bigTranscript(a: FakeAgent, before: readonly FakeStep[], after: readonly FakeStep[]): string {
+  const head = jsonl([userLine(a), ...before.map(s => assistantLine(a, s, a.model))])
+  const pre = '{"type":"progress","data":"'
+  const pad = MAX_READ - utf8Bytes(head) - pre.length - 1 // the first 中 starts one byte before the mark
+  const filler = `${pre}${'a'.repeat(pad)}${'中'.repeat(10)}"}`
+  const long = `${pre}${'😀'.repeat(1_200_000)}"}`
+  return head + jsonl([filler, long, ...after.map(s => assistantLine(a, s, a.model))])
+}
+
+/** A file's bytes `[offset, offset + length)` read as UTF-8 text: a character cut at either edge reads as U+FFFD, as the engine's. */
+export type Range = { offset: number; length: number }
+
+/**
+ * A file system in memory: absolute path -> text, held as its UTF-8 bytes too. `mtime` bumps on every write. `tally` counts reads per
+ * path, every ranged read, listings, and the most reads in flight at once (`wire` holds each read on `gate` while it is set).
  */
 export function fakeFs(initial: Record<string, string> = {}) {
-  const files = new Map<string, { text: string; size?: number; mtimeMs: number }>()
+  const files = new Map<string, { text: string; bytes: Uint8Array; mtimeMs: number }>()
   let clock = 1_000
-  const tally = { reads: new Map<string, number>(), tails: [] as { path: string; from: number }[], lists: [] as string[] }
+  const enc = new TextEncoder()
+  const dec = new TextDecoder()
+  const tally = { reads: new Map<string, number>(), ranges: [] as ({ path: string } & Range)[], lists: [] as string[], inFlight: 0, peak: 0 }
   const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1)
-  const byteSize = (f: { text: string; size?: number }) => f.size ?? utf8Bytes(f.text)
   const fs = {
     files,
     tally,
-    write(path: string, text: string, size?: number) { files.set(path, { text, size, mtimeMs: ++clock }) },
-    append(path: string, text: string, grow?: number) {
-      const f = files.get(path)
-      files.set(path, { text: (f?.text ?? '') + text, size: f?.size === undefined ? undefined : f.size + (grow ?? text.length), mtimeMs: ++clock })
-    },
+    /** While set, every read through `wire` waits for it. */
+    gate: null as Promise<unknown> | null,
+    write(path: string, text: string) { files.set(path, { text, bytes: enc.encode(text), mtimeMs: ++clock }) },
+    append(path: string, text: string) { fs.write(path, (files.get(path)?.text ?? '') + text) },
     add(entries: Record<string, string>) { for (const [p, t] of Object.entries(entries)) fs.write(p, t) },
-    reset() { tally.reads.clear(); tally.tails.length = 0; tally.lists.length = 0 },
+    reset() { Object.assign(tally, { inFlight: 0, peak: 0 }); tally.reads.clear(); tally.ranges.length = 0; tally.lists.length = 0 },
     /** Entries directly under `dir` (files and the directories that lead to deeper files); rejects when nothing is there. */
     list(dir: string) {
       tally.lists.push(dir)
@@ -117,27 +137,23 @@ export function fakeFs(initial: Record<string, string> = {}) {
         if (!p.startsWith(pre)) continue
         const [name, ...deeper] = p.slice(pre.length).split('/')
         if (!name) continue
-        out.set(name, deeper.length ? { name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false } : { name, kind: 'file', size: byteSize(f), mtimeMs: f.mtimeMs, isLink: false })
+        out.set(name, deeper.length ? { name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false } : { name, kind: 'file', size: f.bytes.length, mtimeMs: f.mtimeMs, isLink: false })
       }
       if (out.size === 0) throw new Error(`ENOENT: ${dir}`)
       return [...out.values()]
     },
-    read(path: string) {
+    /** `$.fs.read`: the whole text (refused past 4 MiB), or the text of a byte range (its length at most 4 MiB). */
+    read(path: string, range?: Range) {
       bump(tally.reads, path)
       const f = files.get(path)
       if (!f) throw new Error(`ENOENT: ${path}`)
-      if (byteSize(f) > 4 * 1024 * 1024) throw new Error(`too large: ${path}`)
-      return f.text
-    },
-    /** The most a process read returns, in characters; past it the output is cut and `truncated` (the engine's stdout cap). */
-    tailCap: Infinity,
-    /** `tail -c +<from+1>`: the bytes from `from` on (characters: ASCII files only), at most `tailCap` of them. */
-    tail(path: string, from: number): { text: string; truncated: boolean } {
-      tally.tails.push({ path, from })
-      const f = files.get(path)
-      if (!f) throw new Error(`ENOENT: ${path}`)
-      const rest = f.text.slice(from)
-      return { text: rest.slice(0, fs.tailCap), truncated: rest.length > fs.tailCap }
+      if (!range) {
+        if (f.bytes.length > MAX_READ) throw new Error(`too large: ${path}`)
+        return f.text
+      }
+      tally.ranges.push({ path, ...range })
+      if (range.length > MAX_READ) throw new Error(`range over 4 MiB: ${path}`)
+      return dec.decode(f.bytes.subarray(range.offset, range.offset + range.length))
     },
   }
   fs.add(initial)
