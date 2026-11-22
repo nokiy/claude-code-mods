@@ -18,8 +18,9 @@ export type PrIndex = { at: number; prs: PrEntry[] }
 export type PrView = { prs: PrEntry[]; branch?: string }
 
 /** The store is the plugin's, shared by every session in every repository: each session directory keeps its own index. */
-export const prIndexKey = (cwd: string) => `prIndex:${cwd}`
-/** At most this many directories keep a stored index; past it the least recently fetched go (the current one stays). */
+export const PR_INDEX_PREFIX = 'prIndex:'
+export const prIndexKey = (cwd: string) => `${PR_INDEX_PREFIX}${cwd}`
+/** At most this many directories keep a stored index: the store is one file shared by every repository. */
 export const MAX_PR_INDEXES = 20
 /** A stored index younger than this is not fetched again. */
 export const PR_INDEX_TTL = 5 * 60 * 1000
@@ -66,7 +67,7 @@ export function stalePrIndexes(indexes: readonly { key: string; at: number }[], 
 // Delete the indexes past the cap after `key` was written. Best effort: a refused read or delete leaves the rest for the next fetch.
 async function prune(io: PrIo, key: string) {
   try {
-    const others = (await io.keys()).filter(k => k.startsWith('prIndex:') && k !== key)
+    const others = (await io.keys()).filter(k => k.startsWith(PR_INDEX_PREFIX) && k !== key)
     if (others.length < MAX_PR_INDEXES) return
     const ats = await Promise.all(others.map(async k => ({ key: k, at: Number((await io.load(k) as { at?: unknown } | undefined)?.at) || 0 })))
     for (const k of stalePrIndexes(ats, key)) await io.drop(k)
