@@ -181,7 +181,7 @@ test('history: op.high that ran sonnet at low effort reads sonnet.low with `!` a
   const same = { sessionId: 'old', agentId: 'o3', type: 'worker', desc: 'op.high · check the build', model: 'claude-opus-5-5' }
   const fs = fakeFs({ ...agentFiles(PROJECT, low), ...agentFiles(PROJECT, bare), ...agentFiles(PROJECT, same) })
   const cache = new Map<string, TxEntry>()
-  await refreshProject({ list: async d => fs.list(d), read: async p => fs.read(p), tail: async (p, from) => fs.tail(p, from) }, PROJECT, cache)
+  await refreshProject({ list: async d => fs.list(d), read: async (p, r) => fs.read(p, r) }, PROJECT, cache)
   const old = JSON.parse(JSON.stringify(toIndex(cache, PROJECT, 1))) as { v?: number; files: Record<string, TxEntry> }
   delete old.v
   for (const e of Object.values(old.files)) delete e.roll.effort

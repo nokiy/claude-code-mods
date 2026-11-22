@@ -1,18 +1,18 @@
 import { test, expect } from 'claude-code/testing'
 
-import { MAX_INDEX_BYTES, MAX_PROJECTS, MAX_WHOLE, historyRecs, projectDir, refreshProject, seedCache, staleIndexes, toIndex, withHistory } from '../../hooks/history'
+import { MAX_INDEX_BYTES, MAX_PROJECTS, MAX_READS, historyRecs, projectDir, refreshProject, seedCache, staleIndexes, toIndex, withHistory } from '../../hooks/history'
 import type { TxEntry, TxIo } from '../../hooks/history'
 import { MAX_FILES } from '../../hooks/alerts'
-import { agentFiles, agentPaths, assistantLine, fakeFs, jsonl } from '../transcripts'
+import { emptyRollup, feed } from '../../hooks/transcript'
+import { MAX_READ, agentFiles, agentMeta, agentPaths, assistantLine, bigTranscript, fakeFs, jsonl, userLine } from '../transcripts'
 import type { FakeFs } from '../transcripts'
 
 const PROJECT = '/home/u/.claude/projects/-work-repo'
 
-// The TxIo the register module builds from `$.fs` and `$.process`, here over the fake file system.
+// The TxIo the register module builds from `$.fs`, here over the fake file system.
 const ioOf = (fs: FakeFs): TxIo => ({
   list: async dir => fs.list(dir),
-  read: async path => fs.read(path),
-  tail: async (path, from) => fs.tail(path, from),
+  read: async (path, range) => fs.read(path, range),
 })
 
 test('projectDir: every character but a letter or digit becomes a dash', () => {
@@ -30,39 +30,79 @@ test('refresh: a small file is read whole once; an unchanged file is not read ag
   fs.reset()
   expect(await refreshProject(ioOf(fs), PROJECT, cache)).toBe(false)
   expect(fs.tally.reads.size).toBe(0)
-  expect(fs.tally.tails).toHaveLength(0)
 })
 
-test('refresh: a file over 4 MiB is read from its byte position on; appended lines count once', async () => {
+test('refresh: any file resumes from its byte position: only appended bytes are read, a partial last line waits for its newline', async () => {
   const a = { sessionId: 's1', agentId: 'big', steps: [{ id: 'm1', usage: { input_tokens: 10, output_tokens: 1 } }] }
-  const fs = fakeFs()
+  const fs = fakeFs(agentFiles(PROJECT, a))
   const p = agentPaths(PROJECT, a)
-  const files = agentFiles(PROJECT, a)
-  fs.write(p.meta, files[p.meta]!)
-  fs.write(p.jsonl, files[p.jsonl]!, MAX_WHOLE + 1)
   const cache = new Map<string, TxEntry>()
   await refreshProject(ioOf(fs), PROJECT, cache)
-  expect(fs.tally.reads.get(p.jsonl)).toBeUndefined()
-  expect(fs.tally.tails).toEqual([{ path: p.jsonl, from: 0 }])
-  const first = files[p.jsonl]!.length
-  fs.append(p.jsonl, jsonl([assistantLine(a, { id: 'm2', usage: { input_tokens: 20, output_tokens: 2 } })]))
+  const first = fs.files.get(p.jsonl)!.bytes.length
+  expect(fs.tally.ranges).toEqual([{ path: p.jsonl, offset: 0, length: first }])
+  const m2 = jsonl([assistantLine(a, { id: 'm2', usage: { input_tokens: 20, output_tokens: 2 } })])
+  fs.append(p.jsonl, m2)
   fs.reset()
   await refreshProject(ioOf(fs), PROJECT, cache)
-  expect(fs.tally.tails).toEqual([{ path: p.jsonl, from: first }])
+  expect(fs.tally.ranges).toEqual([{ path: p.jsonl, offset: first, length: m2.length }])
   expect(historyRecs(cache).big?.steps).toBe(2)
   expect(historyRecs(cache).big?.spent).toEqual({ input: 30, output: 3, cacheRead: 0, cacheWrite: 0 })
-  // A new load seeded from the stored index reads nothing, then resumes from the stored position.
+  // A new load seeded from the stored index reads nothing, then resumes from the stored position; a line not yet ended waits.
   const fresh = new Map<string, TxEntry>()
   seedCache(fresh, PROJECT, JSON.parse(JSON.stringify(toIndex(cache, PROJECT, 1))))
   fs.reset()
   await refreshProject(ioOf(fs), PROJECT, fresh)
-  expect(fs.tally.tails).toHaveLength(0)
-  const second = fs.files.get(p.jsonl)!.text.length
-  fs.append(p.jsonl, jsonl([assistantLine(a, { id: 'm3', usage: { input_tokens: 40, output_tokens: 4 } })]))
+  expect(fs.tally.ranges).toHaveLength(0)
+  const second = first + m2.length
+  const m3 = assistantLine(a, { id: 'm3', usage: { input_tokens: 40, output_tokens: 4 } })
+  fs.append(p.jsonl, m3)
   await refreshProject(ioOf(fs), PROJECT, fresh)
-  expect(fs.tally.tails).toEqual([{ path: p.jsonl, from: second }])
+  expect(historyRecs(fresh).big?.steps).toBe(2)
+  fs.append(p.jsonl, '\n')
+  fs.reset()
+  await refreshProject(ioOf(fs), PROJECT, fresh)
+  expect(fs.tally.ranges).toEqual([{ path: p.jsonl, offset: second, length: m3.length + 1 }])
   expect(historyRecs(fresh).big?.steps).toBe(3)
   expect(historyRecs(fresh).big?.spent).toEqual({ input: 70, output: 7, cacheRead: 0, cacheWrite: 0 })
+})
+
+const steps = (n: number, from = 0) => Array.from({ length: n }, (_, i) => ({ id: `m${from + i}`, usage: { input_tokens: 10, output_tokens: 1 } }))
+
+test('refresh: a file past 4 MiB is read by ranges of at most 4 MiB; a cut character and a line over 4 MiB leave the rollup a whole read gives', async () => {
+  const a = { sessionId: 's1', agentId: 'b1' }
+  const p = agentPaths(PROJECT, a)
+  const text = bigTranscript(a, steps(3), steps(3, 3))
+  const fs = fakeFs({ [p.meta]: agentMeta(a) })
+  fs.write(p.jsonl, text)
+  const cache = new Map<string, TxEntry>()
+  await refreshProject(ioOf(fs), PROJECT, cache)
+  const ranges = fs.tally.ranges
+  expect(ranges.length).toBeGreaterThan(2)
+  expect(ranges.every(r => r.length <= MAX_READ)).toBe(true)
+  expect(fs.tally.reads.get(p.jsonl)).toBe(ranges.length)
+  const e = cache.get(p.jsonl)!
+  expect(e.offset).toBe(fs.files.get(p.jsonl)!.bytes.length)
+  expect(e.roll).toEqual(feed(emptyRollup(), text).roll)
+  expect(historyRecs(cache).b1?.steps).toBe(6)
+})
+
+test('refresh: a file longer than MAX_READS ranges is read on in the next refresh', async () => {
+  const a = { sessionId: 's1', agentId: 'h1' }
+  const p = agentPaths(PROJECT, a)
+  const pad = JSON.stringify({ type: 'progress', data: 'a'.repeat(1024 * 1024) })
+  const fs = fakeFs({ [p.meta]: agentMeta(a) })
+  fs.write(p.jsonl, jsonl([userLine(a), ...Array.from({ length: MAX_READS * 4 + 2 }, () => pad), ...steps(2).map(s => assistantLine(a, s))]))
+  const cache = new Map<string, TxEntry>()
+  await refreshProject(ioOf(fs), PROJECT, cache)
+  expect(fs.tally.ranges).toHaveLength(MAX_READS)
+  expect(cache.get(p.jsonl)?.size).toBe(-1) // not caught up
+  expect(historyRecs(cache).h1?.steps).toBe(0)
+  fs.reset()
+  await refreshProject(ioOf(fs), PROJECT, cache)
+  expect(historyRecs(cache).h1?.steps).toBe(2)
+  fs.reset()
+  expect(await refreshProject(ioOf(fs), PROJECT, cache)).toBe(false)
+  expect(fs.tally.ranges).toHaveLength(0)
 })
 
 const HOOK = 'PreToolUse:Bash hook error: rm -rf is blocked'

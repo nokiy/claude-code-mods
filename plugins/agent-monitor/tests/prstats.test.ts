@@ -138,7 +138,7 @@ test('the group row shows the same time as the published value: wall time, not t
 async function stored(agents: readonly (typeof A1 | typeof A2 | typeof A3)[] = [A1, A2, A3], prAt = NOW) {
   const fs = fakeFs(Object.assign({}, ...agents.map(a => agentFiles(PROJECT, a))) as Record<string, string>)
   const cache = new Map<string, TxEntry>()
-  await refreshProject({ list: async d => fs.list(d), read: async p => fs.read(p), tail: async (p, from) => fs.tail(p, from) }, PROJECT, cache)
+  await refreshProject({ list: async d => fs.list(d), read: async (p, r) => fs.read(p, r) }, PROJECT, cache)
   return { [indexKey(PROJECT)]: toIndex(cache, PROJECT, NOW), [prIndexKey(ROOT)]: { at: prAt, prs: parsePrList(JSON.stringify(PRS)) } }
 }
 
